@@ -27,25 +27,72 @@ public class kpiServices {
 	@Autowired
 	private SessionService sessionService;
 
+	@Autowired
+	private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+	// TODO change table name departments as it does not exist in the database
+	private Integer resolveKpiId(String kpiCode) {
+		if (kpiCode == null || kpiCode.isEmpty())
+			return null;
+		try {
+			return jdbcTemplate.queryForObject(
+					"SELECT kpi_id FROM kpi_definitions WHERE kpi_code = ? AND (is_deleted = 0 OR is_deleted IS NULL)",
+					Integer.class, kpiCode.trim());
+		} catch (Exception e) {
+			System.err.println("Could not resolve kpi_id for code: " + kpiCode);
+		}
+		return null;
+	}
+
+	private Integer resolveDepartmentId(String name) {
+		if (name == null || name.trim().isEmpty())
+			return null;
+		try {
+			return jdbcTemplate.queryForObject(
+					"SELECT TOP 1 ID FROM TBL_ORG WHERE Name = ? AND (IsDeleted is null or IsDeleted='0')",
+					Integer.class, name.trim());
+		} catch (Exception e) {
+			try {
+				return jdbcTemplate.queryForObject(
+						"SELECT TOP 1 ID FROM TBL_ORG WHERE Name LIKE ? AND (IsDeleted is null or IsDeleted='0') ORDER BY ID ASC",
+						Integer.class, "%" + name.trim() + "%");
+			} catch (Exception ex) {
+				String lowerName = name.toLowerCase().trim();
+				if (lowerName.contains("khảo thí") || lowerName.contains("đbclgd") || lowerName.contains("đảm bảo chất lượng")
+						|| lowerName.contains("kt&dbclgd")) {
+					return 1;
+				} else if (lowerName.contains("đào tạo") || lowerName.contains("khoa") || lowerName.contains("viện")
+						|| lowerName.contains("cơ bản")) {
+					return 2;
+				} else if (lowerName.contains("ctsv") || lowerName.contains("sinh viên") || lowerName.contains("chính trị")) {
+					return 3;
+				} else if (lowerName.contains("văn phòng học viện") || lowerName.contains("vp học viện")) {
+					return 4;
+				}
+				return 4;
+			}
+		}
+	}
+
 	/**
 	 * GET /kpi/definitions - Get all KPI definitions
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "definitions": [
-	 *     {
-	 *       "kpi_id": 4,
-	 *       "kpi_code": "T1.01",
-	 *       "kpi_name": "Tỷ lệ sinh viên nhập học/ tuyển sinh theo kế hoạch",
-	 *       "category": "T – Đào tạo & Người học",
-	 *       "unit": "%",
-	 *       "formula": "Số SV nhập học thực tế/ chỉ tiêu tuyển sinh × 100%",
-	 *       "data_source": "P. Đào tạo",
-	 *       "frequency": "Năm học"
-	 *     }
-	 *   ]
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "definitions": [
+	 * {
+	 * "kpi_id": 4,
+	 * "kpi_code": "T1.01",
+	 * "kpi_name": "Tỷ lệ sinh viên nhập học/ tuyển sinh theo kế hoạch",
+	 * "category": "T – Đào tạo & Người học",
+	 * "unit": "%",
+	 * "formula": "Số SV nhập học thực tế/ chỉ tiêu tuyển sinh × 100%",
+	 * "data_source": "P. Đào tạo",
+	 * "frequency": "Năm học"
+	 * }
+	 * ]
 	 * }
 	 */
 	@GetMapping("/definitions")
@@ -71,16 +118,16 @@ public class kpiServices {
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "kpi_id": 4,
-	 *   "kpi_code": "T1.01",
-	 *   "kpi_name": "Tỷ lệ sinh viên nhập học/ tuyển sinh theo kế hoạch",
-	 *   "category": "T – Đào tạo & Người học",
-	 *   "unit": "%",
-	 *   "formula": "Số SV nhập học thực tế/ chỉ tiêu tuyển sinh × 100%",
-	 *   "data_source": "P. Đào tạo",
-	 *   "frequency": "Năm học"
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "kpi_id": 4,
+	 * "kpi_code": "T1.01",
+	 * "kpi_name": "Tỷ lệ sinh viên nhập học/ tuyển sinh theo kế hoạch",
+	 * "category": "T – Đào tạo & Người học",
+	 * "unit": "%",
+	 * "formula": "Số SV nhập học thực tế/ chỉ tiêu tuyển sinh × 100%",
+	 * "data_source": "P. Đào tạo",
+	 * "frequency": "Năm học"
 	 * }
 	 */
 	@GetMapping("/definitions/{kpiId}")
@@ -89,7 +136,7 @@ public class kpiServices {
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject definition = kpiExtend.getKpiDefinitionById(kpiId);
-			
+
 			if (definition.length() == 0) {
 				jout.put("code", 404);
 				jout.put("description", "KPI not found");
@@ -122,10 +169,10 @@ public class kpiServices {
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "category": "T – Đào tạo & Người học",
-	 *   "definitions": [...]
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "category": "T – Đào tạo & Người học",
+	 * "definitions": [...]
 	 * }
 	 */
 	@GetMapping("/definitions/by-category")
@@ -152,33 +199,33 @@ public class kpiServices {
 	 * 
 	 * Request JSON format:
 	 * {
-	 *   "code": "T1.11",
-	 *   "name": "Tỷ lệ sinh viên hài lòng về chương trình đào tạo",
-	 *   "category": "T – Đào tạo & Người học (Training)",
-	 *   "unit": "%",
-	 *   "formula": "SV hài lòng/ tổng SV khảo sát × 100%",
-	 *   "data_source": "Khảo sát trực tuyến",
-	 *   "frequency": "Năm học"
+	 * "code": "T1.11",
+	 * "name": "Tỷ lệ sinh viên hài lòng về chương trình đào tạo",
+	 * "category": "T – Đào tạo & Người học (Training)",
+	 * "unit": "%",
+	 * "formula": "SV hài lòng/ tổng SV khảo sát × 100%",
+	 * "data_source": "Khảo sát trực tuyến",
+	 * "frequency": "Năm học"
 	 * }
 	 * 
 	 * Response JSON format (Success):
 	 * {
-	 *   "code": 201,
-	 *   "description": "Thành công",
-	 *   "kpi_id": 65,
-	 *   "kpi_code": "T1.11"
+	 * "code": 201,
+	 * "description": "Thành công",
+	 * "kpi_id": 65,
+	 * "kpi_code": "T1.11"
 	 * }
 	 * 
 	 * Response JSON format (Conflict - code already exists):
 	 * {
-	 *   "code": 409,
-	 *   "description": "KPI code already exists"
+	 * "code": 409,
+	 * "description": "KPI code already exists"
 	 * }
 	 * 
 	 * Response JSON format (Bad Request - missing fields):
 	 * {
-	 *   "code": 400,
-	 *   "description": "KPI code is required"
+	 * "code": 400,
+	 * "description": "KPI code is required"
 	 * }
 	 */
 	@PostMapping("/add")
@@ -187,7 +234,7 @@ public class kpiServices {
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
-			
+
 			// Extract parameters
 			String code = jin.has("code") ? jin.getString("code").trim() : null;
 			String name = jin.has("name") ? jin.getString("name").trim() : null;
@@ -198,11 +245,12 @@ public class kpiServices {
 			String frequency = jin.has("cycle") ? jin.getString("cycle").trim() : null;
 
 			// Call service to add KPI definition
-			JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, formula, dataSource, frequency);
-			
+			JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, formula, dataSource,
+					frequency);
+
 			jout.put("code", addResult.getInt("code"));
 			jout.put("description", addResult.getString("description"));
-			
+
 			// Add kpi_id and kpi_code if present in response (on success)
 			if (addResult.has("kpi_id")) {
 				jout.put("kpi_id", addResult.getInt("kpi_id"));
@@ -230,21 +278,21 @@ public class kpiServices {
 	 * 
 	 * Response JSON format (Success):
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "kpi_id": 65
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "kpi_id": 65
 	 * }
 	 * 
 	 * Response JSON format (Not Found):
 	 * {
-	 *   "code": 404,
-	 *   "description": "KPI not found or already deleted"
+	 * "code": 404,
+	 * "description": "KPI not found or already deleted"
 	 * }
 	 * 
 	 * Response JSON format (Bad Request):
 	 * {
-	 *   "code": 400,
-	 *   "description": "KPI ID is required and must be greater than 0"
+	 * "code": 400,
+	 * "description": "KPI ID is required and must be greater than 0"
 	 * }
 	 */
 	@DeleteMapping("/{kpiId}")
@@ -254,10 +302,10 @@ public class kpiServices {
 		try {
 			// Call service to delete KPI definition
 			JSONObject deleteResult = kpiExtend.deleteKpiDefinition(kpiId);
-			
+
 			jout.put("code", deleteResult.getInt("code"));
 			jout.put("description", deleteResult.getString("description"));
-			
+
 			// Add kpi_id if present in response
 			if (deleteResult.has("kpi_id")) {
 				jout.put("kpi_id", deleteResult.getInt("kpi_id"));
@@ -270,17 +318,16 @@ public class kpiServices {
 		System.out.println("RES(deleteKpiDefinition):" + jout.toString());
 		return jout.toString();
 	}
-	
-	
+
 	@PostMapping("/edit")
 	public String editKpiDefinition(@RequestBody String sReq) {
 		System.out.println("-------editKpiDefinition:" + sReq);
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
-			
+
 			// Extract parameters
-			int kpiId = jin.has("kpi_id") ? jin.getInt("kpi_id") : 0; 
+			int kpiId = jin.has("kpi_id") ? jin.getInt("kpi_id") : 0;
 			String code = jin.has("code") ? jin.getString("code").trim() : null;
 			String name = jin.has("name") ? jin.getString("name").trim() : null;
 			String category = jin.has("category") ? jin.getString("category").trim() : null;
@@ -290,8 +337,9 @@ public class kpiServices {
 			String frequency = jin.has("frequency") ? jin.getString("frequency").trim() : null;
 
 			// Call service to add KPI definition
-			JSONObject editResult = kpiExtend.editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource, frequency);
-			
+			JSONObject editResult = kpiExtend.editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource,
+					frequency);
+
 			jout.put("code", editResult.getInt("code"));
 			jout.put("description", editResult.getString("description"));
 
@@ -306,23 +354,22 @@ public class kpiServices {
 		return jout.toString();
 	}
 
-
 	/**
 	 * POST /kpi/assign - Save a KPI assignment to database
 	 * 
 	 * Request JSON format:
 	 * {
-	 *   "session_id": "user_session_id",
-	 *   "kpi_id": 1,
-	 *   "department_id": 5,
-	 *   "role": "A"
+	 * "session_id": "user_session_id",
+	 * "kpi_id": 1,
+	 * "department_id": 5,
+	 * "role": "A"
 	 * }
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "assignment_id": 123
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "assignment_id": 123
 	 * }
 	 */
 	@PostMapping("/assign")
@@ -331,32 +378,58 @@ public class kpiServices {
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
-			
+
 			// Validate session
-			/*String session_id = jin.getString("session_id");
-			struct_session sst = sessionService.getSessionInfo(session_id);
-			if (sst == null) {
-				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
-			}*/
+			/*
+			 * String session_id = jin.getString("session_id");
+			 * struct_session sst = sessionService.getSessionInfo(session_id);
+			 * if (sst == null) {
+			 * return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" +
+			 * "\"}";
+			 * }
+			 */
 
 			// Extract parameters
 			JSONArray jsAssignments = jin.has("data") ? jin.getJSONArray("data") : null;
 			if (jsAssignments == null || jsAssignments.length() == 0) {
 				return "{\"code\":" + 400 + ", \"description\":\"" + "Dữ liệu phân công KPI không hợp lệ" + "\"}";
 			}
-			
-			for(int i = 0; i < jsAssignments.length(); i++) {
+
+			System.out.println("Received " + jsAssignments.length() + " assignments to save.");
+			System.out.println(jsAssignments.toString());
+			for (int i = 0; i < jsAssignments.length(); i++) {
 				JSONObject assignment = jsAssignments.getJSONObject(i);
-				Integer departmentId = assignment.getInt("department_id");
-				String role = assignment.has("role") ? assignment.getString("role") : "A"; //TODO: default role if not provided, or return error if role is required
-				
-				Integer kpiId = jin.has("kpi_id") ? jin.getInt("kpi_id") : null;
-				Integer assignedBy = 10000000;//TODO: get user ID from session info (sst.getUser_id())
-	
-				// Call service to save assignment
-				kpiExtend.saveAssignment(kpiId, departmentId, role, assignedBy);
+
+				System.out.println(assignment.toString());
+
+				Integer kpiId = null;
+				if (assignment.has("kpiCode")) {
+					kpiId = resolveKpiId(assignment.getString("kpiCode"));
+				}
+				if (kpiId == null && assignment.has("kpi_id")) {
+					kpiId = assignment.getInt("kpi_id");
+				}
+
+				Integer departmentId = null;
+				if (assignment.has("departmentName")) {
+					departmentId = resolveDepartmentId(assignment.getString("departmentName"));
+				}
+				if (departmentId == null && assignment.has("department_id")) {
+					departmentId = assignment.getInt("department_id");
+				}
+
+				String role = assignment.has("role") ? assignment.getString("role") : "A";
+				Integer assignedBy = 10000000;
+
+				if (kpiId != null) {
+					System.out.println("Saving/Deleting assignment: kpiId=" + kpiId + ", departmentId=" + departmentId
+							+ ", role=" + role + ", assignedBy=" + assignedBy);
+					kpiExtend.saveAssignment(kpiId, departmentId, role, assignedBy);
+				} else {
+					System.err.println("Skipping assignment due to unresolved KPI ID: kpiId=" + kpiId);
+				}
 			}
-			
+
 			jout.put("code", 200);
 			jout.put("description", "Thành công");
 		} catch (JSONException e) {
@@ -371,26 +444,27 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/assignments/{departmentId} - Get all KPI assignments for a department
+	 * GET /kpi/assignments/{departmentId} - Get all KPI assignments for a
+	 * department
 	 * 
 	 * Path Parameters:
 	 * - departmentId: The ID of the department/organization
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "department_id": 5,
-	 *   "assignments": [
-	 *     {
-	 *       "assignment_id": 1,
-	 *       "kpi_id": 4,
-	 *       "department_id": 5,
-	 *       "role": "A",
-	 *       "assigned_date": "2026-06-10T10:30:00",
-	 *       "assigned_by": 1
-	 *     }
-	 *   ]
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "department_id": 5,
+	 * "assignments": [
+	 * {
+	 * "assignment_id": 1,
+	 * "kpi_id": 4,
+	 * "department_id": 5,
+	 * "role": "A",
+	 * "assigned_date": "2026-06-10T10:30:00",
+	 * "assigned_by": 1
+	 * }
+	 * ]
 	 * }
 	 */
 	@GetMapping("/assignments/{departmentId}")
@@ -419,29 +493,30 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/assignments/{departmentId}/details - Get KPI assignments for a department with KPI details
+	 * GET /kpi/assignments/{departmentId}/details - Get KPI assignments for a
+	 * department with KPI details
 	 * 
 	 * Path Parameters:
 	 * - departmentId: The ID of the department/organization
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "department_id": 5,
-	 *   "assignments": [
-	 *     {
-	 *       "assignment_id": 1,
-	 *       "kpi_id": 4,
-	 *       "kpi_code": "T1.01",
-	 *       "kpi_name": "Tỷ lệ sinh viên nhập học",
-	 *       "category": "T – Đào tạo & Người học",
-	 *       "department_id": 5,
-	 *       "role": "A",
-	 *       "assigned_date": "2026-06-10T10:30:00",
-	 *       "assigned_by": 1
-	 *     }
-	 *   ]
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "department_id": 5,
+	 * "assignments": [
+	 * {
+	 * "assignment_id": 1,
+	 * "kpi_id": 4,
+	 * "kpi_code": "T1.01",
+	 * "kpi_name": "Tỷ lệ sinh viên nhập học",
+	 * "category": "T – Đào tạo & Người học",
+	 * "department_id": 5,
+	 * "role": "A",
+	 * "assigned_date": "2026-06-10T10:30:00",
+	 * "assigned_by": 1
+	 * }
+	 * ]
 	 * }
 	 */
 	@GetMapping("/assignments/{departmentId}/details")
@@ -470,48 +545,49 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/definitions/with-assignments - Get all KPIs with their assignments and data points.
+	 * GET /kpi/definitions/with-assignments - Get all KPIs with their assignments
+	 * and data points.
 	 * If a KPI has no assignments, it is marked as unassigned.
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "kpis": [
-	 *     {
-	 *       "kpi_id": 5,
-	 *       "kpi_code": "T1.02",
-	 *       "kpi_name": "Tỷ lệ duy trì sinh viên qua các năm học",
-	 *       "category": "T – Đào tạo & Người học",
-	 *       "unit": "%",
-	 *       "measurement": "...",
-	 *       "source": "...",
-	 *       "cycle": "...",
-	 *       "assignment_status": "assigned",
-	 *       "assignments": [
-	 *         {
-	 *           "assignment_id": 4,
-	 *           "department_id": 1,
-	 *           "role": "A",
-	 *           "assigned_date": "2026-06-10 11:25:46.337",
-	 *           "assigned_by": 10000000
-	 *         }
-	 *       ],
-	 *       "data_points": [
-	 *         {
-	 *           "data_id": 12,
-	 *           "period": "2025-2026",
-	 *           "target_value": 95.0,
-	 *           "actual_value": 94.2,
-	 *           "status": "Completed",
-	 *           "updated_at": "2026-06-10 12:00:00"
-	 *         }
-	 *       ]
-	 *     }
-	 *   ]
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "kpis": [
+	 * {
+	 * "kpi_id": 5,
+	 * "kpi_code": "T1.02",
+	 * "kpi_name": "Tỷ lệ duy trì sinh viên qua các năm học",
+	 * "category": "T – Đào tạo & Người học",
+	 * "unit": "%",
+	 * "measurement": "...",
+	 * "source": "...",
+	 * "cycle": "...",
+	 * "assignment_status": "assigned",
+	 * "assignments": [
+	 * {
+	 * "assignment_id": 4,
+	 * "department_id": 1,
+	 * "role": "A",
+	 * "assigned_date": "2026-06-10 11:25:46.337",
+	 * "assigned_by": 10000000
+	 * }
+	 * ],
+	 * "data_points": [
+	 * {
+	 * "data_id": 12,
+	 * "period": "2025-2026",
+	 * "target_value": 95.0,
+	 * "actual_value": 94.2,
+	 * "status": "Completed",
+	 * "updated_at": "2026-06-10 12:00:00"
+	 * }
+	 * ]
+	 * }
+	 * ]
 	 * }
 	 */
-	@GetMapping("/definitions/with-assignments")
+	@GetMapping({"/definitions/with-assignments", "/with-assignments"})
 	public String getKpiDefinitionsWithAssignments() {
 		System.out.println("-------getKpiDefinitionsWithAssignments");
 		JSONObject jout = new JSONObject();
@@ -526,6 +602,28 @@ public class kpiServices {
 			jout.put("description", "Server error: " + e.getMessage());
 		}
 		System.out.println("RES(getKpiDefinitionsWithAssignments):" + jout.toString());
+		return jout.toString();
+	}
+
+	@PostMapping("/update-weights")
+	public String updateKpiWeights(@RequestBody String sReq) {
+		System.out.println("-------updateKpiWeights:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+			JSONArray weightsArray = jin.getJSONArray("weights");
+			
+			JSONObject result = kpiExtend.updateKpiWeights(weightsArray);
+			jout.put("code", result.getInt("code"));
+			jout.put("description", result.getString("description"));
+		} catch (JSONException e) {
+			e.printStackTrace();
+			return "{\"code\": 400, \"description\": \"JSON error: Invalid payload format.\"}";
+		} catch (Exception e) {
+			e.printStackTrace();
+			return "{\"code\": 500, \"description\": \"Server error: " + e.getMessage() + "\"}";
+		}
+		System.out.println("RES(updateKpiWeights):" + jout.toString());
 		return jout.toString();
 	}
 }

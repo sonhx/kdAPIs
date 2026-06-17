@@ -35,15 +35,16 @@ public class kpiExtend {
 	public JSONObject saveAssignment(Integer kpiId, Integer departmentId, String role, Integer assignedBy) {
 		JSONObject response = new JSONObject();
 		try {
-			// Validate inputs
 			if (kpiId == null || kpiId <= 0) {
 				response.put("code", 400);
 				response.put("description", "KPI ID is required and must be greater than 0");
 				return response;
 			}
 			if (departmentId == null || departmentId <= 0) {
-				response.put("code", 400);
-				response.put("description", "Department ID is required and must be greater than 0");
+				String deleteSql = "DELETE FROM kpi_assignments WHERE kpi_id = ?";
+				jdbcTemplate.update(deleteSql, kpiId);
+				response.put("code", 200);
+				response.put("description", "Thành công (Đã xóa phân công)");
 				return response;
 			}
 			if (role == null || role.isEmpty()) {
@@ -57,23 +58,46 @@ public class kpiExtend {
 				return response;
 			}
 
-			// Insert into kpi_assignments table
-			String sql = "INSERT INTO kpi_assignments (kpi_id, department_id, role, assigned_date, assigned_by) "
-					+ "VALUES (?, ?, ?, GETDATE(), ?)";
-			
-			int rowsAffected = jdbcTemplate.update(sql, kpiId, departmentId, role, assignedBy);
-			
-			if (rowsAffected > 0) {
-				// Get the inserted assignment_id
-				String selectSql = "SELECT IDENT_CURRENT('kpi_assignments') as assignment_id";
-				Integer assignmentId = jdbcTemplate.queryForObject(selectSql, Integer.class);
+			// Check if KPI assignment already exists for the given kpiId
+			String checkSql = "SELECT COUNT(*) FROM kpi_assignments WHERE kpi_id = ?";
+			Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, kpiId);
+
+			if (count != null && count > 0) {
+				// Update existing assignment
+				String updateSql = "UPDATE kpi_assignments SET department_id = ?, role = ?, assigned_date = GETDATE(), assigned_by = ? WHERE kpi_id = ?";
+				int rowsAffected = jdbcTemplate.update(updateSql, departmentId, role, assignedBy, kpiId);
 				
-				response.put("code", 200);
-				response.put("description", "Thành công");
-				response.put("assignment_id", assignmentId);
+				if (rowsAffected > 0) {
+					// Get the assignment_id of the updated row
+					String selectSql = "SELECT TOP 1 assignment_id FROM kpi_assignments WHERE kpi_id = ? ORDER BY assignment_id DESC";
+					Integer assignmentId = jdbcTemplate.queryForObject(selectSql, Integer.class, kpiId);
+					
+					response.put("code", 200);
+					response.put("description", "Thành công");
+					response.put("assignment_id", assignmentId);
+				} else {
+					response.put("code", 500);
+					response.put("description", "Failed to update assignment");
+				}
 			} else {
-				response.put("code", 500);
-				response.put("description", "Failed to insert assignment");
+				// Insert into kpi_assignments table
+				String sql = "INSERT INTO kpi_assignments (kpi_id, department_id, role, assigned_date, assigned_by) "
+						+ "VALUES (?, ?, ?, GETDATE(), ?)";
+				
+				int rowsAffected = jdbcTemplate.update(sql, kpiId, departmentId, role, assignedBy);
+				
+				if (rowsAffected > 0) {
+					// Get the inserted assignment_id
+					String selectSql = "SELECT IDENT_CURRENT('kpi_assignments') as assignment_id";
+					Integer assignmentId = jdbcTemplate.queryForObject(selectSql, Integer.class);
+					
+					response.put("code", 200);
+					response.put("description", "Thành công");
+					response.put("assignment_id", assignmentId);
+				} else {
+					response.put("code", 500);
+					response.put("description", "Failed to insert assignment");
+				}
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -92,11 +116,12 @@ public class kpiExtend {
 		JSONArray jsaDefinitions = new JSONArray();
 		try {
 			// Query KPI definitions from database, excluding deleted KPIs
-			String sql = "SELECT kpi_id, kpi_code, name as kpi_name, " +
-					"category, unit, measurement, source, cycle " +
-					"FROM kpi_definitions " +
-					"WHERE (is_deleted = 0 OR is_deleted IS NULL) " +
-					"ORDER BY kpi_id ASC";
+			String sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, " +
+					"k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+					"FROM kpi_definitions k " +
+					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+					"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+					"ORDER BY k.kpi_id ASC";
 			
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
 			for (Map<String, Object> row : rows) {
@@ -109,6 +134,7 @@ public class kpiExtend {
 				joKpi.put("measurement", row.get("measurement"));
 				joKpi.put("source", row.get("source"));
 				joKpi.put("cycle", row.get("cycle"));
+				joKpi.put("weight", row.get("weight") != null ? ((Number) row.get("weight")).doubleValue() : 1.0);
 				jsaDefinitions.put(joKpi);
 			}
 		} catch (Exception e) {
@@ -126,10 +152,11 @@ public class kpiExtend {
 	public JSONObject getKpiDefinitionById(Integer kpiId) {
 		JSONObject joKpi = new JSONObject();
 		try {
-			String sql = "SELECT kpi_id, kpi_code, name as kpi_name, " +
-					"category, unit, measurement, source, cycle " +
-					"FROM kpi_definitions " +
-					"WHERE kpi_id = ? AND (is_deleted = 0 OR is_deleted IS NULL)";
+			String sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, " +
+					"k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+					"FROM kpi_definitions k " +
+					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+					"WHERE kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
 			
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId);
 			if (!rows.isEmpty()) {
@@ -142,6 +169,7 @@ public class kpiExtend {
 				joKpi.put("measurement", row.get("measurement"));
 				joKpi.put("source", row.get("source"));
 				joKpi.put("cycle", row.get("cycle"));
+				joKpi.put("weight", row.get("weight") != null ? ((Number) row.get("weight")).doubleValue() : 1.0);
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -158,11 +186,12 @@ public class kpiExtend {
 	public JSONArray getKpiDefinitionsByCategory(String category) {
 		JSONArray jsaDefinitions = new JSONArray();
 		try {
-			String sql = "SELECT kpi_id, kpi_code, name as kpi_name, " +
-					"category, unit, measurement, source, cycle " +
-					"FROM kpi_definitions " +
-					"WHERE category = ? AND (is_deleted = 0 OR is_deleted IS NULL) " +
-					"ORDER BY kpi_id ASC";
+			String sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, " +
+					"k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+					"FROM kpi_definitions k " +
+					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+					"WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+					"ORDER BY k.kpi_id ASC";
 			
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, category);
 			for (Map<String, Object> row : rows) {
@@ -175,6 +204,7 @@ public class kpiExtend {
 				joKpi.put("measurement", row.get("measurement"));
 				joKpi.put("source", row.get("source"));
 				joKpi.put("cycle", row.get("cycle"));
+				joKpi.put("weight", row.get("weight") != null ? ((Number) row.get("weight")).doubleValue() : 1.0);
 				jsaDefinitions.put(joKpi);
 			}
 		} catch (Exception e) {
@@ -547,10 +577,11 @@ public class kpiExtend {
 		JSONArray jsaResult = new JSONArray();
 		try {
 			// 1. Fetch all active KPI definitions
-			String kpiSql = "SELECT kpi_id, kpi_code, name as kpi_name, category, unit, measurement, source, cycle " +
-							"FROM kpi_definitions " +
-							"WHERE (is_deleted = 0 OR is_deleted IS NULL) " +
-							"ORDER BY kpi_id ASC";
+			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+							"FROM kpi_definitions k " +
+							"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+							"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+							"ORDER BY k.kpi_id ASC";
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql);
 
 			// 2. Fetch all KPI assignments
@@ -575,7 +606,7 @@ public class kpiExtend {
 			}
 
 			// 3. Fetch all KPI data points
-			String dpSql = "SELECT data_id, kpi_id, period, target_value, actual_value, status, updated_at " +
+			String dpSql = "SELECT data_id, kpi_id, period_id, actual_value, status_id, updated_at " +
 						   "FROM kpi_data_points";
 			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql);
 
@@ -586,10 +617,12 @@ public class kpiExtend {
 				if (kpiId != null) {
 					JSONObject joDp = new JSONObject();
 					joDp.put("data_id", row.get("data_id"));
-					joDp.put("period", row.get("period"));
-					joDp.put("target_value", row.get("target_value"));
+					joDp.put("period_id", row.get("period_id"));
+					joDp.put("period", row.get("period_id"));
+					joDp.put("target_value", JSONObject.NULL);
 					joDp.put("actual_value", row.get("actual_value"));
-					joDp.put("status", row.get("status"));
+					joDp.put("status_id", row.get("status_id"));
+					joDp.put("status", row.get("status_id"));
 					joDp.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
 
 					dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
@@ -608,6 +641,7 @@ public class kpiExtend {
 				joKpi.put("measurement", kpiRow.get("measurement"));
 				joKpi.put("source", kpiRow.get("source"));
 				joKpi.put("cycle", kpiRow.get("cycle"));
+				joKpi.put("weight", kpiRow.get("weight") != null ? ((Number) kpiRow.get("weight")).doubleValue() : 1.0);
 
 				List<JSONObject> assignments = assignmentsMap.get(kpiId);
 				if (assignments == null || assignments.isEmpty()) {
@@ -637,5 +671,51 @@ public class kpiExtend {
 			e.printStackTrace();
 		}
 		return jsaResult;
+	}
+
+	@Transactional
+	public JSONObject updateKpiWeights(JSONArray weightsArray) {
+		JSONObject response = new JSONObject();
+		try {
+			String getKpiInfo = "SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?";
+			String getVertexId = "SELECT vertex_id FROM vertices_def WHERE vertex_code = ?";
+			String checkExists = "SELECT COUNT(*) FROM vertex_members WHERE kpi_id = ?";
+			String updateSql = "UPDATE vertex_members SET weight = ? WHERE kpi_id = ?";
+			String insertSql = "INSERT INTO vertex_members (vertex_id, kpi_id, weight) VALUES (?, ?, ?)";
+			
+			for (int i = 0; i < weightsArray.length(); i++) {
+				JSONObject item = weightsArray.getJSONObject(i);
+				int kpiId = item.getInt("kpi_id");
+				double weight = item.getDouble("weight");
+				
+				// 1. Resolve vertex_code from kpi_code
+				String kpiCode = jdbcTemplate.queryForObject(getKpiInfo, String.class, kpiId);
+				if (kpiCode == null || kpiCode.isEmpty()) {
+					continue;
+				}
+				String vertexCode = kpiCode.substring(0, 1);
+				
+				// 2. Get vertex_id from vertices_def
+				Integer vertexId = jdbcTemplate.queryForObject(getVertexId, Integer.class, vertexCode);
+				if (vertexId == null) {
+					continue;
+				}
+				
+				// 3. Update or Insert
+				Integer exists = jdbcTemplate.queryForObject(checkExists, Integer.class, kpiId);
+				if (exists != null && exists > 0) {
+					jdbcTemplate.update(updateSql, weight, kpiId);
+				} else {
+					jdbcTemplate.update(insertSql, vertexId, kpiId, weight);
+				}
+			}
+			response.put("code", 200);
+			response.put("description", "Thành công");
+		} catch (Exception e) {
+			e.printStackTrace();
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
 	}
 }

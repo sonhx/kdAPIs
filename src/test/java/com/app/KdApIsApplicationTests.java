@@ -19,6 +19,12 @@ class KdApIsApplicationTests {
 	@Test
 	void testGetKpisWithAssignments() {
 		System.out.println("--- START TEST: testGetKpisWithAssignments ---");
+		
+		// Setup/Ensure KPI 5 is assigned to department 1 for testing
+		JSONObject saveResponse = kpiExtend.saveAssignment(5, 1, "A", 10000000);
+		assertNotNull(saveResponse);
+		assertEquals(200, saveResponse.optInt("code"));
+
 		JSONArray kpis = kpiExtend.getKpisWithAssignments();
 		assertNotNull(kpis);
 		assertTrue(kpis.length() > 0, "KPI list should not be empty");
@@ -64,5 +70,4 @@ class KdApIsApplicationTests {
 		}
 		System.out.println("--- END TEST: testGetKpisWithAssignments (SUCCESS) ---");
 	}
-
 }

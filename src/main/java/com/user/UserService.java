@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.crypto.bcrypt.BCrypt;
 
 import com.org.OrgExtend;
 import com.session.SessionService;
@@ -48,8 +49,14 @@ public class UserService {
 			loginname = jsologin.getString("user_name");
 			userpass = jsologin.getString("user_password");
 
-			String sql = "select * from dbo.tbl_user where email=? and (IsDeleted IS NULL or IsDeleted='0')";
+			String sql = "select u.*, o.ID as org_id, o.Name as org_name "
+					+ "from dbo.tbl_user u "
+					+ "left join dbo.tbl_org o on o.ID = u.OrgID and (o.IsDeleted IS NULL or o.IsDeleted='0') "
+					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, loginname);
+			
+			System.out.println("Found " + users.size() + " user(s) with email: " + loginname);
+			System.out.println(users.toString());
 
 			if (users.isEmpty()) {
 				jout.put("code", 710);
@@ -58,12 +65,21 @@ public class UserService {
 				return jout.toString();
 			}
 
+			// --------------check pw
 			Map<String, Object> user = users.get(0);
 			int user_id = (int) user.get("ID");
-			String local_password = (String) user.get("Password");
+			String local_hash = (String) user.get("Hash");
 
-			// --------------check pw
-			if (!userpass.equals(local_password)) {
+			boolean isPasswordCorrect = false;
+			if (local_hash != null && !local_hash.isEmpty()) {
+				try {
+					isPasswordCorrect = BCrypt.checkpw(userpass, local_hash);
+				} catch (Exception e) {
+					System.out.println("BCrypt check failed: " + e.getMessage());
+				}
+			}
+
+			if (!isPasswordCorrect) {
 				jout.put("code", 740);
 				jout.put("description", "Invalid password");
 				System.out.println("LOGIN error:" + "Invalid password");
@@ -84,23 +100,27 @@ public class UserService {
 				jout.put("lock_user", user.get("LockUser"));
 				jout.put("avatar", user.get("Avatar"));
 
-				int type = (int) user.get("type");
+				int type = (int) user.get("Type");
 				jout.put("type", type);
 
-				if (type == 0) {
-					JSONObject joOrg = orgExtend.memberOrg(user_id);
-					if (joOrg.length() == 0) {
+				if (type == 0) {//admin
+					//TODO: get org info of admin user
+				} else {
+					Object orgIdObj = user.get("org_id") != null ? user.get("org_id") : user.get("ORG_ID");
+					if (orgIdObj == null) {
 						return "{\"code\":" + 802 + ", \"description\":\"" + "Membership not found!" + "\"}";
 					}
 
-					jout.put("org_id", joOrg.getInt("org_id"));
-					jout.put("org_name", joOrg.getString("org_name"));
-					jout.put("org_type", joOrg.getInt("type"));
-				} else {
+					Object orgNameObj = user.get("org_name") != null ? user.get("org_name") : user.get("ORG_NAME");
+
+					jout.put("org_id", orgIdObj);
+					jout.put("org_name", orgNameObj != null ? orgNameObj : JSONObject.NULL);
+				}
+				/*else {
 					jout.put("org_id", -1);
 					jout.put("org_name", "Kiểm định ngoài");
-					jout.put("org_type", 0);
-				}
+					//jout.put("org_type", 0);
+				}*/
 
 				jout.put("code", 200);
 			} else {
@@ -248,19 +268,19 @@ public class UserService {
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jsonobjReq = new JSONObject(sReq);
-			String session_id = jsonobjReq.getString("session_id");
-			struct_session sst = sessionService.getSessionInfo(session_id);
+			String session_id 	= jsonobjReq.getString("session_id");
+			struct_session sst 	= sessionService.getSessionInfo(session_id);
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
-			String full_name = jsonobjReq.getString("full_name");
-			String email = jsonobjReq.getString("email");
-			String password = jsonobjReq.getString("password");
-			int type = jsonobjReq.getInt("type");
-			int org_id = type == 0 ? jsonobjReq.getInt("org_id") : -1;
-			String mobile = jsonobjReq.has("mobile") ? jsonobjReq.getString("mobile") : "";
+			String full_name 	= jsonobjReq.getString("full_name");
+			String email 		= jsonobjReq.getString("email");
+			String password 	= jsonobjReq.getString("password");
+			int type 			= jsonobjReq.getInt("type");
+			int org_id 			= type == 0 ? jsonobjReq.getInt("org_id") : -1;
+			String mobile 		= jsonobjReq.has("mobile") ? jsonobjReq.getString("mobile") : "";
 
-			int user_id = userExtend.RegisterUser(full_name, email, password, mobile, type);
+			int user_id 		= userExtend.RegisterUser(full_name, email, password, mobile, type);
 			System.out.println("user_id = " + user_id);
 			if (user_id == -1) {
 				return "{\"code\":" + 9999 + ", \"description\":\"" + "Error while registering user" + "\"}";
@@ -395,5 +415,7 @@ public class UserService {
 		System.out.println("RES(listAllUser):" + jout.toString());
 		return jout.toString();
 	}
+	
+	
 }
 
