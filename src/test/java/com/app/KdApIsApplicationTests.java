@@ -70,4 +70,39 @@ class KdApIsApplicationTests {
 		}
 		System.out.println("--- END TEST: testGetKpisWithAssignments (SUCCESS) ---");
 	}
+
+	@Autowired
+	private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+	@Test
+	void testGetVertexDataByCategory() {
+		System.out.println("--- START TEST: testGetVertexDataByCategory ---");
+		
+		// 1. Get a sample active category from the database
+		String category = jdbcTemplate.queryForObject(
+				"SELECT TOP 1 category FROM kpi_definitions WHERE (is_deleted = 0 OR is_deleted IS NULL) AND category IS NOT NULL", 
+				String.class);
+		
+		assertNotNull(category, "Database must have at least one active KPI category");
+		System.out.println("Testing category: " + category);
+		
+		// 2. Fetch vertex data for this category
+		JSONArray kpis = kpiExtend.getVertexDataByCategory(category);
+		assertNotNull(kpis, "Result should not be null");
+		System.out.println("Total KPIs retrieved for category: " + kpis.length());
+		
+		// 3. Verify elements
+		for (int i = 0; i < kpis.length(); i++) {
+			JSONObject kpi = kpis.getJSONObject(i);
+			assertEquals(category, kpi.getString("category"), "KPI category must match the requested category");
+			assertTrue(kpi.has("assignments"), "KPI must contain assignments");
+			assertTrue(kpi.has("data_points"), "KPI must contain data_points");
+			assertTrue(kpi.has("normalized_values"), "KPI must contain normalized_values");
+			
+			JSONArray normalizedValues = kpi.getJSONArray("normalized_values");
+			System.out.println("KPI Code: " + kpi.getString("kpi_code") + ", Normalized Values count: " + normalizedValues.length());
+		}
+		
+		System.out.println("--- END TEST: testGetVertexDataByCategory (SUCCESS) ---");
+	}
 }

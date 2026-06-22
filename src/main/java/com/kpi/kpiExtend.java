@@ -6,6 +6,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -606,7 +608,7 @@ public class kpiExtend {
 			}
 
 			// 3. Fetch all KPI data points
-			String dpSql = "SELECT data_id, kpi_id, period_id, actual_value, status_id, updated_at " +
+			String dpSql = "SELECT data_id, kpi_id, period_id, actual_value, status_id, updated_at, department_id, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at " +
 						   "FROM kpi_data_points";
 			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql);
 
@@ -624,6 +626,12 @@ public class kpiExtend {
 					joDp.put("status_id", row.get("status_id"));
 					joDp.put("status", row.get("status_id"));
 					joDp.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+					joDp.put("department_id", row.get("department_id") != null ? row.get("department_id") : JSONObject.NULL);
+					joDp.put("notes", row.get("notes") != null ? row.get("notes").toString() : JSONObject.NULL);
+					joDp.put("evidence_link", row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_size", row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_uploaded_at", row.get("evidence_file_uploaded_at") != null ? row.get("evidence_file_uploaded_at").toString() : JSONObject.NULL);
 
 					dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
 				}
@@ -664,6 +672,154 @@ public class kpiExtend {
 					}
 				}
 				joKpi.put("data_points", jsaDps);
+
+				jsaResult.put(joKpi);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return jsaResult;
+	}
+
+	/**
+	 * Get vertex data (KPI definitions, assignments, data points, and normalized values)
+	 * filtered by a specific category.
+	 * 
+	 * @param category the category to filter by
+	 * @return JSONArray of KPIs belonging to the category, with their associated assignments,
+	 *         data points, and normalized values.
+	 */
+	public JSONArray getVertexDataByCategory(String category) {
+		JSONArray jsaResult = new JSONArray();
+		try {
+			// 1. Fetch KPI definitions matching category
+			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+							"FROM kpi_definitions k " +
+							"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+							"WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+							"ORDER BY k.kpi_id ASC";
+			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql, category);
+
+			// 2. Fetch all KPI assignments
+			String assignSql = "SELECT assignment_id, kpi_id, department_id, role, assigned_date, assigned_by " +
+							   "FROM kpi_assignments";
+			List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql);
+
+			// Group assignments by kpi_id
+			java.util.Map<Integer, List<JSONObject>> assignmentsMap = new java.util.HashMap<>();
+			for (Map<String, Object> row : assignRows) {
+				Integer kpiId = (Integer) row.get("kpi_id");
+				if (kpiId != null) {
+					JSONObject joAssign = new JSONObject();
+					joAssign.put("assignment_id", row.get("assignment_id"));
+					joAssign.put("department_id", row.get("department_id"));
+					joAssign.put("role", row.get("role") != null ? row.get("role").toString().trim() : JSONObject.NULL);
+					joAssign.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
+					joAssign.put("assigned_by", row.get("assigned_by"));
+					
+					assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
+				}
+			}
+
+			// 3. Fetch all KPI data points
+			String dpSql = "SELECT data_id, kpi_id, period_id, actual_value, status_id, updated_at, department_id, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at " +
+						   "FROM kpi_data_points";
+			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql);
+
+			// Group data points by kpi_id
+			java.util.Map<Integer, List<JSONObject>> dpMap = new java.util.HashMap<>();
+			for (Map<String, Object> row : dpRows) {
+				Integer kpiId = (Integer) row.get("kpi_id");
+				if (kpiId != null) {
+					JSONObject joDp = new JSONObject();
+					joDp.put("data_id", row.get("data_id"));
+					joDp.put("period_id", row.get("period_id"));
+					joDp.put("period", row.get("period_id"));
+					joDp.put("target_value", JSONObject.NULL);
+					joDp.put("actual_value", row.get("actual_value"));
+					joDp.put("status_id", row.get("status_id"));
+					joDp.put("status", row.get("status_id"));
+					joDp.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+					joDp.put("department_id", row.get("department_id") != null ? row.get("department_id") : JSONObject.NULL);
+					joDp.put("notes", row.get("notes") != null ? row.get("notes").toString() : JSONObject.NULL);
+					joDp.put("evidence_link", row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_size", row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_uploaded_at", row.get("evidence_file_uploaded_at") != null ? row.get("evidence_file_uploaded_at").toString() : JSONObject.NULL);
+
+					dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
+				}
+			}
+
+			// 4. Fetch all KPI normalized values
+			String normSql = "SELECT id, vertex_id, kpi_id, normalized_value, weighted_value, calculation_date " +
+							 "FROM kpi_normalized_values";
+			List<Map<String, Object>> normRows = jdbcTemplate.queryForList(normSql);
+
+			// Group normalized values by kpi_id
+			java.util.Map<Integer, List<JSONObject>> normMap = new java.util.HashMap<>();
+			for (Map<String, Object> row : normRows) {
+				Integer kpiId = (Integer) row.get("kpi_id");
+				if (kpiId != null) {
+					JSONObject joNorm = new JSONObject();
+					joNorm.put("id", row.get("id") != null ? row.get("id") : row.get("ID"));
+					joNorm.put("vertex_id", row.get("vertex_id") != null ? row.get("vertex_id") : row.get("VERTEX_ID"));
+					joNorm.put("kpi_id", kpiId);
+					joNorm.put("normalized_value", row.get("normalized_value") != null ? ((Number) row.get("normalized_value")).doubleValue() : JSONObject.NULL);
+					joNorm.put("weighted_value", row.get("weighted_value") != null ? ((Number) row.get("weighted_value")).doubleValue() : JSONObject.NULL);
+					joNorm.put("calculation_date", row.get("calculation_date") != null ? row.get("calculation_date").toString() : JSONObject.NULL);
+
+					normMap.computeIfAbsent(kpiId, k -> new java.util.ArrayList<>()).add(joNorm);
+				}
+			}
+
+			// 5. Assemble final results
+			for (Map<String, Object> kpiRow : kpiRows) {
+				Integer kpiId = (Integer) kpiRow.get("kpi_id");
+				JSONObject joKpi = new JSONObject();
+				joKpi.put("kpi_id", kpiId);
+				joKpi.put("kpi_code", kpiRow.get("kpi_code"));
+				joKpi.put("kpi_name", kpiRow.get("kpi_name"));
+				joKpi.put("category", kpiRow.get("category"));
+				joKpi.put("unit", kpiRow.get("unit"));
+				joKpi.put("measurement", kpiRow.get("measurement"));
+				joKpi.put("source", kpiRow.get("source"));
+				joKpi.put("cycle", kpiRow.get("cycle"));
+				joKpi.put("weight", kpiRow.get("weight") != null ? ((Number) kpiRow.get("weight")).doubleValue() : 1.0);
+
+				// Assignments
+				List<JSONObject> assignments = assignmentsMap.get(kpiId);
+				if (assignments == null || assignments.isEmpty()) {
+					joKpi.put("assignment_status", "unassigned");
+					joKpi.put("assignments", new JSONArray());
+				} else {
+					joKpi.put("assignment_status", "assigned");
+					JSONArray jsaAssigns = new JSONArray();
+					for (JSONObject joAssign : assignments) {
+						jsaAssigns.put(joAssign);
+					}
+					joKpi.put("assignments", jsaAssigns);
+				}
+
+				// Data points
+				List<JSONObject> dataPoints = dpMap.get(kpiId);
+				JSONArray jsaDps = new JSONArray();
+				if (dataPoints != null) {
+					for (JSONObject joDp : dataPoints) {
+						jsaDps.put(joDp);
+					}
+				}
+				joKpi.put("data_points", jsaDps);
+
+				// Normalized values
+				List<JSONObject> normValues = normMap.get(kpiId);
+				JSONArray jsaNorms = new JSONArray();
+				if (normValues != null) {
+					for (JSONObject joNorm : normValues) {
+						jsaNorms.put(joNorm);
+					}
+				}
+				joKpi.put("normalized_values", jsaNorms);
 
 				jsaResult.put(joKpi);
 			}
@@ -717,5 +873,500 @@ public class kpiExtend {
 			response.put("description", "Database error: " + e.getMessage());
 		}
 		return response;
+	}
+
+	public JSONObject getDeadlinesConfig() {
+		JSONObject response = new JSONObject();
+		try {
+			// Ensure defaults exist
+			String countSql = "SELECT COUNT(*) FROM cycle_definitions";
+			Integer count = 0;
+			try {
+				count = jdbcTemplate.queryForObject(countSql, Integer.class);
+			} catch (Exception e) {
+				System.err.println("Error checking cycle_definitions: " + e.getMessage());
+			}
+			if (count == null || count == 0) {
+				try {
+					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('GLOBAL_DEFAULT', 1, 1, 12, 0, 5, 0, 'BUSINESS')");
+					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('monthly', 1, 1, 1, 0, 5, 0, 'CALENDAR')");
+					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('quarterly', 1, 1, 3, 0, 15, 0, 'CALENDAR')");
+					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('semester', 1, 1, 6, 0, 15, 0, 'CALENDAR')");
+					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('yearly', 1, 1, 12, 0, 30, 0, 'CALENDAR')");
+				} catch (Exception ex) {
+					ex.printStackTrace();
+				}
+			}
+
+			// 1. Fetch cycle defaults
+			JSONArray jsaCycleDefaults = new JSONArray();
+			JSONObject joGlobalDefault = null;
+
+			String sqlCycles = "SELECT cycle_id, cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type FROM cycle_definitions";
+			List<Map<String, Object>> cycleRows = jdbcTemplate.queryForList(sqlCycles);
+			for (Map<String, Object> row : cycleRows) {
+				JSONObject joCycle = new JSONObject();
+				joCycle.put("cycle_id", row.get("cycle_id"));
+				String cycleType = (String) row.get("cycle_type");
+				joCycle.put("cycle_type", cycleType);
+				joCycle.put("start_month", row.get("start_month"));
+				joCycle.put("start_day", row.get("start_day"));
+				joCycle.put("duration_months", row.get("duration_months"));
+				joCycle.put("duration_weeks", row.get("duration_weeks"));
+				joCycle.put("default_deadline_offset_days", row.get("default_deadline_offset_days"));
+				joCycle.put("default_deadline_offset_weeks", row.get("default_deadline_offset_weeks"));
+				joCycle.put("deadline_type", row.get("deadline_type"));
+
+				if ("GLOBAL_DEFAULT".equalsIgnoreCase(cycleType)) {
+					joGlobalDefault = joCycle;
+				} else {
+					jsaCycleDefaults.put(joCycle);
+				}
+			}
+
+			if (joGlobalDefault == null) {
+				joGlobalDefault = new JSONObject();
+				joGlobalDefault.put("cycle_type", "GLOBAL_DEFAULT");
+				joGlobalDefault.put("default_deadline_offset_days", 5);
+				joGlobalDefault.put("default_deadline_offset_weeks", 0);
+				joGlobalDefault.put("deadline_type", "BUSINESS");
+			}
+
+			response.put("globalDefault", joGlobalDefault);
+			response.put("cycleDefaults", jsaCycleDefaults);
+
+			// 2. Fetch KPIs and deadline settings
+			JSONArray jsaKpis = new JSONArray();
+			String sqlKpis = "SELECT k.kpi_id, k.kpi_code, k.name, k.category, k.cycle, k.cycle_id, " +
+							 "k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date " +
+							 "FROM kpi_definitions k " +
+							 "WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+							 "ORDER BY k.kpi_code ASC";
+			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(sqlKpis);
+			for (Map<String, Object> row : kpiRows) {
+				JSONObject joKpi = new JSONObject();
+				joKpi.put("kpi_id", row.get("kpi_id"));
+				joKpi.put("kpi_code", row.get("kpi_code"));
+				joKpi.put("kpi_name", row.get("name"));
+				joKpi.put("category", row.get("category"));
+				joKpi.put("cycle", row.get("cycle"));
+				joKpi.put("cycle_id", row.get("cycle_id") != null ? row.get("cycle_id") : JSONObject.NULL);
+				joKpi.put("override_deadline_offset_days", row.get("override_deadline_offset_days") != null ? row.get("override_deadline_offset_days") : JSONObject.NULL);
+				joKpi.put("override_deadline_offset_weeks", row.get("override_deadline_offset_weeks") != null ? row.get("override_deadline_offset_weeks") : JSONObject.NULL);
+				joKpi.put("override_absolute_deadline_date", row.get("override_absolute_deadline_date") != null ? row.get("override_absolute_deadline_date").toString() : JSONObject.NULL);
+				jsaKpis.put(joKpi);
+			}
+			response.put("kpis", jsaKpis);
+			response.put("code", 200);
+			response.put("description", "Thành công");
+		} catch (Exception e) {
+			e.printStackTrace();
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
+	}
+
+	@Transactional
+	public JSONObject saveCycleDefaults(JSONArray cycles) {
+		JSONObject response = new JSONObject();
+		try {
+			String updateSql = "UPDATE cycle_definitions SET default_deadline_offset_days = ?, default_deadline_offset_weeks = ?, deadline_type = ? WHERE cycle_type = ?";
+			String checkSql = "SELECT COUNT(*) FROM cycle_definitions WHERE cycle_type = ?";
+			String insertSql = "INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES (?, 1, 1, 1, 0, ?, ?, ?)";
+
+			for (int i = 0; i < cycles.length(); i++) {
+				JSONObject c = cycles.getJSONObject(i);
+				String cycleType = c.optString("cycle_type");
+				if (cycleType.isEmpty()) {
+					continue;
+				}
+				int offsetDays = c.optInt("default_deadline_offset_days", 0);
+				int offsetWeeks = c.optInt("default_deadline_offset_weeks", 0);
+				String deadlineType = c.optString("deadline_type", "CALENDAR");
+
+				Integer exists = jdbcTemplate.queryForObject(checkSql, Integer.class, cycleType);
+				if (exists != null && exists > 0) {
+					jdbcTemplate.update(updateSql, offsetDays, offsetWeeks, deadlineType, cycleType);
+				} else {
+					jdbcTemplate.update(insertSql, cycleType, offsetDays, offsetWeeks, deadlineType);
+				}
+			}
+			response.put("code", 200);
+			response.put("description", "Thành công");
+		} catch (Exception e) {
+			e.printStackTrace();
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
+	}
+
+	@Transactional
+	public JSONObject saveKpiDeadlineOverride(int kpiId, Boolean hasOverride, Integer offsetDays, Integer offsetWeeks, String absoluteDate) {
+		JSONObject response = new JSONObject();
+		try {
+			String sql = "UPDATE kpi_definitions SET override_deadline_offset_days = ?, override_deadline_offset_weeks = ?, override_absolute_deadline_date = ? WHERE kpi_id = ?";
+			
+			if (hasOverride == null || !hasOverride) {
+				jdbcTemplate.update(sql, null, null, null, kpiId);
+			} else {
+				java.sql.Date dateVal = null;
+				if (absoluteDate != null && !absoluteDate.trim().isEmpty()) {
+					try {
+						dateVal = java.sql.Date.valueOf(absoluteDate.trim());
+					} catch (Exception ex) {
+						System.err.println("Invalid date format: " + absoluteDate);
+					}
+				}
+				jdbcTemplate.update(sql, offsetDays, offsetWeeks, dateVal, kpiId);
+			}
+			response.put("code", 200);
+			response.put("description", "Thành công");
+		} catch (Exception e) {
+			e.printStackTrace();
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
+	}
+
+	public static class CalculatedPeriod {
+		public String code;
+		public java.sql.Date startDate;
+		public java.sql.Date endDate;
+	}
+
+	public Date calculateDeadline(Date endDate, int offsetDays, int offsetWeeks, String deadlineType) {
+		Calendar cal = Calendar.getInstance();
+		cal.setTime(endDate);
+		
+		if (offsetWeeks > 0) {
+			cal.add(Calendar.WEEK_OF_YEAR, offsetWeeks);
+		}
+		
+		boolean isBusiness = "BUSINESS".equalsIgnoreCase(deadlineType);
+		if (offsetDays > 0) {
+			int added = 0;
+			while (added < offsetDays) {
+				cal.add(Calendar.DAY_OF_YEAR, 1);
+				if (isBusiness) {
+					int dayOfWeek = cal.get(Calendar.DAY_OF_WEEK);
+					if (dayOfWeek != Calendar.SATURDAY && dayOfWeek != Calendar.SUNDAY) {
+						added++;
+					}
+				} else {
+					added++;
+				}
+			}
+		}
+		
+		cal.set(Calendar.HOUR_OF_DAY, 23);
+		cal.set(Calendar.MINUTE, 59);
+		cal.set(Calendar.SECOND, 59);
+		cal.set(Calendar.MILLISECOND, 999);
+		
+		return cal.getTime();
+	}
+
+	public CalculatedPeriod calculatePeriod(int cycleId, String cycleType, Date date) {
+		CalculatedPeriod cp = new CalculatedPeriod();
+		Calendar cal = Calendar.getInstance();
+		cal.setTime(date);
+		int year = cal.get(Calendar.YEAR);
+		int month = cal.get(Calendar.MONTH) + 1; // 1-indexed
+
+		if ("term".equalsIgnoreCase(cycleType)) {
+			if (month >= 8 || month == 1) {
+				int startYear = (month == 1) ? year - 1 : year;
+				cal.set(startYear, 7, 1, 0, 0, 0); // Aug 1
+				cp.startDate = new java.sql.Date(cal.getTimeInMillis());
+				cal.set(startYear + 1, 0, 31, 23, 59, 59); // Jan 31
+				cp.endDate = new java.sql.Date(cal.getTimeInMillis());
+				cp.code = startYear + "-HK1";
+			} else if (month >= 2 && month <= 5) {
+				cal.set(year, 1, 1, 0, 0, 0); // Feb 1
+				cp.startDate = new java.sql.Date(cal.getTimeInMillis());
+				cal.set(year, 5, 30, 23, 59, 59); // Jun 30
+				cp.endDate = new java.sql.Date(cal.getTimeInMillis());
+				cp.code = year + "-HK2";
+			} else { // month 6 and 7
+				cal.set(year, 5, 1, 0, 0, 0); // Jun 1
+				cp.startDate = new java.sql.Date(cal.getTimeInMillis());
+				cal.set(year, 7, 31, 23, 59, 59); // Aug 31
+				cp.endDate = new java.sql.Date(cal.getTimeInMillis());
+				cp.code = year + "-HK3";
+			}
+			return cp;
+		}
+
+		List<Map<String, Object>> cycleDefs = jdbcTemplate.queryForList(
+			"SELECT start_month, start_day, duration_months, duration_weeks FROM cycle_definitions WHERE cycle_id = ?", cycleId);
+		
+		int startMonth = 1;
+		int startDay = 1;
+		int durationMonths = 1;
+		int durationWeeks = 0;
+		if (!cycleDefs.isEmpty()) {
+			Map<String, Object> row = cycleDefs.get(0);
+			if (row.get("start_month") != null) startMonth = ((Number) row.get("start_month")).intValue();
+			if (row.get("start_day") != null) startDay = ((Number) row.get("start_day")).intValue();
+			if (row.get("duration_months") != null) durationMonths = ((Number) row.get("duration_months")).intValue();
+			if (row.get("duration_weeks") != null) durationWeeks = ((Number) row.get("duration_weeks")).intValue();
+		}
+
+		Calendar anchorCal = Calendar.getInstance();
+		anchorCal.setTime(date);
+		anchorCal.set(Calendar.HOUR_OF_DAY, 0);
+		anchorCal.set(Calendar.MINUTE, 0);
+		anchorCal.set(Calendar.SECOND, 0);
+		anchorCal.set(Calendar.MILLISECOND, 0);
+		
+		anchorCal.set(Calendar.YEAR, year);
+		anchorCal.set(Calendar.MONTH, startMonth - 1);
+		anchorCal.set(Calendar.DAY_OF_MONTH, startDay);
+		
+		int anchorYear = year;
+		if (date.before(anchorCal.getTime())) {
+			anchorYear = year - 1;
+			anchorCal.set(Calendar.YEAR, anchorYear);
+		}
+
+		Calendar periodStart = (Calendar) anchorCal.clone();
+		Calendar periodEnd = (Calendar) anchorCal.clone();
+		
+		if (durationWeeks > 0) {
+			while (true) {
+				periodEnd = (Calendar) periodStart.clone();
+				periodEnd.add(Calendar.WEEK_OF_YEAR, durationWeeks);
+				if (!date.before(periodStart.getTime()) && date.before(periodEnd.getTime())) {
+					break;
+				}
+				periodStart.add(Calendar.WEEK_OF_YEAR, durationWeeks);
+			}
+			periodEnd.add(Calendar.DAY_OF_YEAR, -1);
+			cp.startDate = new java.sql.Date(periodStart.getTimeInMillis());
+			cp.endDate = new java.sql.Date(periodEnd.getTimeInMillis());
+			cp.code = anchorYear + "-W" + periodStart.get(Calendar.WEEK_OF_YEAR);
+		} else {
+			if (durationMonths <= 0) durationMonths = 1;
+			while (true) {
+				periodEnd = (Calendar) periodStart.clone();
+				periodEnd.add(Calendar.MONTH, durationMonths);
+				if (!date.before(periodStart.getTime()) && date.before(periodEnd.getTime())) {
+					break;
+				}
+				periodStart.add(Calendar.MONTH, durationMonths);
+			}
+			periodEnd.add(Calendar.DAY_OF_YEAR, -1);
+			cp.startDate = new java.sql.Date(periodStart.getTimeInMillis());
+			cp.endDate = new java.sql.Date(periodEnd.getTimeInMillis());
+
+			if (durationMonths == 12) {
+				if (startMonth == 9) {
+					cp.code = anchorYear + "-" + (anchorYear + 1);
+				} else {
+					cp.code = String.valueOf(anchorYear);
+				}
+			} else if (durationMonths == 6) {
+				int sMonth = periodStart.get(Calendar.MONTH) + 1;
+				if (sMonth >= 9 || sMonth < 2) {
+					cp.code = anchorYear + "-S1";
+				} else {
+					cp.code = anchorYear + "-S2";
+				}
+			} else if (durationMonths == 3) {
+				int sMonth = periodStart.get(Calendar.MONTH) + 1;
+				int qIdx = 1;
+				if (sMonth >= 12 || sMonth < 3) qIdx = 2;
+				else if (sMonth >= 3 && sMonth < 6) qIdx = 3;
+				else if (sMonth >= 6 && sMonth < 9) qIdx = 4;
+				cp.code = anchorYear + "-Q" + qIdx;
+			} else if (durationMonths == 1) {
+				int pYear = periodStart.get(Calendar.YEAR);
+				int pMonth = periodStart.get(Calendar.MONTH) + 1;
+				cp.code = String.format("%d-%02d", pYear, pMonth);
+			} else {
+				cp.code = anchorYear + "-P" + (periodStart.get(Calendar.MONTH) / durationMonths + 1);
+			}
+		}
+
+		return cp;
+	}
+
+	public int getOrCreatePeriodInstance(int cycleId, String cycleType, Date date) {
+		String sql = "SELECT period_id FROM period_instances WHERE cycle_id = ? AND ? BETWEEN start_date AND end_date";
+		List<Integer> ids = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getInt("period_id"), cycleId, new java.sql.Date(date.getTime()));
+		if (!ids.isEmpty()) {
+			return ids.get(0);
+		}
+
+		CalculatedPeriod cp = calculatePeriod(cycleId, cycleType, date);
+
+		try {
+			String insertSql = "INSERT INTO period_instances (cycle_id, period_code, start_date, end_date) VALUES (?, ?, ?, ?)";
+			jdbcTemplate.update(insertSql, cycleId, cp.code, cp.startDate, cp.endDate);
+			
+			return jdbcTemplate.queryForObject("SELECT period_id FROM period_instances WHERE cycle_id = ? AND period_code = ? AND start_date = ?", 
+				Integer.class, cycleId, cp.code, cp.startDate);
+		} catch (Exception e) {
+			try {
+				return jdbcTemplate.queryForObject(sql, Integer.class, cycleId, new java.sql.Date(date.getTime()));
+			} catch (Exception ex) {
+				ex.printStackTrace();
+				throw new RuntimeException("Error getting/creating period instance: " + e.getMessage());
+			}
+		}
+	}
+
+	@Transactional
+	public JSONObject saveKpiValue(int kpiId, Integer deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
+		JSONObject response = new JSONObject();
+		try {
+			String kpiQuery = "SELECT k.cycle_id, c.cycle_type FROM kpi_definitions k JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
+			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiQuery, kpiId);
+			if (kpiRows.isEmpty()) {
+				response.put("code", 404);
+				response.put("description", "Không tìm thấy chỉ số KPI.");
+				return response;
+			}
+			int cycleId = ((Number) kpiRows.get(0).get("cycle_id")).intValue();
+			String cycleType = (String) kpiRows.get(0).get("cycle_type");
+
+			Date refDate = referenceDate != null ? referenceDate : new Date();
+			int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, refDate);
+			
+			List<Map<String, Object>> currPeriodInfo = jdbcTemplate.queryForList("SELECT start_date FROM period_instances WHERE period_id = ?", currPeriodId);
+			java.sql.Date currStartDate = (java.sql.Date) currPeriodInfo.get(0).get("start_date");
+			Calendar prevCal = Calendar.getInstance();
+			prevCal.setTime(currStartDate);
+			prevCal.add(Calendar.DAY_OF_YEAR, -1);
+			int prevPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, prevCal.getTime());
+
+			List<Map<String, Object>> prevPeriodInfo = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", prevPeriodId);
+			java.sql.Date prevEndDate = (java.sql.Date) prevPeriodInfo.get(0).get("end_date");
+			
+			List<Map<String, Object>> deadlineConfig = jdbcTemplate.queryForList(
+				"SELECT override_deadline_offset_days, override_deadline_offset_weeks, override_absolute_deadline_date, " +
+				"default_deadline_offset_days, default_deadline_offset_weeks, deadline_type " +
+				"FROM kpi_definitions k LEFT JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ?", kpiId);
+			
+			Date prevDeadline = null;
+			if (!deadlineConfig.isEmpty()) {
+				Map<String, Object> conf = deadlineConfig.get(0);
+				if (conf.get("override_absolute_deadline_date") != null) {
+					prevDeadline = (java.sql.Date) conf.get("override_absolute_deadline_date");
+				} else {
+					int offsetDays = conf.get("override_deadline_offset_days") != null ? ((Number) conf.get("override_deadline_offset_days")).intValue() : 
+						(conf.get("default_deadline_offset_days") != null ? ((Number) conf.get("default_deadline_offset_days")).intValue() : 0);
+					int offsetWeeks = conf.get("override_deadline_offset_weeks") != null ? ((Number) conf.get("override_deadline_offset_weeks")).intValue() : 
+						(conf.get("default_deadline_offset_weeks") != null ? ((Number) conf.get("default_deadline_offset_weeks")).intValue() : 0);
+					String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type") : "CALENDAR";
+					prevDeadline = calculateDeadline(prevEndDate, offsetDays, offsetWeeks, deadlineType);
+				}
+			}
+
+			int targetPeriodId;
+			boolean isLocked = false;
+			if (prevDeadline != null && !refDate.after(prevDeadline)) {
+				targetPeriodId = prevPeriodId;
+			} else {
+				targetPeriodId = currPeriodId;
+				
+				List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
+				java.sql.Date currEndDate = (java.sql.Date) currPeriodDetail.get(0).get("end_date");
+				Date currDeadline = null;
+				if (!deadlineConfig.isEmpty()) {
+					Map<String, Object> conf = deadlineConfig.get(0);
+					if (conf.get("override_absolute_deadline_date") != null) {
+						currDeadline = (java.sql.Date) conf.get("override_absolute_deadline_date");
+					} else {
+						int offsetDays = conf.get("override_deadline_offset_days") != null ? ((Number) conf.get("override_deadline_offset_days")).intValue() : 
+							(conf.get("default_deadline_offset_days") != null ? ((Number) conf.get("default_deadline_offset_days")).intValue() : 0);
+						int offsetWeeks = conf.get("override_deadline_offset_weeks") != null ? ((Number) conf.get("override_deadline_offset_weeks")).intValue() : 
+							(conf.get("default_deadline_offset_weeks") != null ? ((Number) conf.get("default_deadline_offset_weeks")).intValue() : 0);
+						String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type") : "CALENDAR";
+						currDeadline = calculateDeadline(currEndDate, offsetDays, offsetWeeks, deadlineType);
+					}
+				}
+				if (currDeadline != null && refDate.after(currDeadline)) {
+					isLocked = true;
+				}
+			}
+
+			if (targetPeriodId == prevPeriodId && prevDeadline != null && refDate.after(prevDeadline)) {
+				isLocked = true;
+			}
+
+			if (isLocked && !isAdmin) {
+				response.put("code", 403);
+				response.put("description", "Chu kỳ báo cáo đã kết thúc và hết hạn cập nhật. Số liệu đã bị khóa.");
+				return response;
+			}
+
+			String queryExist = "SELECT data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND (department_id = ? OR (department_id IS NULL AND ? IS NULL))";
+			List<Map<String, Object>> existList = jdbcTemplate.queryForList(queryExist, kpiId, targetPeriodId, deptId, deptId);
+			
+			int dataId;
+			String changeType;
+			if (!existList.isEmpty()) {
+				dataId = ((Number) existList.get(0).get("data_id")).intValue();
+				String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), updated_by = ?, notes = ?, evidence_link = ?, evidence_file_name = ?, evidence_file_size = ?, evidence_file_uploaded_at = ? WHERE data_id = ?";
+				jdbcTemplate.update(updateSql, actualValue, userId, notes, evidenceLink, fileName, fileSize, fileName != null && !fileName.isEmpty() ? new java.text.SimpleDateFormat("yyyy-MM-dd").format(new Date()) : null, dataId);
+				changeType = "UPDATE";
+			} else {
+				String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, updated_by, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at, department_id) VALUES (?, ?, ?, GETDATE(), 5, ?, ?, ?, ?, ?, ?, ?)";
+				jdbcTemplate.update(insertSql, kpiId, targetPeriodId, actualValue, userId, notes, evidenceLink, fileName, fileSize, fileName != null && !fileName.isEmpty() ? new java.text.SimpleDateFormat("yyyy-MM-dd").format(new Date()) : null, deptId);
+				
+				dataId = jdbcTemplate.queryForObject("SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND (department_id = ? OR (department_id IS NULL AND ? IS NULL)) ORDER BY data_id DESC", Integer.class, kpiId, targetPeriodId, deptId, deptId);
+				changeType = "CREATE";
+			}
+
+			int nextVersionNum = jdbcTemplate.queryForObject("SELECT ISNULL(MAX(version_number), 0) + 1 FROM kpi_value_versions WHERE data_id = ?", Integer.class, dataId);
+			String versionSql = "INSERT INTO kpi_value_versions (data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, updated_at, updated_by, change_type, version_number, department_id) VALUES (?, ?, ?, ?, ?, ?, GETDATE(), ?, ?, ?, ?)";
+			jdbcTemplate.update(versionSql, dataId, actualValue, notes, evidenceLink, fileName, fileSize, userId, changeType, nextVersionNum, deptId);
+
+			response.put("code", 200);
+			response.put("description", "Đã cập nhật số liệu KPI và lưu hồ sơ minh chứng thành công!");
+			response.put("data_id", dataId);
+			response.put("period_id", targetPeriodId);
+			response.put("version_number", nextVersionNum);
+		} catch (Exception e) {
+			e.printStackTrace();
+			response.put("code", 500);
+			response.put("description", "Lỗi cơ sở dữ liệu: " + e.getMessage());
+		}
+		return response;
+	}
+
+	public JSONArray getKpiValueHistory(int kpiId, Integer deptId) {
+		JSONArray jsa = new JSONArray();
+		try {
+			String sql = "SELECT v.version_id, v.data_id, v.actual_value, v.notes, v.evidence_link, v.evidence_file_name, v.evidence_file_size, v.updated_at, v.change_type, v.version_number, u.Fullname as updated_by_name " +
+						 "FROM kpi_value_versions v " +
+						 "JOIN kpi_data_points d ON v.data_id = d.data_id " +
+						 "LEFT JOIN tbl_user u ON v.updated_by = u.ID " +
+						 "WHERE d.kpi_id = ? AND (v.department_id = ? OR (v.department_id IS NULL AND ? IS NULL)) " +
+						 "ORDER BY v.version_number DESC";
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId, deptId, deptId);
+			for (Map<String, Object> row : rows) {
+				JSONObject jo = new JSONObject();
+				jo.put("version_id", row.get("version_id"));
+				jo.put("data_id", row.get("data_id"));
+				jo.put("actual_value", row.get("actual_value"));
+				jo.put("notes", row.get("notes") != null ? row.get("notes").toString() : JSONObject.NULL);
+				jo.put("evidence_link", row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
+				jo.put("evidence_file_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : JSONObject.NULL);
+				jo.put("evidence_file_size", row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString() : JSONObject.NULL);
+				jo.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+				jo.put("change_type", row.get("change_type"));
+				jo.put("version_number", row.get("version_number"));
+				jo.put("updated_by_name", row.get("updated_by_name") != null ? row.get("updated_by_name").toString() : "Hệ thống");
+				jsa.put(jo);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return jsa;
 	}
 }
