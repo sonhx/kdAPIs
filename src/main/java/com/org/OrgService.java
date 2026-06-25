@@ -98,7 +98,7 @@ public class OrgService {
             struct_session sst = sessionService.getSessionInfo(jin.getString("session_id"));
             if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
 
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList("select * from TBL_ORG where (IsDeleted is null or IsDeleted='0')");
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList("select ID, Code, Name, Description, ParentID, IsCsdt, OrderID from TBL_ORG where (IsDeleted is null or IsDeleted='0')");
             return new JSONObject().put("org_list", new JSONArray(rows)).put("code", 200).toString();
         } catch (Exception e) {
             return "{\"code\":801, \"description\":\"Error\"}";

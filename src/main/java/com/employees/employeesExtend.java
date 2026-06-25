@@ -1,4 +1,4 @@
-package com.kpi;
+package com.employees;
 
 import java.util.List;
 import java.util.Map;
@@ -20,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.db.dbconnect;
 
 @Service
-public class kpiExtend {
+public class employeesExtend {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
@@ -596,8 +596,8 @@ public class kpiExtend {
 			java.util.Date refDate = new java.util.Date();
 
 			// 2. Fetch all KPI assignments
-			String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.dept_name as department_name " +
-							   "FROM kpi_assignments a LEFT JOIN departments o ON a.department_id = o.dept_id";
+			String assignSql = "SELECT assignment_id, kpi_id, department_id, role, assigned_date, assigned_by " +
+							   "FROM kpi_assignments";
 			List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql);
 
 			// Group assignments by kpi_id
@@ -608,7 +608,6 @@ public class kpiExtend {
 					JSONObject joAssign = new JSONObject();
 					joAssign.put("assignment_id", row.get("assignment_id"));
 					joAssign.put("department_id", row.get("department_id"));
-					joAssign.put("department_name", row.get("department_name") != null ? row.get("department_name").toString() : JSONObject.NULL);
 					joAssign.put("role", row.get("role") != null ? row.get("role").toString().trim() : JSONObject.NULL);
 					joAssign.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
 					joAssign.put("assigned_by", row.get("assigned_by"));

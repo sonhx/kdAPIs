@@ -321,6 +321,48 @@ public class UserService {
 		return jout.toString();
 	}
 
+	@PostMapping("/updaterole")
+	public String UpdateUserRole(@RequestBody String sReq) {
+		System.out.println("UpdateUserRole:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jsonobjReq = new JSONObject(sReq);
+			String session_id = jsonobjReq.getString("session_id");
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null)
+				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
+
+			// Check admin rights (Type 1: Admin, Type 2: System Admin)
+			String adminCheckSql = "SELECT Type FROM TBL_USER WHERE ID=?";
+			Integer adminType = null;
+			try {
+				adminType = jdbcTemplate.queryForObject(adminCheckSql, Integer.class, sst.UserID);
+			} catch (Exception e) {
+				// User not found or error
+			}
+			
+			if (adminType == null || (adminType != 1 && adminType != 2)) {
+				return "{\"code\":" + 403 + ", \"description\":\"" + "Bạn không có quyền thực hiện tác vụ này" + "\"}";
+			}
+
+			int target_user_id = jsonobjReq.getInt("user_id");
+			int new_type = jsonobjReq.getInt("type");
+
+			jdbcTemplate.update("UPDATE dbo.tbl_user SET Type = ? WHERE ID = ?", new_type, target_user_id);
+
+			jout.put("code", 200);
+			jout.put("description", "Thành công");
+		} catch (JSONException e) {
+			e.printStackTrace();
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON parse error" + "\"}";
+		} catch (Exception e) {
+			e.printStackTrace();
+			return "{\"code\":" + 500 + ", \"description\":\"" + "Lỗi máy chủ: " + e.getMessage() + "\"}";
+		}
+		System.out.println("RES(UpdateUserRole):" + jout.toString());
+		return jout.toString();
+	}
+
 	@PostMapping("/deactivate")
 	public String DeactivateUser(@RequestBody String sReq) {
 		System.out.println("DeactivateUser:" + sReq);
@@ -385,7 +427,8 @@ public class UserService {
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
 
 			for (Map<String, Object> row : rows) {
-				int type = (int) row.get("Type");
+				Object typeVal = row.get("Type");
+				int type = typeVal != null ? ((Number) typeVal).intValue() : 4;
 				JSONObject obj = new JSONObject();
 				obj.put("id", row.get("ID"));
 				obj.put("full_name", row.get("Fullname"));
@@ -400,9 +443,10 @@ public class UserService {
 				else if (type == 3) obj.put("type_name", "Giám sát");
 				else obj.put("type_name", "Unknown(" + type + ")");
 
-				int orgId = (int) row.get("OrgID");
+				Object orgIdVal = row.get("OrgID");
+				int orgId = orgIdVal != null ? ((Number) orgIdVal).intValue() : -1;
 				obj.put("org_id", orgId);
-				obj.put("org_name", userExtend.fn_org_name(orgId));
+				obj.put("org_name", orgId != -1 ? userExtend.fn_org_name(orgId) : "N/A");
 				jaout.put(obj);
 			}
 
@@ -416,6 +460,89 @@ public class UserService {
 		return jout.toString();
 	}
 	
+	@PostMapping("/adduser")
+	public String AddUser(@RequestBody String sReq) {
+		System.out.println("AddUser:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jsonobjReq = new JSONObject(sReq);
+			String session_id = jsonobjReq.getString("session_id");
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null)
+				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
+
+			// check admin right (Type 1: Admin, Type 2: System Admin)
+			String adminCheckSql = "SELECT Type FROM TBL_USER WHERE ID=?";
+			Integer adminType = null;
+			try {
+				adminType = jdbcTemplate.queryForObject(adminCheckSql, Integer.class, sst.UserID);
+			} catch (Exception e) {
+				// User not found or error
+			}
+			
+			if (adminType == null || (adminType != 1 && adminType != 2)) {
+				return "{\"code\":" + 403 + ", \"description\":\"" + "Bạn không có quyền thêm user" + "\"}";
+			}
+
+			String email = jsonobjReq.getString("email");
+
+			// Check if user already exists
+			String checkUserSql = "SELECT COUNT(*) FROM TBL_USER WHERE Email = ? AND (IsDeleted IS NULL OR IsDeleted='0')";
+			Integer existingCount = jdbcTemplate.queryForObject(checkUserSql, Integer.class, email);
+			if (existingCount != null && existingCount > 0) {
+				return "{\"code\":" + 409 + ", \"description\":\"" + "Người dùng với email này đã tồn tại" + "\"}";
+			}
+
+			// Query employee and department
+			String sql = "SELECT TOP 1 e.uName as full_name, d.dept_id " +
+					"FROM employees e " +
+					"LEFT JOIN departments d ON e.uUnit = d.dept_name " +
+					"WHERE e.uEmail = ?";
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, email);
+
+			if (rows.isEmpty()) {
+				return "{\"code\":" + 404 + ", \"description\":\"" + "Không tìm thấy nhân viên với email này" + "\"}";
+			}
+
+			Map<String, Object> empRow = rows.get(0);
+			String fullName = (String) empRow.get("full_name");
+			Integer deptId = (Integer) empRow.get("dept_id");
+			int org_id = (deptId != null) ? deptId : -1;
+
+			// Register User
+			String defaultPassword = "123456";
+			int defaultType = 4;
+			String mobile = "";
+
+			int user_id = userExtend.RegisterUser(fullName, email, defaultPassword, mobile, defaultType);
+			if (user_id == -1) {
+				return "{\"code\":" + 9999 + ", \"description\":\"" + "Lỗi khi đăng ký người dùng" + "\"}";
+			}
+			
+			// Map user to department in TBL_USER and org_member
+			if (org_id != -1) {
+				try {
+					jdbcTemplate.update("UPDATE TBL_USER SET OrgID = ? WHERE ID = ?", org_id, user_id);
+				} catch (Exception e) {
+					System.err.println("Warning: Could not update OrgID in TBL_USER: " + e.getMessage());
+				}
+				if (orgExtend.addMember(user_id, org_id) < 0) {
+					System.err.println("Warning: Could not add member to org " + org_id);
+				}
+			}
+
+			jout.put("code", 200);
+			jout.put("description", "Thành công");
+		} catch (JSONException e) {
+			e.printStackTrace();
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON parse error" + "\"}";
+		} catch (Exception e) {
+			e.printStackTrace();
+			return "{\"code\":" + 500 + ", \"description\":\"" + "Lỗi máy chủ: " + e.getMessage() + "\"}";
+		}
+		System.out.println("RES(AddUser):" + jout.toString());
+		return jout.toString();
+	}
 	
 }
 

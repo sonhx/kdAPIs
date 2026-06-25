@@ -64,13 +64,15 @@ public class kpiServices {
 						Integer.class, "%" + name.trim() + "%");
 			} catch (Exception ex) {
 				String lowerName = name.toLowerCase().trim();
-				if (lowerName.contains("khảo thí") || lowerName.contains("đbclgd") || lowerName.contains("đảm bảo chất lượng")
+				if (lowerName.contains("khảo thí") || lowerName.contains("đbclgd")
+						|| lowerName.contains("đảm bảo chất lượng")
 						|| lowerName.contains("kt&dbclgd")) {
 					return 1;
 				} else if (lowerName.contains("đào tạo") || lowerName.contains("khoa") || lowerName.contains("viện")
 						|| lowerName.contains("cơ bản")) {
 					return 2;
-				} else if (lowerName.contains("ctsv") || lowerName.contains("sinh viên") || lowerName.contains("chính trị")) {
+				} else if (lowerName.contains("ctsv") || lowerName.contains("sinh viên")
+						|| lowerName.contains("chính trị")) {
 					return 3;
 				} else if (lowerName.contains("văn phòng học viện") || lowerName.contains("vp học viện")) {
 					return 4;
@@ -201,15 +203,16 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/vertex-data/by-category - Get vertex data (KPI definitions, assignments,
+	 * GET /kpi/vertex-data/by-category - Get vertex data (KPI definitions,
+	 * assignments,
 	 * data points, and normalized values) filtered by a specific category.
 	 * 
 	 * Response JSON format:
 	 * {
-	 *   "code": 200,
-	 *   "description": "Thành công",
-	 *   "category": "T – Đào tạo & Người học (Training)",
-	 *   "kpis": [...]
+	 * "code": 200,
+	 * "description": "Thành công",
+	 * "category": "T – Đào tạo & Người học (Training)",
+	 * "kpis": [...]
 	 * }
 	 */
 	@GetMapping("/vertex-data/by-category")
@@ -230,7 +233,6 @@ public class kpiServices {
 		System.out.println("RES(getVertexDataByCategory):" + jout.toString());
 		return jout.toString();
 	}
-
 
 	/**
 	 * POST /kpi/definition/add - Add a new KPI definition
@@ -625,7 +627,7 @@ public class kpiServices {
 	 * ]
 	 * }
 	 */
-	@GetMapping({"/definitions/with-assignments", "/with-assignments"})
+	@GetMapping({ "/definitions/with-assignments", "/with-assignments" })
 	public String getKpiDefinitionsWithAssignments() {
 		System.out.println("-------getKpiDefinitionsWithAssignments");
 		JSONObject jout = new JSONObject();
@@ -650,7 +652,7 @@ public class kpiServices {
 		try {
 			JSONObject jin = new JSONObject(sReq);
 			JSONArray weightsArray = jin.getJSONArray("weights");
-			
+
 			JSONObject result = kpiExtend.updateKpiWeights(weightsArray);
 			jout.put("code", result.getInt("code"));
 			jout.put("description", result.getString("description"));
@@ -702,11 +704,16 @@ public class kpiServices {
 			JSONObject jin = new JSONObject(sReq);
 			int kpiId = jin.getInt("kpi_id");
 			Boolean hasOverride = jin.getBoolean("has_override");
-			Integer offsetDays = jin.has("override_deadline_offset_days") && !jin.isNull("override_deadline_offset_days") ? jin.getInt("override_deadline_offset_days") : 0;
-			Integer offsetWeeks = jin.has("override_deadline_offset_weeks") && !jin.isNull("override_deadline_offset_weeks") ? jin.getInt("override_deadline_offset_weeks") : 0;
-			String absoluteDate = jin.has("override_absolute_deadline_date") && !jin.isNull("override_absolute_deadline_date") ? jin.getString("override_absolute_deadline_date") : null;
+			Integer offsetDays = jin.has("override_deadline_offset_days")
+					&& !jin.isNull("override_deadline_offset_days") ? jin.getInt("override_deadline_offset_days") : 0;
+			Integer offsetWeeks = jin.has("override_deadline_offset_weeks")
+					&& !jin.isNull("override_deadline_offset_weeks") ? jin.getInt("override_deadline_offset_weeks") : 0;
+			String absoluteDate = jin.has("override_absolute_deadline_date")
+					&& !jin.isNull("override_absolute_deadline_date") ? jin.getString("override_absolute_deadline_date")
+							: null;
 
-			JSONObject result = kpiExtend.saveKpiDeadlineOverride(kpiId, hasOverride, offsetDays, offsetWeeks, absoluteDate);
+			JSONObject result = kpiExtend.saveKpiDeadlineOverride(kpiId, hasOverride, offsetDays, offsetWeeks,
+					absoluteDate);
 			jout.put("code", result.getInt("code"));
 			jout.put("description", result.getString("description"));
 		} catch (JSONException e) {
@@ -783,13 +790,20 @@ public class kpiServices {
 			JSONObject jin = new JSONObject(sReq);
 			String sessionId = jin.getString("session_id");
 			int kpiId = jin.getInt("kpi_id");
-			Integer deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.getInt("department_id") : null;
+			Integer deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.getInt("department_id")
+					: null;
 			double actualValue = jin.getDouble("actual_value");
 			String notes = jin.has("notes") && !jin.isNull("notes") ? jin.getString("notes") : "";
-			String evidenceLink = jin.has("evidence_link") && !jin.isNull("evidence_link") ? jin.getString("evidence_link") : "";
-			String fileName = jin.has("evidence_file_name") && !jin.isNull("evidence_file_name") ? jin.getString("evidence_file_name") : "";
-			String fileSize = jin.has("evidence_file_size") && !jin.isNull("evidence_file_size") ? jin.getString("evidence_file_size") : "";
-			
+			String evidenceLink = jin.has("evidence_link") && !jin.isNull("evidence_link")
+					? jin.getString("evidence_link")
+					: "";
+			String fileName = jin.has("evidence_file_name") && !jin.isNull("evidence_file_name")
+					? jin.getString("evidence_file_name")
+					: "";
+			String fileSize = jin.has("evidence_file_size") && !jin.isNull("evidence_file_size")
+					? jin.getString("evidence_file_size")
+					: "";
+
 			String testDateStr = jin.has("test_date") && !jin.isNull("test_date") ? jin.getString("test_date") : null;
 			Date referenceDate = null;
 			if (testDateStr != null && !testDateStr.trim().isEmpty()) {
@@ -810,7 +824,8 @@ public class kpiServices {
 			// Check admin status
 			boolean isAdmin = false;
 			try {
-				List<Map<String, Object>> userRows = jdbcTemplate.queryForList("SELECT IsAdmin, Email FROM tbl_user WHERE ID = ?", sst.UserID);
+				List<Map<String, Object>> userRows = jdbcTemplate
+						.queryForList("SELECT IsAdmin, Email FROM tbl_user WHERE ID = ?", sst.UserID);
 				if (!userRows.isEmpty()) {
 					Map<String, Object> uRow = userRows.get(0);
 					int adminVal = uRow.get("IsAdmin") != null ? ((Number) uRow.get("IsAdmin")).intValue() : 0;
@@ -822,13 +837,23 @@ public class kpiServices {
 			} catch (Exception ex) {
 				ex.printStackTrace();
 			}
+			
+			System.out.println("-------chkpnt #1:" + kpiId + ", dept:" + deptId + ", value:" + actualValue + ", notes:" + notes
+					+ ", evidenceLink:" + evidenceLink + ", fileName:" + fileName + ", fileSize:" + fileSize
+					+ ", userId:" + sst.UserID + ", isAdmin:" + isAdmin + ", referenceDate:" + referenceDate);
 
-			JSONObject result = kpiExtend.saveKpiValue(kpiId, deptId, actualValue, notes, evidenceLink, fileName, fileSize, sst.UserID, isAdmin, referenceDate);
+			JSONObject result = kpiExtend.saveKpiValue(kpiId, deptId, actualValue, notes, evidenceLink, fileName,
+					fileSize, sst.UserID, isAdmin, referenceDate);
+			System.out.println("-------chkpnt #2: result=" + result.toString());
+			
 			jout.put("code", result.getInt("code"));
 			jout.put("description", result.getString("description"));
-			if (result.has("data_id")) jout.put("data_id", result.get("data_id"));
-			if (result.has("period_id")) jout.put("period_id", result.get("period_id"));
-			if (result.has("version_number")) jout.put("version_number", result.get("version_number"));
+			if (result.has("data_id"))
+				jout.put("data_id", result.get("data_id"));
+			if (result.has("period_id"))
+				jout.put("period_id", result.get("period_id"));
+			if (result.has("version_number"))
+				jout.put("version_number", result.get("version_number"));
 		} catch (JSONException e) {
 			e.printStackTrace();
 			jout.put("code", 400);
@@ -842,6 +867,13 @@ public class kpiServices {
 		return jout.toString();
 	}
 
+	/**
+	 * Get KPI value history
+	 * 
+	 * @param kpiCode      KPI code
+	 * @param departmentId Department ID
+	 * @return KPI value history
+	 */
 	@GetMapping("/value/history")
 	public String getKpiValueHistory(
 			@RequestParam("kpi_code") String kpiCode,
