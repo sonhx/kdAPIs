@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.security.crypto.bcrypt.BCrypt;
+import org.json.JSONObject;
 
 @Service
 public class UserExtend {
@@ -141,5 +142,36 @@ public class UserExtend {
 			e.printStackTrace();
 			return false;
 		}
+	}
+
+	public JSONObject getUserDepartmentInfo(int userId) {
+		JSONObject joOrg = new JSONObject();
+		try {
+			// Query tbl_user to get email, join employees to get dept code, then look in
+			// departments
+			String sql = "SELECT d.dept_id, d.dept_name, d.dept_code "
+					+ "FROM tbl_user u "
+					+ "INNER JOIN employees e ON e.uEmail = u.Email "
+					+ "INNER JOIN departments d ON d.dept_code = ( "
+					+ "    CASE "
+					+ "        WHEN e.uUnit = N'Trung tâm Đào tạo Bưu chính Viễn thông' THEN 'TDT1' "
+					+ "        WHEN e.uCode LIKE '%.%.%' THEN SUBSTRING(e.uCode, CHARINDEX('.', e.uCode) + 1, "
+					+ "            CHARINDEX('.', e.uCode, CHARINDEX('.', e.uCode) + 1) - (CHARINDEX('.', e.uCode) + 1)) "
+					+ "        ELSE LEFT(e.uCode, 4) "
+					+ "    END "
+					+ ") "
+					+ "WHERE u.ID = ? AND (u.IsDeleted is null or u.IsDeleted = '0')";
+
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, userId);
+			if (!rows.isEmpty()) {
+				Map<String, Object> row = rows.get(0);
+				joOrg.put("dept_id", row.get("dept_id"));
+				joOrg.put("dept_name", row.get("dept_name"));
+				joOrg.put("dept_code", row.get("dept_code"));
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return joOrg;
 	}
 }

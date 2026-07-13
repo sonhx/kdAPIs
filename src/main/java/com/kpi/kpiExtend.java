@@ -226,11 +226,12 @@ public class kpiExtend {
 	 * @param measurement Calculation formula
 	 * @param source Source of data collection
 	 * @param cycle Reporting frequency
+	 * @param target KPI target
 	 * @return JSONObject with response code and KPI ID
 	 */
 	@Transactional
 	public JSONObject addKpiDefinition(String code, String name, String category, String unit, 
-										String measurement, String source, String cycle) {
+										String measurement, String source, String cycle, String target) {
 		JSONObject response = new JSONObject();
 		try {
 			// Validate inputs
@@ -280,10 +281,10 @@ public class kpiExtend {
 			}
 
 			// Insert into kpi_definitions table
-			String sql = "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle) "
-					+ "VALUES (?, ?, ?, ?, ?, ?, ?)";
+			String sql = "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle, target) "
+					+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 			
-			int rowsAffected = jdbcTemplate.update(sql, code, name, category, unit, measurement, source, cycle);
+			int rowsAffected = jdbcTemplate.update(sql, code, name, category, unit, measurement, source, cycle, target);
 			
 			if (rowsAffected > 0) {
 				// Get the inserted kpi_id
@@ -581,11 +582,12 @@ public class kpiExtend {
 		try {
 			// 1. Fetch all active KPI definitions
 			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight, " +
-							"k.cycle_id, c.cycle_type, " +
+							"k.cycle_id, c.cycle_type, k.target, " +
 							"k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date, " +
-							"c.default_deadline_offset_days, c.default_deadline_offset_weeks, c.deadline_type " +
+							"c.default_deadline_offset_days, c.default_deadline_offset_weeks, c.deadline_type, v.vertex_name " +
 							"FROM kpi_definitions k " +
 							"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+							"LEFT JOIN vertices_def v ON m.vertex_id = v.vertex_id " +
 							"LEFT JOIN cycle_definitions c ON k.cycle_id = c.cycle_id " +
 							"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
 							"ORDER BY k.kpi_id ASC";
@@ -612,16 +614,17 @@ public class kpiExtend {
 					joAssign.put("role", row.get("role") != null ? row.get("role").toString().trim() : JSONObject.NULL);
 					joAssign.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
 					joAssign.put("assigned_by", row.get("assigned_by"));
-					
 					assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
 				}
 			}
 
 			// 3. Fetch all KPI data points
-			String dpSql = "SELECT data_id, kpi_id, period_id, actual_value, status_id, updated_at, department_id, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at " +
-						   "FROM kpi_data_points";
+			String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
+						   "FROM kpi_data_points dp " +
+						   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
+						   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id";
 			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql);
-
+ 
 			// Group data points by kpi_id
 			java.util.Map<Integer, List<JSONObject>> dpMap = new java.util.HashMap<>();
 			for (Map<String, Object> row : dpRows) {
@@ -630,8 +633,19 @@ public class kpiExtend {
 					JSONObject joDp = new JSONObject();
 					joDp.put("data_id", row.get("data_id"));
 					joDp.put("period_id", row.get("period_id"));
-					joDp.put("period", row.get("period_id"));
-					joDp.put("target_value", JSONObject.NULL);
+					joDp.put("period", row.get("period_code") != null ? row.get("period_code") : row.get("period_id"));
+					
+					Object targetObj = row.get("target");
+					Object targetVal = JSONObject.NULL;
+					if (targetObj != null) {
+						try {
+							targetVal = Double.parseDouble(targetObj.toString().trim());
+						} catch (Exception e) {
+							targetVal = targetObj.toString();
+						}
+					}
+					joDp.put("target_value", targetVal);
+					
 					joDp.put("actual_value", row.get("actual_value"));
 					joDp.put("status_id", row.get("status_id"));
 					joDp.put("status", row.get("status_id"));
@@ -660,6 +674,18 @@ public class kpiExtend {
 				joKpi.put("source", kpiRow.get("source"));
 				joKpi.put("cycle", kpiRow.get("cycle"));
 				joKpi.put("weight", kpiRow.get("weight") != null ? ((Number) kpiRow.get("weight")).doubleValue() : 1.0);
+				joKpi.put("vertex_name", kpiRow.get("vertex_name") != null ? kpiRow.get("vertex_name") : JSONObject.NULL);
+				
+				Object targetObj = kpiRow.get("target");
+				Object targetVal = JSONObject.NULL;
+				if (targetObj != null) {
+					try {
+						targetVal = Double.parseDouble(targetObj.toString().trim());
+					} catch (Exception e) {
+						targetVal = targetObj.toString();
+					}
+				}
+				joKpi.put("target", targetVal);
 
 				Integer cycleId = kpiRow.get("cycle_id") != null ? ((Number) kpiRow.get("cycle_id")).intValue() : null;
 				String cycleType = (String) kpiRow.get("cycle_type");
@@ -734,9 +760,10 @@ public class kpiExtend {
 	    JSONArray jsaResult = new JSONArray();
 	    try {
 	        // 1. Fetch KPI definitions matching category
-	        String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+	        String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight, v.vertex_name " +
 	                        "FROM kpi_definitions k " +
 	                        "LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+	                        "LEFT JOIN vertices_def v ON m.vertex_id = v.vertex_id " +
 	                        "WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
 	                        "ORDER BY k.kpi_id ASC";
 	        List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql, category);
@@ -772,9 +799,10 @@ public class kpiExtend {
 	        // 3. Fetch integrated KPI data points (Now contains actual, target, and normalized_score combined)
 	        String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, dp.target_value, dp.normalized_score, " +
 	                       "dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, " +
-	                       "dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at " +
+	                       "dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
 	                       "FROM kpi_data_points dp " +
 	                       "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
+	                       "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
 	                       "WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
 	        List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql, category);
 
@@ -786,12 +814,22 @@ public class kpiExtend {
 	                JSONObject joDp = new JSONObject();
 	                joDp.put("data_id", row.get("data_id"));
 	                joDp.put("period_id", row.get("period_id"));
-	                joDp.put("period", row.get("period_id"));
+	                joDp.put("period", row.get("period_code") != null ? row.get("period_code") : row.get("period_id"));
 	                joDp.put("actual_value", row.get("actual_value") != null ? ((Number) row.get("actual_value")).doubleValue() : JSONObject.NULL);
-	                joDp.put("target_value", row.get("target_value") != null ? ((Number) row.get("target_value")).doubleValue() : JSONObject.NULL);
+	                
+	                Object targetObj = row.get("target");
+	                Object targetVal = JSONObject.NULL;
+	                if (targetObj != null) {
+	                    try {
+	                        targetVal = Double.parseDouble(targetObj.toString().trim());
+	                    } catch (Exception e) {
+	                        targetVal = targetObj.toString();
+	                    }
+	                }
+	                joDp.put("target_value", targetVal);
 	                
 	                // Mapped from combined table layout
-	                joDp.put("normalized_value", row.get("normalized_score") != null ? ((Number) row.get("normalized_score")).doubleValue() : JSONObject.NULL);
+	                joDp.put("normalized_value", row.get("normalized_value") != null ? ((Number) row.get("normalized_value")).doubleValue() : JSONObject.NULL);
 	                
 	                joDp.put("status_id", row.get("status_id"));
 	                joDp.put("status", row.get("status_id"));
@@ -820,6 +858,7 @@ public class kpiExtend {
 	            joKpi.put("source", kpiRow.get("source"));
 	            joKpi.put("cycle", kpiRow.get("cycle"));
 	            joKpi.put("weight", kpiRow.get("weight") != null ? ((Number) kpiRow.get("weight")).doubleValue() : 1.0);
+	            joKpi.put("vertex_name", kpiRow.get("vertex_name") != null ? kpiRow.get("vertex_name") : JSONObject.NULL);
 
 	            // Populate Assignments Mapping
 	            List<JSONObject> assignments = assignmentsMap.get(kpiId);

@@ -32,3 +32,4 @@ build/
 ### VS Code ###
 .vscode/
 *.json
+src/main/resources/surveys_schema.sql

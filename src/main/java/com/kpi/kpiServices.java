@@ -283,10 +283,11 @@ public class kpiServices {
 			String formula = jin.has("measurement") ? jin.getString("measurement").trim() : null;
 			String dataSource = jin.has("source") ? jin.getString("source").trim() : null;
 			String frequency = jin.has("cycle") ? jin.getString("cycle").trim() : null;
+			String target = jin.has("target") ? String.valueOf(jin.get("target")).trim() : null;
 
 			// Call service to add KPI definition
 			JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, formula, dataSource,
-					frequency);
+					frequency, target);
 
 			jout.put("code", addResult.getInt("code"));
 			jout.put("description", addResult.getString("description"));
@@ -307,6 +308,100 @@ public class kpiServices {
 			return "{\"code\":" + 500 + ", \"description\":\"" + "Server error: " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(addKpiDefinition):" + jout.toString());
+		return jout.toString();
+	}
+
+	@PostMapping("/definition/upload")
+	public String uploadKpiDefinitions(
+			@RequestParam("file") MultipartFile file,
+			@RequestParam(value = "session_id", required = false) String sessionId) {
+		System.out.println("-------uploadKpiDefinitions");
+		JSONObject jout = new JSONObject();
+		try {
+			if (file.isEmpty()) {
+				jout.put("code", 400);
+				jout.put("description", "Không nhận được tệp tải lên.");
+				return jout.toString();
+			}
+
+			String originalName = file.getOriginalFilename();
+			if (originalName == null || (!originalName.endsWith(".xlsx") && !originalName.endsWith(".xls") && !originalName.endsWith(".csv"))) {
+				jout.put("code", 400);
+				jout.put("description", "Vui lòng tải lên tệp Excel (.xlsx, .xls) hoặc CSV.");
+				return jout.toString();
+			}
+
+			// We will parse the file using Apache POI
+			int successCount = 0;
+			int errorCount = 0;
+			JSONArray errors = new JSONArray();
+
+			try (java.io.InputStream is = file.getInputStream()) {
+				org.apache.poi.ss.usermodel.Workbook workbook = null;
+				try {
+					workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(is);
+					org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheetAt(0);
+					
+					// Assuming Row 0 is header: kpi_code, name, measurement, unit, source, cycle, category, target_value, deparment in charge, approve body
+					for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+						org.apache.poi.ss.usermodel.Row row = sheet.getRow(i);
+						if (row == null) continue;
+						
+						org.apache.poi.ss.usermodel.DataFormatter formatter = new org.apache.poi.ss.usermodel.DataFormatter();
+						String code = formatter.formatCellValue(row.getCell(0));
+						if (code == null || code.trim().isEmpty()) continue;
+						
+						String name = formatter.formatCellValue(row.getCell(1));
+						String measurement = formatter.formatCellValue(row.getCell(2));
+						String unit = formatter.formatCellValue(row.getCell(3));
+						String source = formatter.formatCellValue(row.getCell(4));
+						String cycle = formatter.formatCellValue(row.getCell(5));
+						String category = formatter.formatCellValue(row.getCell(6));
+						String target = formatter.formatCellValue(row.getCell(7));
+						String departmentInCharge = formatter.formatCellValue(row.getCell(8));
+						String approveBody = formatter.formatCellValue(row.getCell(9));
+						
+						JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, measurement, source, cycle, target);
+						if (addResult.getInt("code") == 201) {
+							successCount++;
+							Integer kpiId = addResult.getInt("kpi_id");
+							// Assignments
+							if (departmentInCharge != null && !departmentInCharge.trim().isEmpty()) {
+								Integer deptId = resolveDepartmentId(departmentInCharge);
+								if (deptId != null) {
+									kpiExtend.saveAssignment(kpiId, deptId, "A", 10000000);
+								}
+							}
+							if (approveBody != null && !approveBody.trim().isEmpty()) {
+								Integer deptId = resolveDepartmentId(approveBody);
+								if (deptId != null) {
+									kpiExtend.saveAssignment(kpiId, deptId, "B", 10000000);
+								}
+							}
+						} else {
+							errorCount++;
+							JSONObject err = new JSONObject();
+							err.put("row", i + 1);
+							err.put("kpi_code", code);
+							err.put("description", addResult.getString("description"));
+							errors.put(err);
+						}
+					}
+				} finally {
+					if (workbook != null) workbook.close();
+				}
+			}
+
+			jout.put("code", 200);
+			jout.put("description", "Tải lên thành công.");
+			jout.put("success_count", successCount);
+			jout.put("error_count", errorCount);
+			jout.put("errors", errors);
+		} catch (Exception e) {
+			e.printStackTrace();
+			try { jout.put("code", 500); jout.put("description", "Lỗi tải tệp: " + e.getMessage()); } catch (Exception ignored) {}
+		}
+		System.out.println("RES(uploadKpiDefinitions):" + jout.toString());
 		return jout.toString();
 	}
 
