@@ -6,6 +6,7 @@ import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,7 @@ public class CtExtend {
     public final String host = Config.host;
 
     @Autowired
+    @Qualifier("evidenceJdbcTemplate")
     private JdbcTemplate jdbcTemplate;
 
     public int createNganhDT(String ten, String abbr, int iUserID) {
@@ -24,11 +26,34 @@ public class CtExtend {
     }
 
     public JSONArray listNganhDT() {
+        return listNganhDT(-1);
+    }
+
+    public JSONArray listNganhDT(int loaiHinhId) {
         JSONArray jsaCTKds = new JSONArray();
         String sql = "SELECT a.*, b.Fullname as Creator FROM TBL_Nganh_daotao a "
                 + " inner join TBL_USER b on b.ID = a.CreatedBy "
                 + " where (a.IsDeleted is null or a.IsDeleted=0)";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
+        java.util.List<Object> params = new java.util.ArrayList<>();
+        if (loaiHinhId != -1) {
+            if (loaiHinhId == 0) {
+                sql += " and (a.ID in (SELECT DISTINCT ct.CT_ID FROM TBL_KIEMDINH_CT ct "
+                    + " INNER JOIN TBL_KIEMDINH kd ON kd.ID = ct.KD_ID "
+                    + " WHERE (ct.IsDeleted is null or ct.IsDeleted = 0) "
+                    + " AND (kd.IsDeleted is null or kd.IsDeleted = 0) "
+                    + " AND (kd.loai_hinh_id = 0 or kd.loai_hinh_id is null))"
+                    + " or a.ID not in (SELECT DISTINCT ct.CT_ID FROM TBL_KIEMDINH_CT ct "
+                    + " WHERE (ct.IsDeleted is null or ct.IsDeleted = 0)))";
+            } else {
+                sql += " and a.ID in (SELECT DISTINCT ct.CT_ID FROM TBL_KIEMDINH_CT ct "
+                    + " INNER JOIN TBL_KIEMDINH kd ON kd.ID = ct.KD_ID "
+                    + " WHERE (ct.IsDeleted is null or ct.IsDeleted = 0) "
+                    + " AND (kd.IsDeleted is null or kd.IsDeleted = 0) "
+                    + " AND kd.loai_hinh_id = ?)";
+                params.add(loaiHinhId);
+            }
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, params.toArray());
         for (Map<String, Object> row : rows) {
             JSONObject jo = new JSONObject();
             jo.put("id", row.get("ID"));

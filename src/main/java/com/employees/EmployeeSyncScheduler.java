@@ -30,6 +30,32 @@ public class EmployeeSyncScheduler {
 	@Value("${slink.api-key}")
 	private String slinkApiKey;
 
+	@jakarta.annotation.PostConstruct
+	public void init() {
+		new Thread(() -> {
+			try {
+				Thread.sleep(5000); // Wait 5 seconds for app to fully boot
+				System.out.println("Checking database schema types...");
+				try {
+					List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+						"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH " +
+						"FROM INFORMATION_SCHEMA.COLUMNS " +
+						"WHERE (TABLE_NAME = 'employees' AND COLUMN_NAME = 'uName') " +
+						"   OR (TABLE_NAME = 'TBL_USER' AND COLUMN_NAME = 'FullName')"
+					);
+					for (Map<String, Object> col : columns) {
+						System.out.println("SCHEMA DIAGNOSTIC: " + col.get("TABLE_NAME") + "." + col.get("COLUMN_NAME") + " -> " + col.get("DATA_TYPE") + "(" + col.get("CHARACTER_MAXIMUM_LENGTH") + ")");
+					}
+				} catch (Exception ex) {
+					System.err.println("Schema check failed: " + ex.getMessage());
+				}
+				System.out.println("Triggering initial employee sync on startup...");
+				syncEmployeesMonthly();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}).start();
+	}
 
 	@Scheduled(cron = "0 0 0 1 * ?") // Runs at midnight on the 1st of every month
 	@Transactional // Ensures that if something fails, the DB changes are rolled back
@@ -37,7 +63,10 @@ public class EmployeeSyncScheduler {
 		System.out.println("Starting monthly employee sync...");
 
 		try {
-			RestTemplate restTemplate = new RestTemplate();
+			org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+			requestFactory.setConnectTimeout(10000);
+			requestFactory.setReadTimeout(10000);
+			RestTemplate restTemplate = new RestTemplate(requestFactory);
 			String url = "https://gw.aisoftech.vn/ptit/tcns/internal/face-rec/log/user";
 			
 			String apiKey = slinkApiKey;
@@ -96,21 +125,43 @@ public class EmployeeSyncScheduler {
 				String uGender = emp.optString("uGender", null);
 				String updateType = emp.optString("updateType", "api_sync");
 
-				// Check if employee already exists in DB
-				String checkSql = "SELECT COUNT(*) FROM employees WHERE uCode = ?";
-				Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, uCode);
+				boolean exists = false;
+				try {
+					jdbcTemplate.queryForObject("SELECT 1 FROM employees WHERE uCode = ?", Integer.class, uCode);
+					exists = true;
+				} catch (org.springframework.dao.EmptyResultDataAccessException e) {}
 
-				if (count != null && count > 0) {
+				if (exists) {
 					// UPDATE existing record
 					String updateSql = "UPDATE employees SET uName = ?, uImage = ?, uEmail = ?, "
 							+ "uUnit = ?, uGender = ?, updateType = ?, updatedAt = GETDATE() " + "WHERE uCode = ?";
-					jdbcTemplate.update(updateSql, uName, uImage, uEmail, uUnit, uGender, updateType, uCode);
+					jdbcTemplate.update(connection -> {
+						java.sql.PreparedStatement ps = connection.prepareStatement(updateSql);
+						ps.setNString(1, uName);
+						ps.setString(2, uImage);
+						ps.setString(3, uEmail);
+						ps.setNString(4, uUnit);
+						ps.setString(5, uGender);
+						ps.setString(6, updateType);
+						ps.setString(7, uCode);
+						return ps;
+					});
 					updateCount++;
 				} else {
 					// INSERT new record
 					String insertSql = "INSERT INTO employees (uCode, uName, uImage, uEmail, uUnit, uGender, updateType, createdAt, updatedAt) "
 							+ "VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())";
-					jdbcTemplate.update(insertSql, uCode, uName, uImage, uEmail, uUnit, uGender, updateType);
+					jdbcTemplate.update(connection -> {
+						java.sql.PreparedStatement ps = connection.prepareStatement(insertSql);
+						ps.setString(1, uCode);
+						ps.setNString(2, uName);
+						ps.setString(3, uImage);
+						ps.setString(4, uEmail);
+						ps.setNString(5, uUnit);
+						ps.setString(6, uGender);
+						ps.setString(7, updateType);
+						return ps;
+					});
 					insertCount++;
 				}
 			}
@@ -159,32 +210,60 @@ public class EmployeeSyncScheduler {
 			int deptUpdateCount = 0;
 
 			for (Map<String, Object> deptRow : deptRows) {
-				String deptCode = (String) deptRow.get("dept_code");
-				String deptName = (String) deptRow.get("dept_name");
+				String rawDeptCode = (String) deptRow.get("dept_code");
+				String rawDeptName = (String) deptRow.get("dept_name");
 
-				if (deptCode != null && !deptCode.trim().isEmpty() && deptName != null && !deptName.trim().isEmpty()) {
-					deptCode = deptCode.trim();
-					deptName = deptName.trim();
+				if (rawDeptCode != null && !rawDeptCode.trim().isEmpty() && rawDeptName != null && !rawDeptName.trim().isEmpty()) {
+					final String deptCode = rawDeptCode.trim();
+					final String deptName = rawDeptName.trim();
 
 					// Check if department exists by dept_code
-					String checkDeptSql = "SELECT COUNT(*) FROM departments WHERE dept_code = ?";
-					Integer dCount = jdbcTemplate.queryForObject(checkDeptSql, Integer.class, deptCode);
+					boolean dExists = false;
+					try {
+						jdbcTemplate.queryForObject("SELECT 1 FROM departments WHERE dept_code = ?", Integer.class, deptCode);
+						dExists = true;
+					} catch (org.springframework.dao.EmptyResultDataAccessException e) {}
 
-					if (dCount != null && dCount > 0) {
+					if (dExists) {
 						// Update
 						String updateDeptSql = "UPDATE departments SET dept_name = ? WHERE dept_code = ?";
-						jdbcTemplate.update(updateDeptSql, deptName, deptCode);
+						jdbcTemplate.update(connection -> {
+							java.sql.PreparedStatement ps = connection.prepareStatement(updateDeptSql);
+							ps.setNString(1, deptName);
+							ps.setString(2, deptCode);
+							return ps;
+						});
 						deptUpdateCount++;
 					} else {
 						// Insert
 						String insertDeptSql = "INSERT INTO departments (dept_code, dept_name) VALUES (?, ?)";
-						jdbcTemplate.update(insertDeptSql, deptCode, deptName);
+						jdbcTemplate.update(connection -> {
+							java.sql.PreparedStatement ps = connection.prepareStatement(insertDeptSql);
+							ps.setString(1, deptCode);
+							ps.setNString(2, deptName);
+							return ps;
+						});
 						deptInsertCount++;
 					}
 				}
 			}
 			System.out.println(
 					"Department Sync Successful! Inserted: " + deptInsertCount + ", Updated: " + deptUpdateCount);
+
+			// Heal any corrupted names in TBL_USER using the corrected names from employees
+			System.out.println("Healing TBL_USER names from employees table...");
+			try {
+				int healedCount = jdbcTemplate.update(
+					"UPDATE u " +
+					"SET u.FullName = e.uName " +
+					"FROM TBL_USER u " +
+					"JOIN employees e ON e.uEmail = u.Email " +
+					"WHERE u.FullName <> e.uName AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')"
+				);
+				System.out.println("Healed " + healedCount + " user names in TBL_USER.");
+			} catch (Exception ex) {
+				System.err.println("Error healing user names: " + ex.getMessage());
+			}
 
 		} catch (Exception e) {
 			System.err.println("Error during monthly employee sync:");

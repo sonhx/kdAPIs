@@ -354,25 +354,13 @@ public class kpiExtend {
 			parameters.add(kpiId);
 			
 			// Execute the query
-			try (Connection conn = dbconnect.conn; // Your database connection logic
-			     PreparedStatement pstmt = conn.prepareStatement(sql.toString())) {
-			    
-			    // Dynamically bind parameters based on the collected list
-			    for (int i = 0; i < parameters.size(); i++) {
-			        pstmt.setObject(i + 1, parameters.get(i));
-			    }
-			    
-			    int rowsAffected = pstmt.executeUpdate();
-			    if (rowsAffected > 0) {
-					response.put("code", 201);
-					response.put("description", "Thành công");
-				} else {
-					response.put("code", 500);
-					response.put("description", "Failed to insert KPI definition");
-				}
-			    
-			} catch (SQLException e) {
-			    e.printStackTrace();
+			int rowsAffected = jdbcTemplate.update(sql.toString(), parameters.toArray());
+			if (rowsAffected > 0) {
+				response.put("code", 201);
+				response.put("description", "Thành công");
+			} else {
+				response.put("code", 500);
+				response.put("description", "Failed to update KPI definition");
 			}
 		} catch (Exception e) {
 			e.printStackTrace();

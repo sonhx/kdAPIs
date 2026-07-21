@@ -64,7 +64,23 @@ public class UserExtend {
 			String sql = "insert into TBL_USER (FullName, Email, Hash, Mobile, Status, Type) "
 					+ "OUTPUT INSERTED.ID "
 					+ "values (?, ?, ?, ?, 1, ?)";
-			return jdbcTemplate.queryForObject(sql, Integer.class, full_name, email, hashedPassword, mobile, type);
+			return jdbcTemplate.query(
+				connection -> {
+					java.sql.PreparedStatement ps = connection.prepareStatement(sql);
+					ps.setNString(1, full_name);
+					ps.setString(2, email);
+					ps.setString(3, hashedPassword);
+					ps.setString(4, mobile);
+					ps.setInt(5, type);
+					return ps;
+				},
+				rs -> {
+					if (rs.next()) {
+						return rs.getInt(1);
+					}
+					return -1;
+				}
+			);
 		} catch (Exception e) {
 			e.printStackTrace();
 			return -1;
@@ -96,7 +112,16 @@ public class UserExtend {
 	public int UpdateUser(int user_id, int user_type, String full_name, String email) {
 		try {
 			String sql = "Update TBL_USER set Fullname = ?, Email = ?, Type = ? where ID = ?";
-			return jdbcTemplate.update(sql, full_name, email, user_type, user_id);
+			return jdbcTemplate.update(
+				connection -> {
+					java.sql.PreparedStatement ps = connection.prepareStatement(sql);
+					ps.setNString(1, full_name);
+					ps.setString(2, email);
+					ps.setInt(3, user_type);
+					ps.setInt(4, user_id);
+					return ps;
+				}
+			);
 		} catch (Exception e) {
 			e.printStackTrace();
 			return -1;

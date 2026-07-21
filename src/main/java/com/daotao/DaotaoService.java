@@ -36,6 +36,10 @@ public class DaotaoService {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
+	@Autowired
+	@org.springframework.beans.factory.annotation.Qualifier("evidenceJdbcTemplate")
+	private JdbcTemplate evidenceJdbcTemplate;
+
 	private final int MAXTRINHDO = 10;
 	private final int MAXHEDAOTAO = 10;
 	private final int MAX_SECTOR = 100;
@@ -1451,7 +1455,7 @@ public class DaotaoService {
 
 			// ----------------KE HOACH KIEM DINH-----------------
 			JSONArray jarKD = new JSONArray();
-			List<Map<String, Object>> kdRows = jdbcTemplate.queryForList(
+			List<Map<String, Object>> kdRows = evidenceJdbcTemplate.queryForList(
 					"select * from TBL_KIEMDINH where NamDuKienThucHien=? and (IsDeleted=0 or IsDeleted is null)",
 					selected_year);
 			for (Map<String, Object> kdRow : kdRows) {

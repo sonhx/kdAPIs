@@ -78,7 +78,14 @@ public class KdclService {
     public String thongKeKetQuaKiemDinh(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
         try {
-            jout.put("kd_list", kcl.getAccreditationStats());
+            int loai_hinh_id = -1;
+            try {
+                JSONObject jin = new JSONObject(sReq);
+                if (jin.has("loai_hinh_id")) {
+                    loai_hinh_id = jin.getInt("loai_hinh_id");
+                }
+            } catch (Exception ignored) {}
+            jout.put("kd_list", kcl.getAccreditationStats(loai_hinh_id));
             jout.put("code", 200);
         } catch (Exception e) {
             return "{\"code\":801, \"description\":\"Error\"}";

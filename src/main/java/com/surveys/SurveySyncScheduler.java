@@ -55,7 +55,10 @@ public class SurveySyncScheduler {
             boolean hasMore = true;
             
             String cleanApiKey = slinkApiKey != null ? slinkApiKey.replace("\"", "").trim() : "";
-            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+            requestFactory.setConnectTimeout(10000);
+            requestFactory.setReadTimeout(10000);
+            RestTemplate restTemplate = new RestTemplate(requestFactory);
             HttpHeaders headers = new HttpHeaders();
             headers.set("x-api-key", cleanApiKey);
             HttpEntity<String> entity = new HttpEntity<>(headers);
@@ -116,9 +119,13 @@ public class SurveySyncScheduler {
             Timestamp createdAt = parseDate(survey.optString("createdAt"));
             Timestamp updatedAt = parseDate(survey.optString("updatedAt"));
 
-            Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM surveys WHERE id = ?", Integer.class, id);
+            boolean exists = false;
+            try {
+                jdbcTemplate.queryForObject("SELECT 1 FROM surveys WHERE id = ?", Integer.class, id);
+                exists = true;
+            } catch (EmptyResultDataAccessException e) {}
 
-            if (count != null && count > 0) {
+            if (exists) {
                 String updateSql = "UPDATE surveys SET parent_id=?, survey_type=?, title=?, description=?, is_active=?, course_semester_code=?, max_responses=?, has_commitment=?, updated_at=? WHERE id=?";
                 jdbcTemplate.update(updateSql, parentId, loai, tieuDe, moTa, kichHoat, courseSemesterCode, maxResponses, coCamKet, updatedAt, id);
             } else {
@@ -160,8 +167,12 @@ public class SurveySyncScheduler {
         }
         
         // Upsert logic for safety
-        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM survey_blocks WHERE id = ?", Integer.class, id);
-        if (count == null || count == 0) {
+        boolean exists = false;
+        try {
+            jdbcTemplate.queryForObject("SELECT 1 FROM survey_blocks WHERE id = ?", Integer.class, id);
+            exists = true;
+        } catch (EmptyResultDataAccessException e) {}
+        if (!exists) {
             String sql = "INSERT INTO survey_blocks (id, survey_id, title, description, is_visible, is_clo_evaluation, config_type, config_min, config_max) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
             jdbcTemplate.update(sql, id, surveyId, tieuDe, moTa, show, isDanhGia, configType, configMin, configMax);
         }
@@ -195,8 +206,12 @@ public class SurveySyncScheduler {
             createdBy = q.getJSONObject("thongTinNguoiTao").optString("id", null);
         }
         
-        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM survey_questions WHERE id = ?", Integer.class, id);
-        if (count == null || count == 0) {
+        boolean exists = false;
+        try {
+            jdbcTemplate.queryForObject("SELECT 1 FROM survey_questions WHERE id = ?", Integer.class, id);
+            exists = true;
+        } catch (EmptyResultDataAccessException e) {}
+        if (!exists) {
             String sql = "INSERT INTO survey_questions (id, block_id, question_type, is_required, content, has_other_option, is_from_category, linear_min, linear_max, default_score, score, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             jdbcTemplate.update(sql, id, blockId, loai, batBuoc, noiDung, cauTraLoiKhac, isLayTuDanhMuc, minLinear, maxLinear, diemMacDinh, diem, createdBy);
             
@@ -227,7 +242,8 @@ public class SurveySyncScheduler {
         }
     }
 
-    @Scheduled(fixedDelay = 900000) // 15 mins
+//    @Scheduled(fixedDelay = 900000) // 15 mins TODO: Uncomment this line when the method is implemented
+    @Scheduled(fixedDelay = 90000000, initialDelay = 90000000) // 15 mins
     public void syncOngoingSurveyDetails() {
         System.out.println("Starting Slink Survey Details Sync...");
         try {
@@ -235,7 +251,10 @@ public class SurveySyncScheduler {
             List<String> activeSurveyIds = jdbcTemplate.queryForList("SELECT id FROM surveys WHERE is_active = 1", String.class);
             
             String cleanApiKey = slinkApiKey != null ? slinkApiKey.replace("\"", "").trim() : "";
-            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+            requestFactory.setConnectTimeout(10000);
+            requestFactory.setReadTimeout(10000);
+            RestTemplate restTemplate = new RestTemplate(requestFactory);
             HttpHeaders headers = new HttpHeaders();
             headers.set("x-api-key", cleanApiKey);
             HttpEntity<String> entity = new HttpEntity<>(headers);
@@ -260,7 +279,7 @@ public class SurveySyncScheduler {
                             }
                             
                             for (int i = 0; i < items.length(); i++) {
-                                updateSurveyResponse(items.getJSONObject(i));
+                                updateSurveyResponse(items.getJSONObject(i)); //TODO: Uncomment this line when the method is implemented
                             }
                             
                             int total = data.getInt("total");
@@ -299,15 +318,16 @@ public class SurveySyncScheduler {
             Timestamp createdAt = parseDate(res.optString("createdAt"));
             Timestamp updatedAt = parseDate(res.optString("updatedAt"));
 
-            Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM survey_responses WHERE id = ?", Integer.class, id);
+            Timestamp dbUpdatedAt = null;
+            boolean exists = false;
+            try {
+                dbUpdatedAt = jdbcTemplate.queryForObject("SELECT updated_at FROM survey_responses WHERE id = ?", Timestamp.class, id);
+                exists = true;
+            } catch (EmptyResultDataAccessException e) {
+                // Not found
+            }
             
-            if (count != null && count > 0) {
-                // Check if we need to update
-                Timestamp dbUpdatedAt = null;
-                try {
-                    dbUpdatedAt = jdbcTemplate.queryForObject("SELECT updated_at FROM survey_responses WHERE id = ?", Timestamp.class, id);
-                } catch(EmptyResultDataAccessException e){}
-                
+            if (exists) {
                 if (dbUpdatedAt == null || (updatedAt != null && updatedAt.after(dbUpdatedAt))) {
                     String updateSql = "UPDATE survey_responses SET is_answered=?, updated_at=? WHERE id=?";
                     jdbcTemplate.update(updateSql, answered, updatedAt, id);

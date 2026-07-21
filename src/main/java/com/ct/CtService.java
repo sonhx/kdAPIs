@@ -26,7 +26,12 @@ public class CtService {
             JSONObject jin = new JSONObject(sReq);
             if (sessionService.getSessionInfo(jin.getString("session_id")) == null) return "{\"code\":700}";
 
-            JSONArray jsaCts = ctExtend.listNganhDT();
+            int loai_hinh_id = -1;
+            if (jin.has("loai_hinh_id")) {
+                loai_hinh_id = jin.getInt("loai_hinh_id");
+            }
+
+            JSONArray jsaCts = ctExtend.listNganhDT(loai_hinh_id);
             jout.put("list_ct", jsaCts);
             jout.put("code", 200);
         } catch (JSONException e) {

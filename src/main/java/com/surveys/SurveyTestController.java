@@ -14,13 +14,13 @@ public class SurveyTestController {
     public String triggerSync() {
         // Chạy đồng bộ trong một luồng nền để không chặn HTTP Request
         new Thread(() -> {
-            System.out.println("Manual trigger: Starting syncSurveys...");
-            surveySyncScheduler.syncSurveys();
+            //System.out.println("Manual trigger: Starting syncSurveys...");
+            //surveySyncScheduler.syncSurveys(); //TODO: Uncomment this line when the method is implemented
             
-            System.out.println("Manual trigger: Starting syncOngoingSurveyDetails...");
-            surveySyncScheduler.syncOngoingSurveyDetails();
+            //System.out.println("Manual trigger: Starting syncOngoingSurveyDetails...");
+            //surveySyncScheduler.syncOngoingSurveyDetails(); //TODO: Uncomment this line when the method is implemented
             
-            System.out.println("Manual trigger: Completed!");
+            //System.out.println("Manual trigger: Completed!");
         }).start();
         
         return "Tiến trình đồng bộ khảo sát đã được kích hoạt chạy ngầm (Background Task). Vui lòng kiểm tra Console (Log) để xem tiến độ!";

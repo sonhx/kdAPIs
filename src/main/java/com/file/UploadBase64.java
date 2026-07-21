@@ -124,9 +124,15 @@ public class UploadBase64 {
             File dir = new File(fdir);
             if (!dir.exists()) dir.mkdirs();
 
-            saveAndRegisterKqFile(jin.getJSONObject("nq_file"), fdir, fullPath, kqId, nqSo, null, "nq", ghiChu, sst.UserID);
-            saveAndRegisterKqFile(jin.getJSONObject("qd_file"), fdir, fullPath, kqId, qdSo, null, "qd", ghiChu, sst.UserID);
-            saveAndRegisterKqFile(jin.getJSONObject("gcn_file"), fdir, fullPath, kqId, gcnSo, gcnThoihan, "gcn", ghiChu, sst.UserID);
+            if (jin.has("nq_file") && !jin.isNull("nq_file") && jin.optJSONObject("nq_file") != null) {
+                saveAndRegisterKqFile(jin.getJSONObject("nq_file"), fdir, fullPath, kqId, nqSo, null, "nq", ghiChu, sst.UserID);
+            }
+            if (jin.has("qd_file") && !jin.isNull("qd_file") && jin.optJSONObject("qd_file") != null) {
+                saveAndRegisterKqFile(jin.getJSONObject("qd_file"), fdir, fullPath, kqId, qdSo, null, "qd", ghiChu, sst.UserID);
+            }
+            if (jin.has("gcn_file") && !jin.isNull("gcn_file") && jin.optJSONObject("gcn_file") != null) {
+                saveAndRegisterKqFile(jin.getJSONObject("gcn_file"), fdir, fullPath, kqId, gcnSo, gcnThoihan, "gcn", ghiChu, sst.UserID);
+            }
 
             return "{\"code\":200, \"description\":\"Success\"}";
         } catch (Exception e) {

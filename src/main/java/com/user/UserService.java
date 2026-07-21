@@ -452,7 +452,7 @@ public class UserService {
 				int uId = ((Number) row.get("ID")).intValue();
 				JSONObject deptInfo = userExtend.getUserDepartmentInfo(uId);
 				
-				System.out.println("User ID: " + uId + ", Department Info: " + deptInfo.toString());
+				//System.out.println("User ID: " + uId + ", Department Info: " + deptInfo.toString());
 				
 				if (deptInfo.has("dept_id")) {
 					obj.put("org_id", deptInfo.get("dept_id"));
@@ -875,6 +875,154 @@ public class UserService {
 		}
 
 		System.out.println("LOGIN_AFTER_SLINK response:" + jout.toString());
+		return jout.toString();
+	}
+
+	@PostMapping("/listcbcnv")
+	public String listCBCNV(@RequestBody String sReq) {
+		System.out.println("----------listCBCNV:" + sReq);
+		JSONObject jout = new JSONObject();
+		JSONArray jaout = new JSONArray();
+		try {
+			JSONObject jsonobjReq = new JSONObject(sReq);
+			String session_id = jsonobjReq.getString("session_id");
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null) {
+				return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
+			}
+
+			String keyword = jsonobjReq.has("keyword") ? jsonobjReq.getString("keyword").trim() : "";
+			String sql;
+			List<Map<String, Object>> rows;
+
+			if (!keyword.isEmpty()) {
+				sql = "SELECT e.uCode, e.uName, e.uEmail, e.uGender, e.uUnit, u.ID as user_id " +
+				      "FROM ( " +
+				      "    SELECT uCode, uName, uEmail, uGender, uUnit, " +
+				      "           ROW_NUMBER() OVER (PARTITION BY uEmail ORDER BY uCode ASC) as rn " +
+				      "    FROM employees " +
+				      "    WHERE uEmail IS NOT NULL AND uEmail <> '' AND (uName LIKE ? OR uEmail LIKE ?) " +
+				      ") e " +
+				      "LEFT JOIN ( " +
+				      "    SELECT Email, MIN(ID) as ID " +
+				      "    FROM TBL_USER " +
+				      "    WHERE IsDeleted IS NULL OR IsDeleted = '0' " +
+				      "    GROUP BY Email " +
+				      ") u ON u.Email = e.uEmail " +
+				      "WHERE e.rn = 1 " +
+				      "ORDER BY e.uName ASC";
+				String pattern = "%" + keyword + "%";
+				rows = jdbcTemplate.queryForList(sql, pattern, pattern);
+			} else {
+				sql = "SELECT e.uCode, e.uName, e.uEmail, e.uGender, e.uUnit, u.ID as user_id " +
+				      "FROM ( " +
+				      "    SELECT uCode, uName, uEmail, uGender, uUnit, " +
+				      "           ROW_NUMBER() OVER (PARTITION BY uEmail ORDER BY uCode ASC) as rn " +
+				      "    FROM employees " +
+				      "    WHERE uEmail IS NOT NULL AND uEmail <> '' " +
+				      ") e " +
+				      "LEFT JOIN ( " +
+				      "    SELECT Email, MIN(ID) as ID " +
+				      "    FROM TBL_USER " +
+				      "    WHERE IsDeleted IS NULL OR IsDeleted = '0' " +
+				      "    GROUP BY Email " +
+				      ") u ON u.Email = e.uEmail " +
+				      "WHERE e.rn = 1 " +
+				      "ORDER BY e.uName ASC";
+				rows = jdbcTemplate.queryForList(sql);
+			}
+
+			for (Map<String, Object> row : rows) {
+				String email = (String) row.get("uEmail");
+				String name = (String) row.get("uName");
+				Object userIdObj = row.get("user_id");
+				int userId;
+
+				if (userIdObj == null) {
+					// Double-check to prevent duplicate registrations in case of concurrency
+					Integer existingId = null;
+					try {
+						existingId = jdbcTemplate.queryForObject(
+							"SELECT ID FROM TBL_USER WHERE Email = ? AND (IsDeleted IS NULL OR IsDeleted = '0')",
+							Integer.class,
+							email
+						);
+					} catch (Exception ex) {
+						// Not found
+					}
+
+					if (existingId == null) {
+						userId = userExtend.RegisterUser(name, email, "123456", "", 4);
+						if (userId == -1) {
+							continue; // Skip if registration failed
+						}
+					} else {
+						userId = existingId;
+					}
+				} else {
+					userId = ((Number) userIdObj).intValue();
+				}
+
+				JSONObject obj = new JSONObject();
+				obj.put("id", userId);
+				obj.put("ten_day_du", name);
+				obj.put("email", email);
+				obj.put("mobile", "");
+				obj.put("org_name", row.get("uUnit") != null ? row.get("uUnit").toString() : "");
+				obj.put("ma_cb", row.get("uCode") != null ? row.get("uCode").toString() : "");
+				obj.put("nam_sinh", "");
+				jaout.put(obj);
+			}
+
+			jout.put("user_list", jaout);
+			jout.put("code", 200);
+		} catch (Exception e) {
+			e.printStackTrace();
+			return "{\"code\":800, \"description\":\"JSON/DB error\"}";
+		}
+		return jout.toString();
+	}
+
+	@PostMapping("/searchuser")
+	public String searchUser(@RequestBody String sReq) {
+		System.out.println("----------searchUser:" + sReq);
+		JSONObject jout = new JSONObject();
+		JSONArray jaout = new JSONArray();
+		try {
+			JSONObject jsonobjReq = new JSONObject(sReq);
+			String session_id = jsonobjReq.getString("session_id");
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null) {
+				return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
+			}
+
+			String search_key = jsonobjReq.getString("search_key");
+			String sql = "SELECT a.ID, a.Fullname, a.Email, a.Mobile, c.Name as org_name " +
+					"FROM TBL_USER a " +
+					"LEFT JOIN TBL_ORG_MEMBER b ON b.MEMBER_ID = a.ID " +
+					"LEFT JOIN TBL_ORG c ON c.ID = b.ORG_ID " +
+					"WHERE (a.IsDeleted IS NULL OR a.IsDeleted = '0') " +
+					"AND (a.Fullname LIKE ? OR a.Email LIKE ?)";
+
+			String queryKey = "%" + search_key + "%";
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, queryKey, queryKey);
+			for (Map<String, Object> row : rows) {
+				JSONObject obj = new JSONObject();
+				obj.put("id", row.get("ID"));
+				obj.put("ten_day_du", row.get("Fullname"));
+				obj.put("email", row.get("Email"));
+				obj.put("mobile", row.get("Mobile"));
+				obj.put("org_name", row.get("org_name") != null ? row.get("org_name") : "");
+				obj.put("ma_cb", "");
+				obj.put("nam_sinh", "");
+				jaout.put(obj);
+			}
+			jout.put("user_list", jaout);
+			jout.put("code", 200);
+		} catch (Exception e) {
+			e.printStackTrace();
+			return "{\"code\":800, \"description\":\"JSON/DB error\"}";
+		}
 		return jout.toString();
 	}
 }

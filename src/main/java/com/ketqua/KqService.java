@@ -27,13 +27,22 @@ public class KqService {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            int kd_scope = jin.optInt("loai_hinh", -1);
+            
+            //TODO: Uncomment the following lines to enable session verification
+			/*String session_id = jin.getString("session_id");
+			
+			//verify user
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";*/
+            
+            int kd_scope = jin.has("loai_hinh") ? jin.getInt("loai_hinh") : -1;
             JSONArray jsaKQs = kqExtend.listKq(kd_scope);
+            
             jout.put("list_kq", jsaKQs);
             jout.put("code", 200);
         } catch (JSONException e) {
             e.printStackTrace();
-            return "{\"code\":800, \"description\":\"JSON error\"}";
+            return "{\"code\":800, \"description\":\"JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
         }
         return jout.toString();
     }
@@ -43,24 +52,30 @@ public class KqService {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            struct_session sst = sessionService.getSessionInfo(jin.getString("session_id"));
-            if (sst == null) return "{\"code\":700, \"description\":\"Unauthorized\"}";
+            String session_id = jin.getString("session_id");
+            
+            //verify user
+            struct_session sst = sessionService.getSessionInfo(session_id);
+            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
 
-            String ghi_chu = jin.optString("ghi_chu", "");
-            String qd_so = jin.optString("qd_so", null);
-            String nq_so = jin.optString("nq_so", null);
-            String gcn_so = jin.optString("gcn_so", null);
-            String gcn_thoihan = jin.getString("gcn_thoihan");
+            String ghi_chu = jin.has("ghi_chu") ? jin.getString("ghi_chu") : "";
+            String qd_so = jin.has("qd_so") ? jin.getString("qd_so") : null;
+            String nq_so = jin.has("nq_so") ? jin.getString("nq_so") : null;
+            String gcn_so = jin.has("gcn_so") ? jin.getString("gcn_so") : null;
+            String gcn_thoihan = jin.has("gcn_thoihan") ? jin.getString("gcn_thoihan") : null;
             int kd_id = jin.getInt("kd_id");
             String doituong_kd = jin.getString("doituong_kd");
             int kq_id = jin.getInt("kq_id");
 
             kqExtend.updateKq(kq_id, kd_id, doituong_kd, qd_so, nq_so, gcn_so, gcn_thoihan, ghi_chu, sst.UserID);
 
-            String path = Config.homePath + "/" + kd_id + "/" + (doituong_kd.equals("cs") ? "csgd" : "ctdt/" + doituong_kd) + "/kq/" + kq_id;
+            //determine path
+            String path = Config.homePath + "/" + kd_id + "/" + kq_id;
             String fdir = path.replaceFirst(Config.homePath, Config.homeDir);
             File dir = new File(fdir);
-            if (!dir.exists()) dir.mkdirs();
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
 
             handleFile(jin, "nq_file", fdir, path, kq_id, "nq", sst.UserID);
             handleFile(jin, "qd_file", fdir, path, kq_id, "qd", sst.UserID);
@@ -76,13 +91,16 @@ public class KqService {
     }
 
     private void handleFile(JSONObject jin, String key, String fdir, String path, int kq_id, String loai, int userId) throws Exception {
-        if (jin.has(key)) {
+        if (jin.has(key) && !jin.isNull(key) && jin.optJSONObject(key) != null) {
             JSONObject joFile = jin.getJSONObject(key);
             String filename = joFile.getString("filename");
             String sFile = fdir + File.separator + filename;
             File file = new File(sFile);
-            if (!file.exists()) file.createNewFile();
-            UploadBase64.b64Decode(joFile.getString("base64"), sFile);
+            if (!file.exists()) {
+                file.createNewFile();
+            }
+            String b64 = joFile.getString("base64");
+            UploadBase64.b64Decode(b64, sFile);
             kqExtend.updateKqDoc_short(kq_id, path, filename, loai, userId);
         }
     }
@@ -92,15 +110,18 @@ public class KqService {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            struct_session sst = sessionService.getSessionInfo(jin.getString("session_id"));
-            if (sst == null) return "{\"code\":700, \"description\":\"Unauthorized\"}";
+            String session_id = jin.getString("session_id");
+            
+            //verify user
+            struct_session sst = sessionService.getSessionInfo(session_id);
+            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
 
             int id = jin.getInt("id");
             kqExtend.deleteKq(id);
             jout.put("code", 200);
         } catch (JSONException e) {
             e.printStackTrace();
-            return "{\"code\":800, \"description\":\"JSON error\"}";
+            return "{\"code\":800, \"description\":\"JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
         }
         return jout.toString();
     }

@@ -18,14 +18,25 @@ public class SessionService {
 
 	public int fn_get_root_org(int org_id){
 	   int root_org_id = 0;
+	   java.util.Set<Integer> visited = new java.util.HashSet<>();
 	   while(org_id > 0){
+		   if (visited.contains(org_id)) {
+			   System.out.println("Cycle detected in fn_get_root_org for org_id: " + org_id);
+			   break;
+		   }
+		   visited.add(org_id);
 		   final int current_org_id = org_id;
 		   List<Integer> parentIds = jdbcTemplate.query("select ParentID from tbl_org where ID = ?", 
 				   (rs, rowNum) -> rs.getInt("ParentID"), current_org_id);
 		   
-		   if(!parentIds.isEmpty()){	            	   
+		   if(!parentIds.isEmpty()){
+			   Integer parentId = parentIds.get(0);
+			   if (parentId == null || parentId == org_id) {
+				   root_org_id = org_id;
+				   break;
+			   }
 			   root_org_id = org_id;
-			   org_id = parentIds.get(0);
+			   org_id = parentId;
            } else {
         	   root_org_id = -1;
         	   org_id = -1;

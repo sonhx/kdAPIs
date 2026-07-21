@@ -28,15 +28,20 @@ public class KdService {
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
-			int loai_hinh = jin.has("loai_hinh") ? jin.getInt("loai_hinh") : -1;
-			String type = jin.has("type") ? jin.getString("type") : null;
+			String session_id = jin.getString("session_id");
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null)
+				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
-			JSONArray jsaKds = kdExtend.listKd(loai_hinh, type);
+			int loai_hinh = jin.has("loai_hinh") ? jin.getInt("loai_hinh") : -1;
+			int ct_id = jin.has("ct_id") ? jin.getInt("ct_id") : -1;
+
+			JSONArray jsaKds = kdExtend.listKdbyCT(loai_hinh, ct_id);
 			jout.put("list_kd", jsaKds);
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(listKdApi):" + jout.toString());
 		return jout.toString();
@@ -49,15 +54,14 @@ public class KdService {
 		try {
 			JSONObject jin = new JSONObject(sReq);
 			int loai_hinh = jin.has("loai_hinh") ? jin.getInt("loai_hinh") : -1;
-			String type = jin.has("type") ? jin.getString("type") : null;
 			int ct_id = jin.has("ct_id") ? jin.getInt("ct_id") : -1;
 
-			JSONArray jsaCycles = kdExtend.listCyclebyCT_ed(loai_hinh, type, ct_id);
+			JSONArray jsaCycles = kdExtend.listKdbyCT(loai_hinh, ct_id);
 			jout.put("list_cycle", jsaCycles);
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(listCycleApi_ed):" + jout.toString());
 		return jout.toString();
@@ -76,7 +80,7 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(listNganhDTApi):" + jout.toString());
 		return jout.toString();
@@ -93,18 +97,20 @@ public class KdService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
-			String ten = jin.getString("ten");
-			String ghi_chu = jin.getString("ghi_chu");
 			int id = jin.getInt("id");
 			int loai_hinh_id = jin.getInt("loai_hinh_id");
-			JSONArray jsaProgs = jin.getJSONArray("progs");
+			int FromYear = jin.getInt("_from");
+			int ToYear = jin.getInt("_to");
+			int cycle = jin.getInt("cycle");
+			int standard_id = jin.getInt("standard_id");
+			int status = jin.getInt("status");
 
-			kdExtend.updateKd(id, ten, loai_hinh_id, ghi_chu, jsaProgs, sst.UserID);
+			kdExtend.updateKd(id, loai_hinh_id, FromYear, ToYear, cycle, standard_id, status, sst.UserID);
 			jout.put("description", "Thành công");
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(editKdApi):" + jout.toString());
 		return jout.toString();
@@ -126,9 +132,35 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(deleteKdApi):" + jout.toString());
+		return jout.toString();
+	}
+
+	@PostMapping("/is_deletable")
+	public String isKDDeletableApi(@RequestBody String sReq) {
+		System.out.println("-------isKDDeletableApi:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+			String session_id = jin.getString("session_id");
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null)
+				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
+
+			int id = jin.getInt("id");
+			if (kdExtend.isDeletable(id)) {
+				jout.put("is_deletable", true);
+			} else {
+				jout.put("is_deletable", false);
+			}
+			jout.put("code", 200);
+		} catch (JSONException e) {
+			e.printStackTrace();
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
+		}
+		System.out.println("RES(isKDDeletableApi):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -165,17 +197,20 @@ public class KdService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
-			String ten = jin.getString("ten");
+			String ten = jin.has("ten") ? jin.getString("ten") : "";
 			String ghi_chu = jin.has("ghi_chu") ? jin.getString("ghi_chu") : "";
-			int cycle_id = jin.getInt("cycle_id");
-			JSONArray jsaProgs = jin.getJSONArray("progs");
+			int loai_hinh_id = jin.getInt("loai_hinh_id");
+			int FromYear = jin.getInt("_from");
+			int ToYear = jin.getInt("_to");
+			int ct_id = jin.getInt("ct_id");
+			int standard_id = jin.getInt("standard_id");
 
-			kdExtend.addKd(ten, cycle_id, ghi_chu, jsaProgs, sst.UserID);
+			kdExtend.addKd(ten, loai_hinh_id, FromYear, ToYear, ct_id, standard_id, ghi_chu, sst.UserID);
 			jout.put("code", 200);
 			jout.put("description", "Thành công");
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(addKdApi):" + jout.toString());
 		return jout.toString();
@@ -201,7 +236,7 @@ public class KdService {
 			jout.put("description", "Thành công");
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(createStandardApi):" + jout.toString());
 		return jout.toString();
@@ -225,7 +260,7 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(listStandardApi):" + jout.toString());
 		return jout.toString();
@@ -248,7 +283,7 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(listLoaihinhApi):" + jout.toString());
 		return jout.toString();
@@ -274,7 +309,7 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(editStandardApi):" + jout.toString());
 		return jout.toString();
@@ -296,7 +331,7 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(deleteStandardApi):" + jout.toString());
 		return jout.toString();
@@ -315,13 +350,15 @@ public class KdService {
 
 			String ten = jin.getString("ten");
 			int standard_id = jin.getInt("standard_id");
+			int _from = jin.getInt("from");
+			int _to = jin.getInt("to");
 
-			kdExtend.createCycle(ten, standard_id, sst.UserID);
+			kdExtend.createCycle(ten, standard_id, _from, _to, sst.UserID);
 			jout.put("code", 200);
 			jout.put("description", "Thành công");
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(createCycleApi):" + jout.toString());
 		return jout.toString();
@@ -346,7 +383,7 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(listCycleByStandardApi):" + jout.toString());
 		return jout.toString();
@@ -371,7 +408,7 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(listCycleByLoaihinhApi):" + jout.toString());
 		return jout.toString();
@@ -390,13 +427,15 @@ public class KdService {
 
 			String ten = jin.getString("ten");
 			int id = jin.getInt("id");
+			int _from = jin.getInt("from");
+			int _to = jin.getInt("to");
 
-			kdExtend.updateCycle(id, ten, sst.UserID);
+			kdExtend.updateCycle(id, ten, _from, _to, sst.UserID);
 			jout.put("description", "Thành công");
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(editCycleApi):" + jout.toString());
 		return jout.toString();
@@ -418,11 +457,9 @@ public class KdService {
 			jout.put("code", 200);
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(deleteCycleApi):" + jout.toString());
 		return jout.toString();
 	}
 }
-
-

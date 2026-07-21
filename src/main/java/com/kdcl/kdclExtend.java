@@ -12,6 +12,7 @@ import java.text.DecimalFormat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,10 @@ public class kdclExtend {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    @Qualifier("evidenceJdbcTemplate")
+    private JdbcTemplate evidenceJdbcTemplate;
 
     public JSONObject KTXStats(int nam) {
         JSONObject joKTX = new JSONObject();
@@ -159,8 +164,19 @@ public class kdclExtend {
     }
 
     public JSONArray getAccreditationStats() {
+        return getAccreditationStats(-1);
+    }
+
+    public JSONArray getAccreditationStats(int loaiHinhId) {
         JSONArray jar = new JSONArray();
-        List<Map<String, Object>> accs = jdbcTemplate.queryForList("select * from TBL_KIEMDINH where (IsDeleted=0 or IsDeleted is null)");
+        String sql = "select * from TBL_KIEMDINH where (IsDeleted=0 or IsDeleted is null)";
+        List<Object> params = new ArrayList<>();
+        if (loaiHinhId != -1) {
+            sql += " and (loai_hinh_id = ? or (? = 0 and loai_hinh_id is null))";
+            params.add(loaiHinhId);
+            params.add(loaiHinhId);
+        }
+        List<Map<String, Object>> accs = evidenceJdbcTemplate.queryForList(sql, params.toArray());
         for (Map<String, Object> acc : accs) {
             JSONObject obj = new JSONObject();
             int id = (int) acc.get("ID");
@@ -176,9 +192,10 @@ public class kdclExtend {
             obj.put("gia_tri_den", acc.get("GiaTriDen"));
             obj.put("ma_so_giay_chung_nhan", acc.get("MaSoGiayChungNhan"));
             obj.put("url_giay_chung_nhan", acc.get("UrlGiayChungNhan"));
+            obj.put("loai_hinh_id", acc.get("loai_hinh_id") != null ? acc.get("loai_hinh_id") : 0);
 
             JSONArray docs = new JSONArray();
-            List<Map<String, Object>> docList = jdbcTemplate.queryForList("select * from TBL_KIEMDINH_DOC where KiemdinhID=? and (IsDeleted=0 or IsDeleted is null)", id);
+            List<Map<String, Object>> docList = evidenceJdbcTemplate.queryForList("select * from TBL_KIEMDINH_DOC where KiemdinhID=? and (IsDeleted=0 or IsDeleted is null)", id);
             for (Map<String, Object> doc : docList) {
                 docs.put(new JSONObject().put("id", doc.get("ID")).put("name", doc.get("Name")).put("file_url", doc.get("FileUrl")));
             }
