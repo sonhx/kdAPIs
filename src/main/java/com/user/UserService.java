@@ -56,10 +56,9 @@ public class UserService {
 			JSONObject jsologin = new JSONObject(sReq);
 			loginname = jsologin.getString("user_name");
 			userpass = jsologin.getString("user_password");
-
-			String sql = "select u.*, o.ID as org_id, o.Name as org_name "
-					+ "from dbo.tbl_user u "
-					+ "left join dbo.tbl_org o on o.ID = u.OrgID and (o.IsDeleted IS NULL or o.IsDeleted='0') "
+			
+			//check user's existence
+			String sql = "select u.* from dbo.tbl_user u "
 					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, loginname);
 			
@@ -514,12 +513,11 @@ public class UserService {
 				return "{\"code\":" + 409 + ", \"description\":\"" + "Người dùng với email này đã tồn tại" + "\"}";
 			}
 
-			// Query employee and department
-			String sql = "SELECT TOP 1 e.uName as full_name, d.dept_id " +
-					"FROM employees e " +
-					"LEFT JOIN departments d ON e.uUnit = d.dept_name " +
-					"WHERE e.uEmail = ?";
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, email);
+			// Query personnel and Level 3 department
+			String sql = "SELECT TOP 1 p.fullname as full_name, p.donViL3Id as dept_id " +
+					"FROM personnel p " +
+					"WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, email, email);
 
 			if (rows.isEmpty()) {
 				return "{\"code\":" + 404 + ", \"description\":\"" + "Không tìm thấy nhân viên với email này" + "\"}";
@@ -527,8 +525,7 @@ public class UserService {
 
 			Map<String, Object> empRow = rows.get(0);
 			String fullName = (String) empRow.get("full_name");
-			Integer deptId = (Integer) empRow.get("dept_id");
-			int org_id = (deptId != null) ? deptId : -1;
+			Object deptId = empRow.get("dept_id");
 
 			// Register User
 			String defaultPassword = "123456";
@@ -654,9 +651,7 @@ public class UserService {
 			String email = userInfo.getString("email");
 
 			// Query user with email
-			String sql = "select u.*, o.ID as org_id, o.Name as org_name "
-					+ "from dbo.tbl_user u "
-					+ "left join dbo.tbl_org o on o.ID = u.OrgID and (o.IsDeleted IS NULL or o.IsDeleted='0') "
+			String sql = "select u.* from dbo.tbl_user u "
 					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, email);
 			
@@ -664,12 +659,11 @@ public class UserService {
 			int user_id;
 
 			if (users.isEmpty()) {
-				// User not in TBL_USER. Auto-provision if exists in employees
-				String checkEmpSql = "SELECT TOP 1 e.uName as full_name, d.dept_id " +
-						"FROM employees e " +
-						"LEFT JOIN departments d ON e.uUnit = d.dept_name " +
-						"WHERE e.uEmail = ?";
-				List<Map<String, Object>> empRows = jdbcTemplate.queryForList(checkEmpSql, email);
+				// User not in TBL_USER. Auto-provision if exists in personnel
+				String checkEmpSql = "SELECT TOP 1 p.fullname as full_name, p.donViL3Id as dept_id " +
+						"FROM personnel p " +
+						"WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
+				List<Map<String, Object>> empRows = jdbcTemplate.queryForList(checkEmpSql, email, email);
 
 				if (empRows.isEmpty()) {
 					jout.put("code", 710);
@@ -679,8 +673,7 @@ public class UserService {
 
 				Map<String, Object> empRow = empRows.get(0);
 				String fullName = (String) empRow.get("full_name");
-				Integer deptId = (Integer) empRow.get("dept_id");
-				int org_id = (deptId != null) ? deptId : -1;
+				Object deptId = empRow.get("dept_id");
 
 				// Register default user
 				user_id = userExtend.RegisterUser(fullName, email, "123456", "", 4);
@@ -787,9 +780,7 @@ public class UserService {
 			}
 
 			// Query user with email
-			String sql = "select u.*, o.ID as org_id, o.Name as org_name "
-					+ "from dbo.tbl_user u "
-					+ "left join dbo.tbl_org o on o.ID = u.OrgID and (o.IsDeleted IS NULL or o.IsDeleted='0') "
+			String sql = "select u.* from dbo.tbl_user u "
 					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, email);
 			
@@ -797,12 +788,11 @@ public class UserService {
 			int user_id;
 
 			if (users.isEmpty()) {
-				// User not in TBL_USER. Auto-provision if exists in employees
-				String checkEmpSql = "SELECT TOP 1 e.uName as full_name, d.dept_id " +
-						"FROM employees e " +
-						"LEFT JOIN departments d ON e.uUnit = d.dept_name " +
-						"WHERE e.uEmail = ?";
-				List<Map<String, Object>> empRows = jdbcTemplate.queryForList(checkEmpSql, email);
+				// User not in TBL_USER. Auto-provision if exists in personnel
+				String checkEmpSql = "SELECT TOP 1 p.fullname as full_name, p.donViL3Id as dept_id " +
+						"FROM personnel p " +
+						"WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
+				List<Map<String, Object>> empRows = jdbcTemplate.queryForList(checkEmpSql, email, email);
 
 				if (empRows.isEmpty()) {
 					jout.put("code", 710);
@@ -812,8 +802,7 @@ public class UserService {
 
 				Map<String, Object> empRow = empRows.get(0);
 				String fullName = (String) empRow.get("full_name");
-				Integer deptId = (Integer) empRow.get("dept_id");
-				int org_id = (deptId != null) ? deptId : -1;
+				Object deptId = empRow.get("dept_id");
 
 				// Register default user
 				user_id = userExtend.RegisterUser(fullName, email, "123456", "", 4);

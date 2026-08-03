@@ -35,19 +35,12 @@ public class kpiExtend {
 	 * @return JSONObject with response code and assignment ID
 	 */
 	@Transactional
-	public JSONObject saveAssignment(Integer kpiId, Integer departmentId, String role, Integer assignedBy) {
+	public JSONObject saveAssignment(Integer kpiId, String departmentId, String role, Integer assignedBy) {
 		JSONObject response = new JSONObject();
 		try {
 			if (kpiId == null || kpiId <= 0) {
 				response.put("code", 400);
 				response.put("description", "KPI ID is required and must be greater than 0");
-				return response;
-			}
-			if (departmentId == null || departmentId <= 0) {
-				String deleteSql = "DELETE FROM kpi_assignments WHERE kpi_id = ?";
-				jdbcTemplate.update(deleteSql, kpiId);
-				response.put("code", 200);
-				response.put("description", "Thành công (Đã xóa phân công)");
 				return response;
 			}
 			if (role == null || role.isEmpty()) {
@@ -118,29 +111,33 @@ public class kpiExtend {
 	public JSONArray getKpiDefinitions() {
 		JSONArray jsaDefinitions = new JSONArray();
 		try {
-			// Query KPI definitions from database, excluding deleted KPIs
-			String sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, " +
-					"k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+			// Query KPI definitions from database using exact column names
+			String sql = "SELECT k.kpi_id, k.kpi_code, k.name, k.category, k.unit, k.measurement, k.source, k.cycle, k.target, k.description " +
 					"FROM kpi_definitions k " +
-					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
 					"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
-					"ORDER BY k.kpi_id ASC";
+					"ORDER BY k.kpi_code ASC, k.kpi_id ASC";
 			
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
 			for (Map<String, Object> row : rows) {
 				JSONObject joKpi = new JSONObject();
 				joKpi.put("kpi_id", row.get("kpi_id"));
 				joKpi.put("kpi_code", row.get("kpi_code"));
-				joKpi.put("kpi_name", row.get("kpi_name"));
+				joKpi.put("kpi_name", row.get("name") != null ? row.get("name") : row.get("kpi_code"));
+				joKpi.put("name", row.get("name"));
 				joKpi.put("category", row.get("category"));
+				joKpi.put("category_code", row.get("category"));
 				joKpi.put("unit", row.get("unit"));
 				joKpi.put("measurement", row.get("measurement"));
+				joKpi.put("formula", row.get("measurement"));
 				joKpi.put("source", row.get("source"));
+				joKpi.put("data_source", row.get("source"));
 				joKpi.put("cycle", row.get("cycle"));
-				joKpi.put("weight", row.get("weight") != null ? ((Number) row.get("weight")).doubleValue() : 1.0);
+				joKpi.put("target", row.get("target"));
+				joKpi.put("description", row.get("description"));
 				jsaDefinitions.put(joKpi);
 			}
 		} catch (Exception e) {
+			System.err.println("Error fetching kpi_definitions: " + e.getMessage());
 			e.printStackTrace();
 		}
 		return jsaDefinitions;
@@ -308,59 +305,231 @@ public class kpiExtend {
 	}
 	
 	
+	/**
+	 * Initialize kpi_definition_logs table if not exists.
+	 */
+	public void initKpiDefinitionLogsTable() {
+		try {
+			String sql = 
+				"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'kpi_definition_logs') " +
+				"BEGIN " +
+				"    CREATE TABLE kpi_definition_logs ( " +
+				"        log_id INT IDENTITY(1,1) PRIMARY KEY, " +
+				"        kpi_id INT NOT NULL, " +
+				"        kpi_code NVARCHAR(50), " +
+				"        field_name NVARCHAR(100), " +
+				"        field_label NVARCHAR(100), " +
+				"        old_value NVARCHAR(MAX), " +
+				"        new_value NVARCHAR(MAX), " +
+				"        modified_by NVARCHAR(100), " +
+				"        modified_at DATETIME DEFAULT GETDATE() " +
+				"    ); " +
+				"END";
+			jdbcTemplate.execute(sql);
+		} catch (Exception e) {
+			System.err.println("Error initializing kpi_definition_logs table: " + e.getMessage());
+		}
+	}
+
 	@Transactional
 	public JSONObject editKpiDefinition(int kpiId, String code, String name, String category, String unit, 
-										String formula, String dataSource, String frequency) {
+										String formula, String dataSource, String frequency, String target, String description, String modifiedBy) {
 		JSONObject response = new JSONObject();
 		try {
-			
-			// validate kpi_id
-			if (kpiId<=0) {
+			initKpiDefinitionLogsTable();
+
+			// Validate kpi_id
+			if (kpiId <= 0) {
 				response.put("code", 400);
-				response.put("description", "KPI ID is required and must be greater than 0");
-				return response;
-			}
-						
-			// Check if code already exists
-			String checkSql = "SELECT COUNT(*) as cnt FROM kpi_definitions WHERE code = ?";
-			Integer count = jdbcTemplate.queryForObject(checkSql, new Object[]{code}, Integer.class);
-			if (count != null && count > 0) {
-				response.put("code", 409);
-				response.put("description", "KPI code already exists");
+				response.put("description", "KPI ID không hợp lệ.");
 				return response;
 			}
 
-			// Insert into kpi_definitions table
-			// Build the SQL string
+			// Fetch existing KPI definition
+			List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(
+				"SELECT kpi_id, kpi_code, name, category, unit, measurement, source, description, target " +
+				"FROM kpi_definitions WHERE kpi_id = ?", kpiId
+			);
+
+			if (existingRows.isEmpty()) {
+				response.put("code", 404);
+				response.put("description", "Không tìm thấy định nghĩa KPI.");
+				return response;
+			}
+
+			Map<String, Object> oldData = existingRows.get(0);
+			String currentKpiCode = oldData.get("kpi_code") != null ? oldData.get("kpi_code").toString() : (code != null ? code : "");
+
+			// If code is being changed, verify it doesn't conflict with another KPI
+			if (code != null && !code.trim().isEmpty() && !code.trim().equalsIgnoreCase(currentKpiCode)) {
+				Integer count = jdbcTemplate.queryForObject(
+					"SELECT COUNT(*) FROM kpi_definitions WHERE kpi_code = ? AND kpi_id <> ?",
+					Integer.class, code.trim(), kpiId
+				);
+				if (count != null && count > 0) {
+					response.put("code", 409);
+					response.put("description", "Mã KPI đã tồn tại trên hệ thống.");
+					return response;
+				}
+			}
+
+			String updater = (modifiedBy != null && !modifiedBy.isBlank()) ? modifiedBy.trim() : "Admin";
+
+			// Build UPDATE query and track changed fields
 			StringBuilder sql = new StringBuilder("UPDATE kpi_definitions SET ");
 			List<Object> parameters = new ArrayList<>();
+			List<Map<String, String>> changeLogs = new ArrayList<>();
 
-			if (code != null) { sql.append("code = ?, "); parameters.add(code); }
-			if (name != null) { sql.append("name = ?, "); parameters.add(name); }
-			if (category != null) { sql.append("category = ?, "); parameters.add(category); }
-			if (unit != null) { sql.append("unit = ?, "); parameters.add(unit); }
-			if (formula != null) { sql.append("formula = ?, "); parameters.add(formula); }
-			if (dataSource != null) { sql.append("data_source = ?, "); parameters.add(dataSource); }
-			if (frequency != null) { sql.append("frequency = ?, "); parameters.add(frequency); }
-
-			// Remove the trailing comma and space if at least one field is being updated
-			if (parameters.isEmpty()) {
-			    throw new IllegalArgumentException("No fields provided for update.");
+			// 1. KPI Name (name)
+			if (name != null) {
+				String oldVal = oldData.get("name") != null ? oldData.get("name").toString().trim() : "";
+				String newVal = name.trim();
+				if (!oldVal.equals(newVal)) {
+					sql.append("name = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "name");
+					logItem.put("field_label", "Tên chỉ số KPI");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
 			}
-			sql.setLength(sql.length() - 2); 
 
-			// Append the WHERE clause
+			// 2. Formula / Measurement (measurement)
+			if (formula != null) {
+				String oldVal = oldData.get("measurement") != null ? oldData.get("measurement").toString().trim() : "";
+				String newVal = formula.trim();
+				if (!oldVal.equals(newVal)) {
+					sql.append("measurement = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "measurement");
+					logItem.put("field_label", "Công thức tính toán");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// 3. Data Source (source)
+			if (dataSource != null) {
+				String oldVal = oldData.get("source") != null ? oldData.get("source").toString().trim() : "";
+				String newVal = dataSource.trim();
+				if (!oldVal.equals(newVal)) {
+					sql.append("source = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "source");
+					logItem.put("field_label", "Nguồn dữ liệu");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// 4. Unit (unit)
+			if (unit != null) {
+				String oldVal = oldData.get("unit") != null ? oldData.get("unit").toString().trim() : "";
+				String newVal = unit.trim();
+				if (!oldVal.equals(newVal)) {
+					sql.append("unit = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "unit");
+					logItem.put("field_label", "Đơn vị tính");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// 5. Target (target)
+			if (target != null) {
+				String oldVal = oldData.get("target") != null ? oldData.get("target").toString().trim() : "";
+				String newVal = target.trim();
+				if (!oldVal.equals(newVal)) {
+					sql.append("target = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "target");
+					logItem.put("field_label", "Mục tiêu chỉ số");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// 6. Description (description)
+			if (description != null) {
+				String oldVal = oldData.get("description") != null ? oldData.get("description").toString().trim() : "";
+				String newVal = description.trim();
+				if (!oldVal.equals(newVal)) {
+					sql.append("description = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "description");
+					logItem.put("field_label", "Mô tả chỉ số");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// 7. KPI Code (kpi_code)
+			if (code != null && !code.trim().isEmpty()) {
+				String oldVal = oldData.get("kpi_code") != null ? oldData.get("kpi_code").toString().trim() : "";
+				String newVal = code.trim();
+				if (!oldVal.equalsIgnoreCase(newVal)) {
+					sql.append("kpi_code = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "kpi_code");
+					logItem.put("field_label", "Mã KPI");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// If no fields changed, return success with notice
+			if (changeLogs.isEmpty()) {
+				response.put("code", 200);
+				response.put("description", "Không có thay đổi nào được thực hiện.");
+				return response;
+			}
+
+			// Trim trailing comma and space
+			sql.setLength(sql.length() - 2);
 			sql.append(" WHERE kpi_id = ?");
 			parameters.add(kpiId);
-			
-			// Execute the query
+
 			int rowsAffected = jdbcTemplate.update(sql.toString(), parameters.toArray());
 			if (rowsAffected > 0) {
-				response.put("code", 201);
-				response.put("description", "Thành công");
+				// Insert change log records into kpi_definition_logs
+				String logSql = 
+					"INSERT INTO kpi_definition_logs (kpi_id, kpi_code, field_name, field_label, old_value, new_value, modified_by, modified_at) " +
+					"VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())";
+
+				for (Map<String, String> logItem : changeLogs) {
+					jdbcTemplate.update(
+						logSql,
+						kpiId,
+						currentKpiCode,
+						logItem.get("field_name"),
+						logItem.get("field_label"),
+						logItem.get("old_value"),
+						logItem.get("new_value"),
+						updater
+					);
+				}
+
+				response.put("code", 200);
+				response.put("description", "Cập nhật định nghĩa KPI và ghi lịch sử thay đổi thành công.");
+				response.put("changed_fields_count", changeLogs.size());
 			} else {
 				response.put("code", 500);
-				response.put("description", "Failed to update KPI definition");
+				response.put("description", "Lỗi cập nhật định nghĩa KPI vào cơ sở dữ liệu.");
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -368,6 +537,49 @@ public class kpiExtend {
 			response.put("description", "Database error: " + e.getMessage());
 		}
 		return response;
+	}
+
+	public JSONObject editKpiDefinition(int kpiId, String code, String name, String category, String unit, 
+										String formula, String dataSource, String frequency) {
+		return editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource, frequency, null, null, "Admin");
+	}
+
+	/**
+	 * Get history of changes for a specific KPI definition.
+	 */
+	public JSONArray getKpiDefinitionHistory(int kpiId) {
+		initKpiDefinitionLogsTable();
+		JSONArray historyList = new JSONArray();
+		try {
+			String sql = 
+				"SELECT log_id, kpi_id, kpi_code, field_name, field_label, old_value, new_value, modified_by, modified_at " +
+				"FROM kpi_definition_logs ";
+			
+			List<Object> params = new ArrayList<>();
+			if (kpiId > 0) {
+				sql += "WHERE kpi_id = ? ";
+				params.add(kpiId);
+			}
+			sql += "ORDER BY modified_at DESC, log_id DESC";
+
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, params.toArray());
+			for (Map<String, Object> row : rows) {
+				JSONObject item = new JSONObject();
+				item.put("log_id", row.get("log_id"));
+				item.put("kpi_id", row.get("kpi_id"));
+				item.put("kpi_code", row.get("kpi_code"));
+				item.put("field_name", row.get("field_name"));
+				item.put("field_label", row.get("field_label") != null ? row.get("field_label") : row.get("field_name"));
+				item.put("old_value", row.get("old_value") != null ? row.get("old_value") : "");
+				item.put("new_value", row.get("new_value") != null ? row.get("new_value") : "");
+				item.put("modified_by", row.get("modified_by") != null ? row.get("modified_by") : "Admin");
+				item.put("modified_at", row.get("modified_at") != null ? row.get("modified_at").toString() : "");
+				historyList.put(item);
+			}
+		} catch (Exception e) {
+			System.err.println("Error fetching KPI definition history: " + e.getMessage());
+		}
+		return historyList;
 	}
 
 
@@ -586,8 +798,8 @@ public class kpiExtend {
 			java.util.Date refDate = new java.util.Date();
 
 			// 2. Fetch all KPI assignments
-			String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.dept_name as department_name " +
-							   "FROM kpi_assignments a LEFT JOIN departments o ON a.department_id = o.dept_id";
+			String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name " +
+						   "FROM kpi_assignments a LEFT JOIN orgs o ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL)";
 			List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql);
 
 			// Group assignments by kpi_id
@@ -787,7 +999,7 @@ public class kpiExtend {
 	        // 3. Fetch integrated KPI data points (Now contains actual, target, and normalized_score combined)
 	        String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, dp.target_value, dp.normalized_score, " +
 	                       "dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, " +
-	                       "dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
+	                       "dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code, pi.start_date, pi.end_date " +
 	                       "FROM kpi_data_points dp " +
 	                       "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
 	                       "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
@@ -803,6 +1015,8 @@ public class kpiExtend {
 	                joDp.put("data_id", row.get("data_id"));
 	                joDp.put("period_id", row.get("period_id"));
 	                joDp.put("period", row.get("period_code") != null ? row.get("period_code") : row.get("period_id"));
+	                joDp.put("start_date", row.get("start_date") != null ? row.get("start_date").toString() : JSONObject.NULL);
+	                joDp.put("end_date", row.get("end_date") != null ? row.get("end_date").toString() : JSONObject.NULL);
 	                joDp.put("actual_value", row.get("actual_value") != null ? ((Number) row.get("actual_value")).doubleValue() : JSONObject.NULL);
 	                
 	                Object targetObj = row.get("target");

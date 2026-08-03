@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.util.List;
+import java.util.Map;
 import com.kpi.kpiExtend;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,7 +23,7 @@ class KdApIsApplicationTests {
 		System.out.println("--- START TEST: testGetKpisWithAssignments ---");
 		
 		// Setup/Ensure KPI 5 is assigned to department 1 for testing
-		JSONObject saveResponse = kpiExtend.saveAssignment(5, 1, "A", 10000000);
+		JSONObject saveResponse = kpiExtend.saveAssignment(5, "1", "A", 10000000);
 		assertNotNull(saveResponse);
 		assertEquals(200, saveResponse.optInt("code"));
 
@@ -104,5 +106,19 @@ class KdApIsApplicationTests {
 		}
 		
 		System.out.println("--- END TEST: testGetVertexDataByCategory (SUCCESS) ---");
+	}
+
+	@Autowired
+	private com.kpi.KpiN308CalculationService kpiN308CalculationService;
+
+	@Test
+	void testKpiN308Calculation() {
+		System.out.println("--- START TEST: testKpiN308Calculation ---");
+		JSONObject result = kpiN308CalculationService.calculateAndSaveN308(null);
+		assertNotNull(result);
+		assertEquals("SUCCESS", result.optString("status"));
+		assertTrue(result.has("actual_value"));
+		assertTrue(result.has("notes"));
+		System.out.println("--- END TEST: testKpiN308Calculation (SUCCESS) ---");
 	}
 }

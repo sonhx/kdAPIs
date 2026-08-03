@@ -36,6 +36,21 @@ public class kpiServices {
 	@Autowired
 	private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
+	@Autowired
+	private KpiN306CalculationService kpiN306CalculationService;
+
+	@Autowired
+	private KpiN303CalculationService kpiN303CalculationService;
+
+	@Autowired
+	private KpiN308CalculationService kpiN308CalculationService;
+
+	@Autowired
+	private KpiG205CalculationService kpiG205CalculationService;
+
+	@Autowired
+	private KpiG201CalculationService kpiG201CalculationService;
+
 	// TODO change table name departments as it does not exist in the database
 	private Integer resolveKpiId(String kpiCode) {
 		if (kpiCode == null || kpiCode.isEmpty())
@@ -50,34 +65,30 @@ public class kpiServices {
 		return null;
 	}
 
-	private Integer resolveDepartmentId(String name) {
+	private String resolveDepartmentId(String name) {
 		if (name == null || name.trim().isEmpty())
 			return null;
 		try {
+			// Exact match on orgs table
 			return jdbcTemplate.queryForObject(
-					"SELECT TOP 1 ID FROM TBL_ORG WHERE Name = ? AND (IsDeleted is null or IsDeleted='0')",
-					Integer.class, name.trim());
+					"SELECT TOP 1 id FROM orgs WHERE ten = ? AND (IsDeleted = 0 OR IsDeleted IS NULL)",
+					String.class, name.trim());
 		} catch (Exception e) {
 			try {
+				// Fuzzy match on orgs table
 				return jdbcTemplate.queryForObject(
-						"SELECT TOP 1 ID FROM TBL_ORG WHERE Name LIKE ? AND (IsDeleted is null or IsDeleted='0') ORDER BY ID ASC",
-						Integer.class, "%" + name.trim() + "%");
+						"SELECT TOP 1 id FROM orgs WHERE ten LIKE ? AND (IsDeleted = 0 OR IsDeleted IS NULL) ORDER BY level ASC, ten ASC",
+						String.class, "%" + name.trim() + "%");
 			} catch (Exception ex) {
-				String lowerName = name.toLowerCase().trim();
-				if (lowerName.contains("khảo thí") || lowerName.contains("đbclgd")
-						|| lowerName.contains("đảm bảo chất lượng")
-						|| lowerName.contains("kt&dbclgd")) {
-					return 1;
-				} else if (lowerName.contains("đào tạo") || lowerName.contains("khoa") || lowerName.contains("viện")
-						|| lowerName.contains("cơ bản")) {
-					return 2;
-				} else if (lowerName.contains("ctsv") || lowerName.contains("sinh viên")
-						|| lowerName.contains("chính trị")) {
-					return 3;
-				} else if (lowerName.contains("văn phòng học viện") || lowerName.contains("vp học viện")) {
-					return 4;
+				try {
+					// Try matching by abbreviation (tenVietTat)
+					return jdbcTemplate.queryForObject(
+							"SELECT TOP 1 id FROM orgs WHERE tenVietTat LIKE ? AND (IsDeleted = 0 OR IsDeleted IS NULL) ORDER BY level ASC",
+							String.class, "%" + name.trim() + "%");
+				} catch (Exception ex2) {
+					System.err.println("Could not resolve department ID for name: " + name);
+					return null;
 				}
-				return 4;
 			}
 		}
 	}
@@ -367,13 +378,13 @@ public class kpiServices {
 							Integer kpiId = addResult.getInt("kpi_id");
 							// Assignments
 							if (departmentInCharge != null && !departmentInCharge.trim().isEmpty()) {
-								Integer deptId = resolveDepartmentId(departmentInCharge);
+								String deptId = resolveDepartmentId(departmentInCharge);
 								if (deptId != null) {
 									kpiExtend.saveAssignment(kpiId, deptId, "A", 10000000);
 								}
 							}
 							if (approveBody != null && !approveBody.trim().isEmpty()) {
-								Integer deptId = resolveDepartmentId(approveBody);
+								String deptId = resolveDepartmentId(approveBody);
 								if (deptId != null) {
 									kpiExtend.saveAssignment(kpiId, deptId, "B", 10000000);
 								}
@@ -463,29 +474,57 @@ public class kpiServices {
 
 			// Extract parameters
 			int kpiId = jin.has("kpi_id") ? jin.getInt("kpi_id") : 0;
-			String code = jin.has("code") ? jin.getString("code").trim() : null;
-			String name = jin.has("name") ? jin.getString("name").trim() : null;
-			String category = jin.has("category") ? jin.getString("category").trim() : null;
+			String code = jin.has("code") ? jin.getString("code").trim() : (jin.has("kpi_code") ? jin.getString("kpi_code").trim() : null);
+			String name = jin.has("name") ? jin.getString("name").trim() : (jin.has("kpi_name") ? jin.getString("kpi_name").trim() : null);
+			String category = jin.has("category") ? jin.getString("category").trim() : (jin.has("category_code") ? jin.getString("category_code").trim() : null);
 			String unit = jin.has("unit") ? jin.getString("unit").trim() : null;
-			String formula = jin.has("formula") ? jin.getString("formula").trim() : null;
-			String dataSource = jin.has("data_source") ? jin.getString("data_source").trim() : null;
-			String frequency = jin.has("frequency") ? jin.getString("frequency").trim() : null;
+			String formula = jin.has("formula") ? jin.getString("formula").trim() : (jin.has("measurement") ? jin.getString("measurement").trim() : null);
+			String dataSource = jin.has("data_source") ? jin.getString("data_source").trim() : (jin.has("source") ? jin.getString("source").trim() : null);
+			String frequency = jin.has("frequency") ? jin.getString("frequency").trim() : (jin.has("cycle") ? jin.getString("cycle").trim() : null);
+			String target = jin.has("target") ? jin.getString("target").trim() : null;
+			String description = jin.has("description") ? jin.getString("description").trim() : null;
+			String modifiedBy = jin.has("modified_by") ? jin.getString("modified_by").trim() : (jin.has("user_email") ? jin.getString("user_email").trim() : "Admin");
 
-			// Call service to add KPI definition
+			// Call service to update KPI definition with change auditing
 			JSONObject editResult = kpiExtend.editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource,
-					frequency);
+					frequency, target, description, modifiedBy);
 
 			jout.put("code", editResult.getInt("code"));
 			jout.put("description", editResult.getString("description"));
+			if (editResult.has("changed_fields_count")) {
+				jout.put("changed_fields_count", editResult.getInt("changed_fields_count"));
+			}
 
 		} catch (JSONException e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số?" + e + "\"}";
+			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e + "\"}";
 		} catch (Exception e) {
 			e.printStackTrace();
 			return "{\"code\":" + 500 + ", \"description\":\"" + "Server error: " + e.getMessage() + "\"}";
 		}
 		System.out.println("RES(editKpiDefinition):" + jout.toString());
+		return jout.toString();
+	}
+
+	/**
+	 * GET /kpi/definition/history/{kpiId} or GET /kpi/definition/history
+	 */
+	@GetMapping(value = {"/definition/history/{kpiId}", "/definition/history"})
+	public String getKpiDefinitionHistory(@PathVariable(required = false) Integer kpiId,
+	                                      @RequestParam(required = false) Integer kpi_id) {
+		int targetKpiId = kpiId != null ? kpiId : (kpi_id != null ? kpi_id : 0);
+		System.out.println("-------getKpiDefinitionHistory for kpiId: " + targetKpiId);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONArray history = kpiExtend.getKpiDefinitionHistory(targetKpiId);
+			jout.put("code", 200);
+			jout.put("description", "Thành công");
+			jout.put("history", history);
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi lấy lịch sử chỉnh sửa KPI: " + e.getMessage());
+		}
 		return jout.toString();
 	}
 
@@ -545,14 +584,8 @@ public class kpiServices {
 					kpiId = assignment.getInt("kpi_id");
 				}
 
-				Integer departmentId = null;
-				if (assignment.has("departmentName")) {
-					departmentId = resolveDepartmentId(assignment.getString("departmentName"));
-				}
-				if (departmentId == null && assignment.has("department_id")) {
-					departmentId = assignment.getInt("department_id");
-				}
-
+				String departmentId = assignment.getString("department_id");
+				
 				String role = assignment.has("role") ? assignment.getString("role") : "A";
 				Integer assignedBy = 10000000;
 
@@ -995,4 +1028,54 @@ public class kpiServices {
 		System.out.println("RES(getKpiValueHistory):" + jout.toString());
 		return jout.toString();
 	}
-}
+
+	/**
+	 * POST / GET /kpi/calculate/n306 - Manually trigger calculation for KPI N3.06
+	 */
+	@RequestMapping(value = {"/calculate/n306", "/calculate-n306"})
+	public String calculateN306() {
+		System.out.println("-------calculateN306 requested");
+		JSONObject result = kpiN306CalculationService.calculateAndSaveN306(null);
+		return result.toString();
+	}
+
+	/**
+	 * POST / GET /kpi/calculate/n308 - Manually trigger calculation for KPI N3.08
+	 */
+	@RequestMapping(value = {"/calculate/n308", "/calculate-n308"})
+	public String calculateN308() {
+		System.out.println("-------calculateN308 requested");
+		JSONObject result = kpiN308CalculationService.calculateAndSaveN308(null);
+		return result.toString();
+	}
+
+	/**
+	 * POST / GET /kpi/calculate/g205 - Manually trigger calculation for KPI G2.05
+	 */
+	@RequestMapping(value = {"/calculate/g205", "/calculate-g205", "/calculate/g2.05"})
+	public String calculateG205() {
+		System.out.println("-------calculateG205 requested");
+		JSONObject result = kpiG205CalculationService.calculateAndSaveG205(null);
+		return result.toString();
+	}
+
+	/**
+	 * POST / GET /kpi/calculate/n303 - Manually trigger calculation for KPI N3.03
+	 */
+	@RequestMapping(value = {"/calculate/n303", "/calculate-n303", "/calculate/n3.03"})
+	public String calculateN303() {
+		System.out.println("-------calculateN303 requested");
+		JSONObject result = kpiN303CalculationService.calculateAndSaveN303(null);
+		return result.toString();
+	}
+
+	/**
+	 * POST / GET /kpi/calculate/g201 - Manually trigger calculation for KPI G2.01
+	 */
+	@RequestMapping(value = {"/calculate/g201", "/calculate-g201", "/calculate/g2.01"})
+	public String calculateG201() {
+		System.out.println("-------calculateG201 requested");
+		JSONObject result = kpiG201CalculationService.calculateAndSaveG201(null);
+		return result.toString();
+	}
+}

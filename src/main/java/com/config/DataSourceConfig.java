@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import com.zaxxer.hikari.HikariDataSource;
 
 @Configuration
@@ -41,5 +43,16 @@ public class DataSourceConfig {
     @Bean(name = "evidenceJdbcTemplate")
     public JdbcTemplate evidenceJdbcTemplate(@Qualifier("evidenceDataSource") DataSource dataSource) {
         return new JdbcTemplate(dataSource);
+    }
+
+    @Primary
+    @Bean(name = "transactionManager")
+    public PlatformTransactionManager transactionManager(@Qualifier("dataSource") DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+
+    @Bean(name = "evidenceTransactionManager")
+    public PlatformTransactionManager evidenceTransactionManager(@Qualifier("evidenceDataSource") DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
     }
 }
