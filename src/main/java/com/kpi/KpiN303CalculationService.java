@@ -54,12 +54,14 @@ public class KpiN303CalculationService {
      */
     @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
     public void onApplicationReady() {
-        try {
-            log.info("Triggering initial calculation for KPI N3.03 on application startup...");
-            calculateAndSaveN303(null);
-        } catch (Exception e) {
-            log.error("Failed to calculate KPI N3.03 on startup", e);
-        }
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                log.info("Triggering initial calculation for KPI N3.03 on application startup...");
+                calculateAndSaveN303(null);
+            } catch (Exception e) {
+                log.error("Failed to calculate KPI N3.03 on startup", e);
+            }
+        });
     }
 
     /**
@@ -83,7 +85,6 @@ public class KpiN303CalculationService {
      * @param referenceDate Optional date reference for target period (defaults to current date if null).
      * @return JSONObject containing status, totalWorks, scopusWosWorks, actualValue, notes, etc.
      */
-    @Transactional
     public JSONObject calculateAndSaveN303(Date referenceDate) {
         JSONObject result = new JSONObject();
         try {

@@ -342,6 +342,14 @@ public class kpiServices {
 				return jout.toString();
 			}
 
+			String assignedBy = "10000000";
+			if (sessionId != null && !sessionId.trim().isEmpty()) {
+				struct_session sst = sessionService.getSessionInfo(sessionId.trim());
+				if (sst != null) {
+					assignedBy = String.valueOf(sst.UserID);
+				}
+			}
+
 			// We will parse the file using Apache POI
 			int successCount = 0;
 			int errorCount = 0;
@@ -380,13 +388,13 @@ public class kpiServices {
 							if (departmentInCharge != null && !departmentInCharge.trim().isEmpty()) {
 								String deptId = resolveDepartmentId(departmentInCharge);
 								if (deptId != null) {
-									kpiExtend.saveAssignment(kpiId, deptId, "A", 10000000);
+									kpiExtend.saveAssignment(kpiId, deptId, "A", assignedBy);
 								}
 							}
 							if (approveBody != null && !approveBody.trim().isEmpty()) {
 								String deptId = resolveDepartmentId(approveBody);
 								if (deptId != null) {
-									kpiExtend.saveAssignment(kpiId, deptId, "B", 10000000);
+									kpiExtend.saveAssignment(kpiId, deptId, "B", assignedBy);
 								}
 							}
 						} else {
@@ -584,10 +592,17 @@ public class kpiServices {
 					kpiId = assignment.getInt("kpi_id");
 				}
 
-				String departmentId = assignment.getString("department_id");
-				
-				String role = assignment.has("role") ? assignment.getString("role") : "A";
-				Integer assignedBy = 10000000;
+				String departmentId = assignment.isNull("department_id") ? null : assignment.optString("department_id", null);
+
+				String role = assignment.optString("role", "A");
+				String rawAssignedBy = null;
+				if (assignment.has("assigned_by") && !assignment.isNull("assigned_by"))
+					rawAssignedBy = assignment.get("assigned_by").toString().trim();
+				else if (assignment.has("assignedBy") && !assignment.isNull("assignedBy"))
+					rawAssignedBy = assignment.get("assignedBy").toString().trim();
+				else if (assignment.has("user_id") && !assignment.isNull("user_id"))
+					rawAssignedBy = assignment.get("user_id").toString().trim();
+				String assignedBy = (rawAssignedBy == null || rawAssignedBy.isEmpty() || rawAssignedBy.equals("null")) ? "" : rawAssignedBy;
 
 				if (kpiId != null) {
 					System.out.println("Saving/Deleting assignment: kpiId=" + kpiId + ", departmentId=" + departmentId
@@ -918,7 +933,7 @@ public class kpiServices {
 			JSONObject jin = new JSONObject(sReq);
 			String sessionId = jin.getString("session_id");
 			int kpiId = jin.getInt("kpi_id");
-			Integer deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.getInt("department_id")
+			String deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.get("department_id").toString()
 					: null;
 			double actualValue = jin.getDouble("actual_value");
 			String notes = jin.has("notes") && !jin.isNull("notes") ? jin.getString("notes") : "";
@@ -1077,5 +1092,53 @@ public class kpiServices {
 		System.out.println("-------calculateG201 requested");
 		JSONObject result = kpiG201CalculationService.calculateAndSaveG201(null);
 		return result.toString();
+	}
+
+	@PostMapping("/approve")
+	public String approveKpiData(@RequestBody String sReq) {
+		System.out.println("-------approveKpiData:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+			String sessionId = jin.optString("session_id", "");
+			int kpiId = jin.getInt("kpi_id");
+			String deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.get("department_id").toString() : null;
+
+			struct_session sst = sessionService.getSessionInfo(sessionId);
+			String userId = sst != null ? String.valueOf(sst.UserID) : "system";
+
+			JSONObject result = kpiExtend.approveKpiData(kpiId, deptId, userId);
+			jout.put("code", result.getInt("code"));
+			jout.put("description", result.getString("description"));
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi phê duyệt: " + e.getMessage());
+		}
+		return jout.toString();
+	}
+
+	@PostMapping("/unapprove")
+	public String unapproveKpiData(@RequestBody String sReq) {
+		System.out.println("-------unapproveKpiData:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+			String sessionId = jin.optString("session_id", "");
+			int kpiId = jin.getInt("kpi_id");
+			String deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.get("department_id").toString() : null;
+
+			struct_session sst = sessionService.getSessionInfo(sessionId);
+			String userId = sst != null ? String.valueOf(sst.UserID) : "system";
+
+			JSONObject result = kpiExtend.unapproveKpiData(kpiId, deptId, userId);
+			jout.put("code", result.getInt("code"));
+			jout.put("description", result.getString("description"));
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi hủy phê duyệt: " + e.getMessage());
+		}
+		return jout.toString();
 	}
 }

@@ -32,29 +32,18 @@ public class EmployeeSyncScheduler {
 
 	@jakarta.annotation.PostConstruct
 	public void init() {
+		// Startup sync disabled per deployment requirements
+		/*
 		new Thread(() -> {
 			try {
 				Thread.sleep(5000); // Wait 5 seconds for app to fully boot
-				System.out.println("Checking database schema types...");
-				try {
-					List<Map<String, Object>> columns = jdbcTemplate.queryForList(
-						"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH " +
-						"FROM INFORMATION_SCHEMA.COLUMNS " +
-						"WHERE (TABLE_NAME = 'employees' AND COLUMN_NAME = 'uName') " +
-						"   OR (TABLE_NAME = 'TBL_USER' AND COLUMN_NAME = 'FullName')"
-					);
-					for (Map<String, Object> col : columns) {
-						System.out.println("SCHEMA DIAGNOSTIC: " + col.get("TABLE_NAME") + "." + col.get("COLUMN_NAME") + " -> " + col.get("DATA_TYPE") + "(" + col.get("CHARACTER_MAXIMUM_LENGTH") + ")");
-					}
-				} catch (Exception ex) {
-					System.err.println("Schema check failed: " + ex.getMessage());
-				}
 				System.out.println("Triggering initial employee sync on startup...");
 				syncEmployeesMonthly();
 			} catch (Exception e) {
 				e.printStackTrace();
 			}
 		}).start();
+		*/
 	}
 
 	@Scheduled(cron = "0 0 0 1 * ?") // Runs at midnight on the 1st of every month

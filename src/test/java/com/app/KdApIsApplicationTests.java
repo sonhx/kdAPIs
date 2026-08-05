@@ -23,7 +23,7 @@ class KdApIsApplicationTests {
 		System.out.println("--- START TEST: testGetKpisWithAssignments ---");
 		
 		// Setup/Ensure KPI 5 is assigned to department 1 for testing
-		JSONObject saveResponse = kpiExtend.saveAssignment(5, "1", "A", 10000000);
+		JSONObject saveResponse = kpiExtend.saveAssignment(5, "1", "A", "10000000");
 		assertNotNull(saveResponse);
 		assertEquals(200, saveResponse.optInt("code"));
 

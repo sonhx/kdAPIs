@@ -41,119 +41,113 @@ public class OpenAlexService {
     @PostConstruct
     public void initDatabaseTables() {
         try {
-            logger.info("Initializing OpenAlex Database Tables (unified lowercase without TBL_ prefix)...");
+            logger.info("Initializing OpenAlex Database Tables...");
 
-            // 1. openalex_institution_stats
-            jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_institution_stats') " +
-                    "BEGIN " +
-                    "CREATE TABLE openalex_institution_stats (" +
-                    "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                    "    institution_id NVARCHAR(100)," +
-                    "    display_name NVARCHAR(255)," +
-                    "    works_count INT," +
-                    "    cited_by_count INT," +
-                    "    h_index INT," +
-                    "    i10_index INT," +
-                    "    mean_citedness_2yr FLOAT," +
-                    "    ror NVARCHAR(255)," +
-                    "    homepage_url NVARCHAR(255)," +
-                    "    last_updated DATETIME DEFAULT GETDATE()" +
-                    "); " +
-                    "END");
+            // Batch all DDL into a single connection to avoid HikariCP leak-detection warnings
+            jdbcTemplate.execute(
+                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_institution_stats') " +
+                "CREATE TABLE openalex_institution_stats (" +
+                "    id INT IDENTITY(1,1) PRIMARY KEY," +
+                "    institution_id NVARCHAR(100)," +
+                "    display_name NVARCHAR(255)," +
+                "    works_count INT," +
+                "    cited_by_count INT," +
+                "    h_index INT," +
+                "    i10_index INT," +
+                "    mean_citedness_2yr FLOAT," +
+                "    ror NVARCHAR(255)," +
+                "    homepage_url NVARCHAR(255)," +
+                "    last_updated DATETIME DEFAULT GETDATE()" +
+                ");"
+            );
 
-            // 2. openalex_yearly_stats
-            jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_yearly_stats') " +
-                    "BEGIN " +
-                    "CREATE TABLE openalex_yearly_stats (" +
-                    "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                    "    institution_id NVARCHAR(100)," +
-                    "    year INT," +
-                    "    works_count INT," +
-                    "    oa_works_count INT," +
-                    "    cited_by_count INT," +
-                    "    last_updated DATETIME DEFAULT GETDATE()" +
-                    "); " +
-                    "END");
+            jdbcTemplate.execute(
+                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_yearly_stats') " +
+                "CREATE TABLE openalex_yearly_stats (" +
+                "    id INT IDENTITY(1,1) PRIMARY KEY," +
+                "    institution_id NVARCHAR(100)," +
+                "    year INT," +
+                "    works_count INT," +
+                "    oa_works_count INT," +
+                "    cited_by_count INT," +
+                "    last_updated DATETIME DEFAULT GETDATE()" +
+                ");"
+            );
 
-            // 3. openalex_authors
-            jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_authors') " +
-                    "BEGIN " +
-                    "CREATE TABLE openalex_authors (" +
-                    "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                    "    author_id NVARCHAR(100)," +
-                    "    display_name NVARCHAR(255)," +
-                    "    orcid NVARCHAR(255)," +
-                    "    works_count INT," +
-                    "    cited_by_count INT," +
-                    "    h_index INT," +
-                    "    i10_index INT," +
-                    "    mean_citedness_2yr FLOAT," +
-                    "    last_known_institution NVARCHAR(255)," +
-                    "    works_api_url NVARCHAR(500)," +
-                    "    last_updated DATETIME DEFAULT GETDATE()" +
-                    "); " +
-                    "END");
+            jdbcTemplate.execute(
+                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_authors') " +
+                "CREATE TABLE openalex_authors (" +
+                "    id INT IDENTITY(1,1) PRIMARY KEY," +
+                "    author_id NVARCHAR(100)," +
+                "    display_name NVARCHAR(255)," +
+                "    orcid NVARCHAR(255)," +
+                "    works_count INT," +
+                "    cited_by_count INT," +
+                "    h_index INT," +
+                "    i10_index INT," +
+                "    mean_citedness_2yr FLOAT," +
+                "    last_known_institution NVARCHAR(255)," +
+                "    works_api_url NVARCHAR(500)," +
+                "    last_updated DATETIME DEFAULT GETDATE()" +
+                ");"
+            );
 
-            // 4. openalex_topics
-            jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_topics') " +
-                    "BEGIN " +
-                    "CREATE TABLE openalex_topics (" +
-                    "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                    "    institution_id NVARCHAR(100)," +
-                    "    topic_id NVARCHAR(100)," +
-                    "    display_name NVARCHAR(255)," +
-                    "    works_count INT," +
-                    "    subfield NVARCHAR(255)," +
-                    "    field NVARCHAR(255)," +
-                    "    domain NVARCHAR(255)," +
-                    "    last_updated DATETIME DEFAULT GETDATE()" +
-                    "); " +
-                    "END");
+            jdbcTemplate.execute(
+                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_topics') " +
+                "CREATE TABLE openalex_topics (" +
+                "    id INT IDENTITY(1,1) PRIMARY KEY," +
+                "    institution_id NVARCHAR(100)," +
+                "    topic_id NVARCHAR(100)," +
+                "    display_name NVARCHAR(255)," +
+                "    works_count INT," +
+                "    subfield NVARCHAR(255)," +
+                "    field NVARCHAR(255)," +
+                "    domain NVARCHAR(255)," +
+                "    last_updated DATETIME DEFAULT GETDATE()" +
+                ");"
+            );
 
-            // 5. openalex_area_stats (statistics by area / field / subfield / topic)
-            jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_area_stats') " +
-                    "BEGIN " +
-                    "CREATE TABLE openalex_area_stats (" +
-                    "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                    "    institution_id NVARCHAR(100)," +
-                    "    field_name NVARCHAR(255)," +
-                    "    subfield_name NVARCHAR(255)," +
-                    "    topic_name NVARCHAR(255)," +
-                    "    works_count INT," +
-                    "    total_citations INT," +
-                    "    avg_citations FLOAT," +
-                    "    last_updated DATETIME DEFAULT GETDATE()" +
-                    "); " +
-                    "END");
+            jdbcTemplate.execute(
+                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_area_stats') " +
+                "CREATE TABLE openalex_area_stats (" +
+                "    id INT IDENTITY(1,1) PRIMARY KEY," +
+                "    institution_id NVARCHAR(100)," +
+                "    field_name NVARCHAR(255)," +
+                "    subfield_name NVARCHAR(255)," +
+                "    topic_name NVARCHAR(255)," +
+                "    works_count INT," +
+                "    total_citations INT," +
+                "    avg_citations FLOAT," +
+                "    last_updated DATETIME DEFAULT GETDATE()" +
+                ");"
+            );
 
-            // 6. openalex_works (detailed list of papers)
-            jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_works') " +
-                    "BEGIN " +
-                    "CREATE TABLE openalex_works (" +
-                    "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                    "    openalex_work_id NVARCHAR(255) UNIQUE," +
-                    "    title NVARCHAR(1000)," +
-                    "    authors NVARCHAR(MAX)," +
-                    "    publication_year INT," +
-                    "    journal_source NVARCHAR(500)," +
-                    "    citations_count INT," +
-                    "    field_name NVARCHAR(255)," +
-                    "    subfield_name NVARCHAR(255)," +
-                    "    topic_name NVARCHAR(255)," +
-                    "    doi NVARCHAR(500)," +
-                    "    issn_clean VARCHAR(8) NULL," +
-                    "    institution_id NVARCHAR(100)," +
-                    "    last_updated DATETIME DEFAULT GETDATE()" +
-                    "); " +
-                    "END");
+            jdbcTemplate.execute(
+                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_works') " +
+                "CREATE TABLE openalex_works (" +
+                "    id INT IDENTITY(1,1) PRIMARY KEY," +
+                "    openalex_work_id NVARCHAR(255) UNIQUE," +
+                "    title NVARCHAR(1000)," +
+                "    authors NVARCHAR(MAX)," +
+                "    publication_year INT," +
+                "    journal_source NVARCHAR(500)," +
+                "    citations_count INT," +
+                "    field_name NVARCHAR(255)," +
+                "    subfield_name NVARCHAR(255)," +
+                "    topic_name NVARCHAR(255)," +
+                "    doi NVARCHAR(500)," +
+                "    issn_clean VARCHAR(8) NULL," +
+                "    institution_id NVARCHAR(100)," +
+                "    last_updated DATETIME DEFAULT GETDATE()" +
+                ");"
+            );
 
-            // Migration: Alter openalex_works to add issn_clean if it does not exist
-            try {
-                jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('openalex_works') AND name = 'issn_clean') " +
-                        "ALTER TABLE openalex_works ADD issn_clean VARCHAR(8) NULL;");
-            } catch (Exception e) {
-                logger.error("Error altering openalex_works to add issn_clean: {}", e.getMessage());
-            }
+            // Migration: add issn_clean column if missing (idempotent)
+            jdbcTemplate.execute(
+                "IF EXISTS (SELECT * FROM sys.tables WHERE name = 'openalex_works') " +
+                "AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('openalex_works') AND name = 'issn_clean') " +
+                "ALTER TABLE openalex_works ADD issn_clean VARCHAR(8) NULL;"
+            );
 
             logger.info("OpenAlex Database Tables initialized successfully.");
         } catch (Exception e) {

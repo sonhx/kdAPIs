@@ -428,8 +428,20 @@ public class UserService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Người sử dụng chưa đăng nhập" + "\"}";
 
-			String sql = "select * from TBL_USER where (IsDeleted is null or IsDeleted='0')";
+			String sql = 
+				"SELECT u.ID, u.Fullname, u.Email, u.Mobile, u.Avatar, u.Type, u.OrgID, " +
+				"       COALESCE(p.donViL3Id, p.donViChinhId) AS dept_id, " +
+				"       COALESCE(o3.ten, oChinh.ten) AS dept_name, " +
+				"       COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
+				"FROM TBL_USER u " +
+				"LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 " +
+				"LEFT JOIN orgs o3 ON o3.id = p.donViL3Id " +
+				"LEFT JOIN orgs oChinh ON oChinh.id = p.donViChinhId " +
+				"WHERE (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
+
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
+
+			java.util.Set<String> existingEmails = new java.util.HashSet<>();
 
 			for (Map<String, Object> row : rows) {
 				Object typeVal = row.get("Type");
@@ -437,7 +449,10 @@ public class UserService {
 				JSONObject obj = new JSONObject();
 				obj.put("id", row.get("ID"));
 				obj.put("full_name", row.get("Fullname"));
-				obj.put("email", row.get("Email"));
+				String email = row.get("Email") != null ? row.get("Email").toString().trim() : "";
+				obj.put("email", email);
+				if (!email.isEmpty()) existingEmails.add(email.toLowerCase());
+
 				obj.put("mobile", row.get("Mobile"));
 				obj.put("avatar", row.get("Avatar"));
 				obj.put("type", type);
@@ -448,26 +463,55 @@ public class UserService {
 				else if (type == 3) obj.put("type_name", "Giám sát");
 				else obj.put("type_name", "Unknown(" + type + ")");
 
-				int uId = ((Number) row.get("ID")).intValue();
-				JSONObject deptInfo = userExtend.getUserDepartmentInfo(uId);
-				
-				//System.out.println("User ID: " + uId + ", Department Info: " + deptInfo.toString());
-				
-				if (deptInfo.has("dept_id")) {
-					obj.put("org_id", deptInfo.get("dept_id"));
-					obj.put("org_name", deptInfo.get("dept_name"));
-					obj.put("dept_id", deptInfo.get("dept_id"));
-					obj.put("dept_name", deptInfo.get("dept_name"));
-					if (deptInfo.has("dept_code")) {
-						obj.put("dept_code", deptInfo.get("dept_code"));
+				Object deptId = row.get("dept_id");
+				Object deptName = row.get("dept_name");
+				Object deptCode = row.get("dept_code");
+
+				if (deptId != null && deptName != null) {
+					obj.put("org_id", deptId);
+					obj.put("org_name", deptName);
+					obj.put("dept_id", deptId);
+					obj.put("dept_name", deptName);
+					if (deptCode != null && !deptCode.toString().isEmpty()) {
+						obj.put("dept_code", deptCode);
 					}
 				} else {
 					Object orgIdVal = row.get("OrgID");
 					int orgId = orgIdVal != null ? ((Number) orgIdVal).intValue() : -1;
 					obj.put("org_id", orgId);
-					obj.put("org_name", orgId != -1 ? userExtend.fn_org_name(orgId) : "N/A");
+					obj.put("org_name", "N/A");
 				}
 				jaout.put(obj);
+			}
+
+			// Include additional personnel from 'personnel' table
+			try {
+				String pSql = "SELECT p.id, p.fullname, COALESCE(NULLIF(p.emailCanBo, ''), p.email) as email, " +
+							  "o.ten as dept_name, o.id as dept_id " +
+							  "FROM personnel p " +
+							  "LEFT JOIN orgs o ON p.donViL3Id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
+							  "WHERE p.isDeleted = 0";
+				List<Map<String, Object>> pRows = jdbcTemplate.queryForList(pSql);
+				for (Map<String, Object> pRow : pRows) {
+					String pEmail = pRow.get("email") != null ? pRow.get("email").toString().trim() : "";
+					if (pEmail.isEmpty() || existingEmails.contains(pEmail.toLowerCase())) {
+						continue; // Skip if already present in TBL_USER
+					}
+					JSONObject obj = new JSONObject();
+					obj.put("id", pRow.get("id")); // String ID from personnel
+					obj.put("full_name", pRow.get("fullname"));
+					obj.put("email", pEmail);
+					obj.put("mobile", "");
+					obj.put("type", 4);
+					obj.put("type_name", "Cán bộ (Personnel)");
+					obj.put("org_id", pRow.get("dept_id") != null ? pRow.get("dept_id") : JSONObject.NULL);
+					obj.put("org_name", pRow.get("dept_name") != null ? pRow.get("dept_name") : JSONObject.NULL);
+					obj.put("dept_id", pRow.get("dept_id") != null ? pRow.get("dept_id") : JSONObject.NULL);
+					obj.put("dept_name", pRow.get("dept_name") != null ? pRow.get("dept_name") : JSONObject.NULL);
+					jaout.put(obj);
+				}
+			} catch (Exception ex) {
+				System.err.println("Warning: Could not fetch additional personnel table records: " + ex.getMessage());
 			}
 
 			jout.put("user_list", jaout);

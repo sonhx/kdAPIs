@@ -83,7 +83,8 @@ public class PersonnelSyncScheduler {
 
             log.info("'personnel' table initialized successfully.");
 
-            // Trigger startup sync in background thread
+            // Startup sync disabled per deployment requirements
+            /*
             new Thread(() -> {
                 try {
                     Thread.sleep(5000); // Wait 5 seconds for application startup
@@ -93,6 +94,7 @@ public class PersonnelSyncScheduler {
                     log.error("Error running initial personnel sync on startup", e);
                 }
             }).start();
+            */
 
         } catch (Exception e) {
             log.error("Failed to initialize 'personnel' database table", e);

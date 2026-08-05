@@ -8,12 +8,12 @@ public class KpiAssignment {
     private Integer departmentId;
     private String role;
     private LocalDateTime assignedDate;
-    private Integer assignedBy;
+    private String assignedBy;
 
     public KpiAssignment() {
     }
 
-    public KpiAssignment(Integer kpiId, Integer departmentId, String role, Integer assignedBy) {
+    public KpiAssignment(Integer kpiId, Integer departmentId, String role, String assignedBy) {
         this.kpiId = kpiId;
         this.departmentId = departmentId;
         this.role = role;
@@ -61,11 +61,11 @@ public class KpiAssignment {
         this.assignedDate = assignedDate;
     }
 
-    public Integer getAssignedBy() {
+    public String getAssignedBy() {
         return assignedBy;
     }
 
-    public void setAssignedBy(Integer assignedBy) {
+    public void setAssignedBy(String assignedBy) {
         this.assignedBy = assignedBy;
     }
 }

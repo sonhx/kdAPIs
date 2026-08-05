@@ -35,7 +35,7 @@ public class employeesExtend {
 	 * @return JSONObject with response code and assignment ID
 	 */
 	@Transactional
-	public JSONObject saveAssignment(Integer kpiId, Integer departmentId, String role, Integer assignedBy) {
+	public JSONObject saveAssignment(Integer kpiId, Integer departmentId, String role, String assignedBy) {
 		JSONObject response = new JSONObject();
 		try {
 			if (kpiId == null || kpiId <= 0) {
@@ -55,9 +55,9 @@ public class employeesExtend {
 				response.put("description", "Role is required");
 				return response;
 			}
-			if (assignedBy == null || assignedBy <= 0) {
+			if (assignedBy == null || assignedBy.trim().isEmpty()) {
 				response.put("code", 400);
-				response.put("description", "Assigned By user ID is required and must be greater than 0");
+				response.put("description", "Assigned By user ID is required");
 				return response;
 			}
 

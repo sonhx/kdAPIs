@@ -19,11 +19,66 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.db.dbconnect;
 
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Service
 public class kpiExtend {
 
+	private static final Logger logger = LoggerFactory.getLogger(kpiExtend.class);
+
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
+
+	/**
+	 * On startup, migrate kpi_assignments CHECK constraint on 'role' to allow
+	 * both 'A' (department data-entry) and 'B' (approver) roles.
+	 */
+	@PostConstruct
+	public void migrateKpiAssignmentsConstraints() {
+		try {
+			// Drop the old CHECK constraint that only allows 'A', then recreate allowing 'A' or 'B'
+			String migrateSql =
+				"IF EXISTS (" +
+				"    SELECT 1 FROM sys.check_constraints " +
+				"    WHERE parent_object_id = OBJECT_ID('kpi_assignments') " +
+				"    AND OBJECT_DEFINITION(object_id) NOT LIKE '%B%'" +
+				") " +
+				"BEGIN " +
+				"    DECLARE @constraintName NVARCHAR(256); " +
+				"    SELECT @constraintName = name FROM sys.check_constraints " +
+				"        WHERE parent_object_id = OBJECT_ID('kpi_assignments') " +
+				"        AND OBJECT_DEFINITION(object_id) NOT LIKE '%B%'; " +
+				"    IF @constraintName IS NOT NULL " +
+				"        EXEC('ALTER TABLE kpi_assignments DROP CONSTRAINT [' + @constraintName + ']'); " +
+				"    IF NOT EXISTS (" +
+				"        SELECT 1 FROM sys.check_constraints " +
+				"        WHERE parent_object_id = OBJECT_ID('kpi_assignments') AND name = 'CK_kpi_assignments_role'" +
+				"    ) " +
+				"        ALTER TABLE kpi_assignments ADD CONSTRAINT CK_kpi_assignments_role CHECK (role IN ('A', 'B')); " +
+				"END";
+			jdbcTemplate.execute(migrateSql);
+			logger.info("kpi_assignments role CHECK constraint migrated to allow A and B.");
+
+			// Migration: Add is_approved, approved_by, approved_at to kpi_data_points and ensure department_id is VARCHAR(100)
+			jdbcTemplate.execute(
+				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'is_approved') " +
+				"    ALTER TABLE kpi_data_points ADD is_approved INT DEFAULT 0 NULL; " +
+				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'approved_by') " +
+				"    ALTER TABLE kpi_data_points ADD approved_by VARCHAR(255) NULL; " +
+				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'approved_at') " +
+				"    ALTER TABLE kpi_data_points ADD approved_at DATETIME NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'department_id' AND t.name NOT IN ('varchar', 'nvarchar')) " +
+				"    ALTER TABLE kpi_data_points ALTER COLUMN department_id VARCHAR(100) NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'department_id' AND t.name NOT IN ('varchar', 'nvarchar')) " +
+				"    ALTER TABLE kpi_value_versions ALTER COLUMN department_id VARCHAR(100) NULL; "
+			);
+			logger.info("kpi_data_points columns verified/updated.");
+		} catch (Exception e) {
+			logger.warn("Could not migrate kpi_assignments or kpi_data_points constraints: {}", e.getMessage());
+		}
+	}
 
 	/**
 	 * Save a KPI assignment to the kpi_assignments table
@@ -35,7 +90,7 @@ public class kpiExtend {
 	 * @return JSONObject with response code and assignment ID
 	 */
 	@Transactional
-	public JSONObject saveAssignment(Integer kpiId, String departmentId, String role, Integer assignedBy) {
+	public JSONObject saveAssignment(Integer kpiId, String departmentId, String role, String assignedBy) {
 		JSONObject response = new JSONObject();
 		try {
 			if (kpiId == null || kpiId <= 0) {
@@ -48,25 +103,32 @@ public class kpiExtend {
 				response.put("description", "Role is required");
 				return response;
 			}
-			if (assignedBy == null || assignedBy <= 0) {
+			if (assignedBy == null || assignedBy.trim().isEmpty()) {
+				if ("B".equalsIgnoreCase(role)) {
+					// Delete Role B assignment when cleared/unselected
+					String deleteSql = "DELETE FROM kpi_assignments WHERE kpi_id = ? AND role = 'B'";
+					jdbcTemplate.update(deleteSql, kpiId);
+					response.put("code", 200);
+					response.put("description", "Thành công (Đã xóa người phê duyệt)");
+					return response;
+				}
 				response.put("code", 400);
-				response.put("description", "Assigned By user ID is required and must be greater than 0");
+				response.put("description", "Assigned By user ID is required");
 				return response;
 			}
 
-			// Check if KPI assignment already exists for the given kpiId
-			String checkSql = "SELECT COUNT(*) FROM kpi_assignments WHERE kpi_id = ?";
-			Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, kpiId);
+			// Check if KPI assignment already exists for the given kpiId and role
+			String checkSql = "SELECT COUNT(*) FROM kpi_assignments WHERE kpi_id = ? AND role = ?";
+			Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, kpiId, role);
 
 			if (count != null && count > 0) {
-				// Update existing assignment
-				String updateSql = "UPDATE kpi_assignments SET department_id = ?, role = ?, assigned_date = GETDATE(), assigned_by = ? WHERE kpi_id = ?";
-				int rowsAffected = jdbcTemplate.update(updateSql, departmentId, role, assignedBy, kpiId);
+				// Update existing assignment for this kpi_id & role
+				String updateSql = "UPDATE kpi_assignments SET department_id = ?, assigned_date = GETDATE(), assigned_by = ? WHERE kpi_id = ? AND role = ?";
+				int rowsAffected = jdbcTemplate.update(updateSql, departmentId, assignedBy, kpiId, role);
 				
 				if (rowsAffected > 0) {
-					// Get the assignment_id of the updated row
-					String selectSql = "SELECT TOP 1 assignment_id FROM kpi_assignments WHERE kpi_id = ? ORDER BY assignment_id DESC";
-					Integer assignmentId = jdbcTemplate.queryForObject(selectSql, Integer.class, kpiId);
+					String selectSql = "SELECT TOP 1 assignment_id FROM kpi_assignments WHERE kpi_id = ? AND role = ? ORDER BY assignment_id DESC";
+					Integer assignmentId = jdbcTemplate.queryForObject(selectSql, Integer.class, kpiId, role);
 					
 					response.put("code", 200);
 					response.put("description", "Thành công");
@@ -798,9 +860,27 @@ public class kpiExtend {
 			java.util.Date refDate = new java.util.Date();
 
 			// 2. Fetch all KPI assignments
-			String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name " +
-						   "FROM kpi_assignments a LEFT JOIN orgs o ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL)";
-			List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql);
+			List<Map<String, Object>> assignRows = new ArrayList<>();
+			try {
+				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name, " +
+							   "COALESCE(u.FullName, p.fullname) as assigned_by_name, " +
+							   "COALESCE(u.Email, NULLIF(p.emailCanBo, ''), p.email) as assigned_by_email " +
+							   "FROM kpi_assignments a " +
+							   "LEFT JOIN orgs o ON CAST(a.department_id AS VARCHAR(100)) = CAST(o.id AS VARCHAR(100)) AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
+							   "LEFT JOIN TBL_USER u ON (CASE WHEN ISNUMERIC(a.assigned_by) = 1 THEN CAST(a.assigned_by AS INT) ELSE NULL END) = u.ID " +
+							   "LEFT JOIN personnel p ON CAST(a.assigned_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR a.assigned_by = p.id";
+				assignRows = jdbcTemplate.queryForList(assignSql);
+			} catch (Exception e) {
+				logger.error("Error executing assignSql: " + e.getMessage());
+				try {
+					String fallbackAssignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name " +
+											   "FROM kpi_assignments a " +
+											   "LEFT JOIN orgs o ON CAST(a.department_id AS VARCHAR(100)) = CAST(o.id AS VARCHAR(100))";
+					assignRows = jdbcTemplate.queryForList(fallbackAssignSql);
+				} catch (Exception ex) {
+					logger.error("Error executing fallbackAssignSql: " + ex.getMessage());
+				}
+			}
 
 			// Group assignments by kpi_id
 			java.util.Map<Integer, List<JSONObject>> assignmentsMap = new java.util.HashMap<>();
@@ -814,16 +894,36 @@ public class kpiExtend {
 					joAssign.put("role", row.get("role") != null ? row.get("role").toString().trim() : JSONObject.NULL);
 					joAssign.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
 					joAssign.put("assigned_by", row.get("assigned_by"));
+					joAssign.put("assigned_by_name", row.get("assigned_by_name") != null ? row.get("assigned_by_name").toString() : JSONObject.NULL);
+					joAssign.put("assigned_by_email", row.get("assigned_by_email") != null ? row.get("assigned_by_email").toString() : JSONObject.NULL);
 					assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
 				}
 			}
 
 			// 3. Fetch all KPI data points
-			String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
-						   "FROM kpi_data_points dp " +
-						   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
-						   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id";
-			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql);
+			List<Map<String, Object>> dpRows = new ArrayList<>();
+			try {
+				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, COALESCE(u.FullName, p.fullname) AS approved_by_name " +
+							   "FROM kpi_data_points dp " +
+							   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
+							   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
+							   "LEFT JOIN TBL_USER u ON (CASE WHEN ISNUMERIC(dp.approved_by) = 1 THEN CAST(dp.approved_by AS INT) ELSE NULL END) = u.ID " +
+							   "LEFT JOIN personnel p ON CAST(dp.approved_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) " +
+							   "ORDER BY dp.data_id DESC";
+				dpRows = jdbcTemplate.queryForList(dpSql);
+			} catch (Exception e) {
+				logger.error("Error executing dpSql: " + e.getMessage());
+				try {
+					String fallbackDpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code " +
+										   "FROM kpi_data_points dp " +
+										   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
+										   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
+										   "ORDER BY dp.data_id DESC";
+					dpRows = jdbcTemplate.queryForList(fallbackDpSql);
+				} catch (Exception ex) {
+					logger.error("Error executing fallbackDpSql: " + ex.getMessage());
+				}
+			}
  
 			// Group data points by kpi_id
 			java.util.Map<Integer, List<JSONObject>> dpMap = new java.util.HashMap<>();
@@ -856,6 +956,10 @@ public class kpiExtend {
 					joDp.put("evidence_file_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : JSONObject.NULL);
 					joDp.put("evidence_file_size", row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString() : JSONObject.NULL);
 					joDp.put("evidence_file_uploaded_at", row.get("evidence_file_uploaded_at") != null ? row.get("evidence_file_uploaded_at").toString() : JSONObject.NULL);
+					joDp.put("is_approved", row.get("is_approved") != null ? ((Number) row.get("is_approved")).intValue() : 0);
+					joDp.put("approved_by", row.get("approved_by") != null ? row.get("approved_by").toString() : JSONObject.NULL);
+					joDp.put("approved_by_name", row.get("approved_by_name") != null ? row.get("approved_by_name").toString() : JSONObject.NULL);
+					joDp.put("approved_at", row.get("approved_at") != null ? row.get("approved_at").toString() : JSONObject.NULL);
 
 					dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
 				}
@@ -1488,7 +1592,7 @@ public class kpiExtend {
 	}
 
 	@Transactional
-	public JSONObject saveKpiValue(int kpiId, Integer deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
+	public JSONObject saveKpiValue(int kpiId, Object deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
 		JSONObject response = new JSONObject();
 		try {
 			String kpiQuery = "SELECT k.cycle_id, c.cycle_type FROM kpi_definitions k JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
@@ -1576,14 +1680,25 @@ public class kpiExtend {
 				return response;
 			}
 
-			String queryExist = "SELECT data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at "
+			String sDeptId = deptId != null ? deptId.toString() : null;
+			String queryExist = "SELECT data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at, is_approved "
 					+ " FROM kpi_data_points "
 					+ " WHERE kpi_id = ? "
-					+ " AND period_id = ? AND (department_id = ? "
+					+ " AND period_id = ? AND (CAST(department_id AS VARCHAR(100)) = ? "
 					+ " OR (department_id IS NULL AND ? IS NULL))";
-			List<Map<String, Object>> existList = jdbcTemplate.queryForList(queryExist, kpiId, targetPeriodId, deptId, deptId);
+			List<Map<String, Object>> existList = jdbcTemplate.queryForList(queryExist, kpiId, targetPeriodId, sDeptId, sDeptId);
 			
 			System.out.println("Exist List: " + existList);
+			
+			if (!existList.isEmpty()) {
+				Map<String, Object> existing = existList.get(0);
+				int isApproved = existing.get("is_approved") != null ? ((Number) existing.get("is_approved")).intValue() : 0;
+				if (isApproved == 1 && !isAdmin) {
+					response.put("code", 403);
+					response.put("description", "Số liệu KPI này đã được Phê duyệt. Không thể chỉnh sửa hoặc cập nhật!");
+					return response;
+				}
+			}
 			
 			int dataId;
 			String changeType;
@@ -1620,9 +1735,9 @@ public class kpiExtend {
 				changeType = "UPDATE";
 			} else {
 				String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, updated_by, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at, department_id) VALUES (?, ?, ?, GETDATE(), 5, ?, ?, ?, ?, ?, ?, ?)";
-				jdbcTemplate.update(insertSql, kpiId, targetPeriodId, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, deptId);
+				jdbcTemplate.update(insertSql, kpiId, targetPeriodId, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, sDeptId);
 				
-				dataId = jdbcTemplate.queryForObject("SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND (department_id = ? OR (department_id IS NULL AND ? IS NULL)) ORDER BY data_id DESC", Integer.class, kpiId, targetPeriodId, deptId, deptId);
+				dataId = jdbcTemplate.queryForObject("SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND (CAST(department_id AS VARCHAR(100)) = ? OR (department_id IS NULL AND ? IS NULL)) ORDER BY data_id DESC", Integer.class, kpiId, targetPeriodId, sDeptId, sDeptId);
 				changeType = "CREATE";
 			}
 
@@ -1672,5 +1787,89 @@ public class kpiExtend {
 			e.printStackTrace();
 		}
 		return jsa;
+	}
+
+	@Transactional
+	public JSONObject approveKpiData(int kpiId, Object deptId, String userId) {
+		JSONObject response = new JSONObject();
+		try {
+			String sDeptId = (deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim())) 
+					? deptId.toString().trim() : null;
+
+			List<Map<String, Object>> rows = new ArrayList<>();
+			if (sDeptId != null) {
+				String sqlExact = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC";
+				rows = jdbcTemplate.queryForList(sqlExact, kpiId, sDeptId);
+			}
+
+			if (rows.isEmpty()) {
+				String sqlNullDept = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND (department_id IS NULL OR CAST(department_id AS VARCHAR(100)) = '') ORDER BY data_id DESC";
+				rows = jdbcTemplate.queryForList(sqlNullDept, kpiId);
+			}
+
+			if (rows.isEmpty()) {
+				String sqlAny = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC";
+				rows = jdbcTemplate.queryForList(sqlAny, kpiId);
+			}
+
+			if (rows.isEmpty()) {
+				response.put("code", 400);
+				response.put("description", "Chưa có số liệu nhập cho KPI này để phê duyệt.");
+				return response;
+			}
+			int dataId = ((Number) rows.get(0).get("data_id")).intValue();
+			String updateSql = "UPDATE kpi_data_points SET is_approved = 1, approved_by = ?, approved_at = GETDATE() WHERE data_id = ?";
+			jdbcTemplate.update(updateSql, userId, dataId);
+			
+			response.put("code", 200);
+			response.put("description", "Đã phê duyệt số liệu KPI thành công!");
+		} catch (Exception e) {
+			logger.error("Error approving KPI data", e);
+			response.put("code", 500);
+			response.put("description", "Lỗi khi phê duyệt: " + e.getMessage());
+		}
+		return response;
+	}
+
+	@Transactional
+	public JSONObject unapproveKpiData(int kpiId, Object deptId, String userId) {
+		JSONObject response = new JSONObject();
+		try {
+			String sDeptId = (deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim())) 
+					? deptId.toString().trim() : null;
+
+			List<Map<String, Object>> rows = new ArrayList<>();
+			if (sDeptId != null) {
+				String sqlExact = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC";
+				rows = jdbcTemplate.queryForList(sqlExact, kpiId, sDeptId);
+			}
+
+			if (rows.isEmpty()) {
+				String sqlNullDept = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND (department_id IS NULL OR CAST(department_id AS VARCHAR(100)) = '') ORDER BY data_id DESC";
+				rows = jdbcTemplate.queryForList(sqlNullDept, kpiId);
+			}
+
+			if (rows.isEmpty()) {
+				String sqlAny = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC";
+				rows = jdbcTemplate.queryForList(sqlAny, kpiId);
+			}
+
+			if (rows.isEmpty()) {
+				response.put("code", 400);
+				response.put("description", "Không tìm thấy dữ liệu KPI.");
+				return response;
+			}
+			int dataId = ((Number) rows.get(0).get("data_id")).intValue();
+			String updateSql = "UPDATE kpi_data_points SET is_approved = 0, approved_by = NULL, approved_at = NULL WHERE data_id = ?";
+			jdbcTemplate.update(updateSql, dataId);
+
+			response.put("code", 200);
+			response.put("description", "Đã hủy phê duyệt số liệu KPI thành công!");
+		} catch (Exception e) {
+			logger.error("Error unapproving KPI data", e);
+			response.put("code", 500);
+			response.put("description", "Lỗi khi hủy phê duyệt: " + e.getMessage());
+		}
+		return response;
 	}
 }

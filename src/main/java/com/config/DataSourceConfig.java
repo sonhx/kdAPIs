@@ -20,18 +20,32 @@ public class DataSourceConfig {
     @Bean(name = "dataSource")
     @ConfigurationProperties(prefix = "spring.datasource.core.hikari")
     public HikariDataSource dataSource() {
-        return DataSourceBuilder.create()
+        HikariDataSource ds = DataSourceBuilder.create()
                 .type(HikariDataSource.class)
                 .build();
+        ds.setPoolName("HikariPool-Core");
+        ds.setMaxLifetime(120000);   // 2 minutes (120,000 ms)
+        ds.setIdleTimeout(60000);     // 1 minute (60,000 ms)
+        ds.setKeepaliveTime(30000);   // 30 seconds (30,000 ms keepalive ping)
+        ds.setValidationTimeout(3000);// 3 seconds
+        ds.setConnectionTestQuery("SELECT 1");
+        return ds;
     }
 
     // 2. Evidence DataSource using Hikari
     @Bean(name = "evidenceDataSource")
     @ConfigurationProperties(prefix = "spring.datasource.evidence.hikari")
     public HikariDataSource evidenceDataSource() {
-        return DataSourceBuilder.create()
+        HikariDataSource ds = DataSourceBuilder.create()
                 .type(HikariDataSource.class)
                 .build();
+        ds.setPoolName("HikariPool-Evidence");
+        ds.setMaxLifetime(120000);   // 2 minutes (120,000 ms)
+        ds.setIdleTimeout(60000);     // 1 minute (60,000 ms)
+        ds.setKeepaliveTime(30000);   // 30 seconds (30,000 ms keepalive ping)
+        ds.setValidationTimeout(3000);// 3 seconds
+        ds.setConnectionTestQuery("SELECT 1");
+        return ds;
     }
 
     @Primary

@@ -91,4 +91,16 @@ public class OrgManagerController {
         JSONObject result = orgManagerService.syncInitialLocalFile();
         return ResponseEntity.ok(result.toString());
     }
+
+    /**
+     * Set org leader ("Phụ trách đơn vị").
+     */
+    @PostMapping(value = "/set-leader", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> setOrgLeader(@RequestBody Map<String, String> body) {
+        String orgId = body.get("orgId");
+        String leaderId = body.get("leaderId");
+        String leaderName = body.get("leaderName");
+        JSONObject result = orgManagerService.setOrgLeader(orgId, leaderId, leaderName);
+        return ResponseEntity.ok(result.toString());
+    }
 }

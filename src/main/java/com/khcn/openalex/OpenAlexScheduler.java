@@ -20,8 +20,8 @@ public class OpenAlexScheduler {
      * Cron schedule to automatically sync PTIT research statistics from OpenAlex API every week.
      * Fires at 02:00 AM every Sunday.
      */
-//    @Scheduled(cron = "0 0 2 ? * SUN") //TODO: Uncomment this line to enable the scheduled job
-    @EventListener(ApplicationReadyEvent.class)
+//    @Scheduled(cron = "0 0 2 ? * SUN") // Scheduled job
+//    @EventListener(ApplicationReadyEvent.class) // Disabled on startup
     public void syncWeeklyOpenAlexStats() {
         logger.info("Executing weekly scheduled job: OpenAlex PTIT Statistics Sync...");
         try {

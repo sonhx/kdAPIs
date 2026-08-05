@@ -54,7 +54,21 @@ public class OrgManagerService {
                 "    ALTER TABLE orgs ADD level INT NOT NULL DEFAULT 1; " +
                 "END";
             jdbcTemplate.execute(addLevelColumnSql);
-            log.info("'orgs' table initialized successfully with 'level' column.");
+
+            // Migration to add 'leaderId' and 'leaderName' columns if missing
+            try {
+                String addLeaderColsSql = 
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('orgs') AND name = 'leaderId') " +
+                    "BEGIN " +
+                    "    ALTER TABLE orgs ADD leaderId VARCHAR(100) NULL; " +
+                    "    ALTER TABLE orgs ADD leaderName NVARCHAR(500) NULL; " +
+                    "END";
+                jdbcTemplate.execute(addLeaderColsSql);
+            } catch (Exception ex) {
+                log.debug("Notice migration leader columns: {}", ex.getMessage());
+            }
+
+            log.info("'orgs' table initialized successfully with 'level' and 'leader' columns.");
 
             // Check if initial seeding or re-sync is required
             Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orgs", Integer.class);
@@ -268,11 +282,40 @@ public class OrgManagerService {
     }
 
     /**
-     * Get list of orgs flat structure with level column.
+     * Set org leader ("Phụ trách đơn vị").
+     */
+    public JSONObject setOrgLeader(String orgId, String leaderId, String leaderName) {
+        JSONObject response = new JSONObject();
+        try {
+            int updated = jdbcTemplate.update(
+                "UPDATE orgs SET leaderId = ?, leaderName = ?, updatedAt = GETDATE() WHERE id = ?",
+                ps -> {
+                    if (leaderId != null) ps.setString(1, leaderId); else ps.setNull(1, Types.VARCHAR);
+                    if (leaderName != null) ps.setNString(2, leaderName); else ps.setNull(2, Types.NVARCHAR);
+                    ps.setString(3, orgId);
+                }
+            );
+            if (updated > 0) {
+                response.put("status", "SUCCESS");
+                response.put("message", "Cập nhật phụ trách đơn vị thành công.");
+            } else {
+                response.put("status", "ERROR");
+                response.put("message", "Không tìm thấy đơn vị.");
+            }
+        } catch (Exception e) {
+            log.error("Error setting org leader", e);
+            response.put("status", "ERROR");
+            response.put("message", "Lỗi cập nhật: " + e.getMessage());
+        }
+        return response;
+    }
+
+    /**
+     * Get list of orgs flat structure with level, leaderId, leaderName columns.
      */
     public List<Map<String, Object>> getOrgsList(boolean includeDeleted, String search) {
         StringBuilder sql = new StringBuilder(
-            "SELECT id, ten, maDonVi, donViChaId, tenVietTat, level, isDeleted, createdAt, updatedAt " +
+            "SELECT id, ten, maDonVi, donViChaId, tenVietTat, level, leaderId, leaderName, isDeleted, createdAt, updatedAt " +
             "FROM orgs WHERE 1=1 "
         );
 
@@ -295,7 +338,7 @@ public class OrgManagerService {
     }
 
     /**
-     * Get orgs hierarchical tree structure including level attribute.
+     * Get orgs hierarchical tree structure including level, leaderId, leaderName attributes.
      */
     public JSONObject getOrgsTree(boolean includeDeleted, String search) {
         JSONObject result = new JSONObject();
@@ -314,6 +357,8 @@ public class OrgManagerService {
             node.put("donViChaId", row.get("donViChaId") != null ? row.get("donViChaId") : "");
             node.put("tenVietTat", row.get("tenVietTat") != null ? row.get("tenVietTat") : "");
             node.put("level", row.get("level") != null ? row.get("level") : 1);
+            node.put("leaderId", row.get("leaderId") != null ? row.get("leaderId") : "");
+            node.put("leaderName", row.get("leaderName") != null ? row.get("leaderName") : "");
             node.put("isDeleted", row.get("isDeleted") != null ? row.get("isDeleted") : 0);
             node.put("children", new JSONArray());
 
