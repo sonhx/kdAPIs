@@ -52,17 +52,17 @@ public class KpiN303CalculationService {
     /**
      * Trigger initial calculation on application startup so live data points are available immediately.
      */
-    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
-    public void onApplicationReady() {
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                log.info("Triggering initial calculation for KPI N3.03 on application startup...");
-                calculateAndSaveN303(null);
-            } catch (Exception e) {
-                log.error("Failed to calculate KPI N3.03 on startup", e);
-            }
-        });
-    }
+	/*@org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+	public void onApplicationReady() {
+	    java.util.concurrent.CompletableFuture.runAsync(() -> {
+	        try {
+	            log.info("Triggering initial calculation for KPI N3.03 on application startup...");
+	            calculateAndSaveN303(null);
+	        } catch (Exception e) {
+	            log.error("Failed to calculate KPI N3.03 on startup", e);
+	        }
+	    });
+	}*/
 
     /**
      * Scheduled Monthly Run for KPI N3.03 calculation.
@@ -160,9 +160,9 @@ public class KpiN303CalculationService {
             }
 
             // Ensure Scopus and WoS database tables are pre-populated
-            if (scopusWosIngestionService != null) {
-                scopusWosIngestionService.initDatabaseTables();
-            }
+			/*if (scopusWosIngestionService != null) {
+			    scopusWosIngestionService.initDatabaseTables();
+			}*/
 
             // 3. Count papers belonging to Scopus or WoS lists by ISSN/eISSN or Journal Source title
             String scopusWosWorksSql = 

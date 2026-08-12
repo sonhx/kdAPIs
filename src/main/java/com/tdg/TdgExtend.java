@@ -1,7 +1,12 @@
 package com.tdg;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -17,26 +22,68 @@ public class TdgExtend {
     public final String host = Config.host;
 
     @Autowired
-    @Qualifier("evidenceJdbcTemplate")
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    @Qualifier("evidenceJdbcTemplate")
+    private JdbcTemplate evidenceJdbcTemplate;
+
+    private Map<String, String> getCreatorNames(Set<String> createdByIds) {
+        Map<String, String> resultMap = new HashMap<>();
+        if (createdByIds == null || createdByIds.isEmpty()) return resultMap;
+
+        List<String> idList = new ArrayList<>(createdByIds);
+        String inSql = String.join(",", Collections.nCopies(idList.size(), "?"));
+
+        try {
+            String sql = "SELECT CAST(id AS VARCHAR(100)) as id, fullname FROM personnel WHERE CAST(id AS VARCHAR(100)) IN (" + inSql + ") AND isDeleted = 0";
+            List<Map<String, Object>> list = jdbcTemplate.queryForList(sql, idList.toArray());
+            for (Map<String, Object> r : list) {
+                if (r.get("id") != null && r.get("fullname") != null) {
+                    resultMap.put(r.get("id").toString().trim(), r.get("fullname").toString());
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return resultMap;
+    }
 
     public JSONArray listTdg(int kd_id, int kd_scope, int status, String doituong_kd) {
         JSONArray jsaTdgs = new JSONArray();
-        String sql = "SELECT a.*, c.Fullname as Creator FROM TBL_Tudanhgia a "
-                + " INNER JOIN TBL_USER c on c.ID = a.CreatedBy "
+        String sql = "SELECT a.* FROM TBL_Tudanhgia a "
                 + " where a.kd_id = ? "
                 + " and a.status = ? "
                 + " and a.doituong_kd = ? "
                 + " and (a.IsDeleted is null or a.IsDeleted=0)";
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kd_id, status, doituong_kd);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, kd_id, status, doituong_kd);
+
+        Set<String> createdByIds = new HashSet<>();
+        for (Map<String, Object> row : rows) {
+            Object createdByObj = row.get("CreatedBy");
+            if (createdByObj != null) {
+                String cbStr = createdByObj.toString().trim();
+                if (!cbStr.isEmpty()) {
+                    createdByIds.add(cbStr);
+                }
+            }
+        }
+
+        Map<String, String> creatorMap = getCreatorNames(createdByIds);
+
         for (Map<String, Object> row : rows) {
             JSONObject jo = new JSONObject();
             jo.put("id", row.get("ID"));
             jo.put("ten", row.get("ten"));
             jo.put("ghi_chu", row.get("ghi_chu"));
             jo.put("created_time", row.get("CreatedTime"));
-            jo.put("creator", row.get("Creator"));
+
+            Object createdByObj = row.get("CreatedBy");
+            String cbStr = createdByObj != null ? createdByObj.toString().trim() : "";
+            String creator = creatorMap.getOrDefault(cbStr, "");
+            jo.put("creator", creator);
+
             jo.put("path", row.get("path") == null ? "" : host + row.get("path"));
             jo.put("so_vb", row.get("so_vb") == null ? "" : row.get("so_vb"));
             jo.put("ngay_bh", row.get("ngay_bh") == null ? "" : row.get("ngay_bh"));
@@ -47,7 +94,7 @@ public class TdgExtend {
 
     public boolean isTdgExisted(String ten_tdg) {
         String sql = "select count(*) from TBL_Tudanhgia where ten = ? and (IsDeleted is null or IsDeleted=0)";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, ten_tdg);
+        Integer count = evidenceJdbcTemplate.queryForObject(sql, Integer.class, ten_tdg);
         return count != null && count > 0;
     }
 
@@ -57,13 +104,13 @@ public class TdgExtend {
                 + " ghi_chu = ?, CreatedTime = GETDATE(), CreatedBy = ? where ID = ?";
         
         if (ngay_bh == null) {
-            return jdbcTemplate.update(sql, so_vb, ghi_chu, created_by, tdg_id);
+            return evidenceJdbcTemplate.update(sql, so_vb, ghi_chu, created_by, tdg_id);
         } else {
-            return jdbcTemplate.update(sql, so_vb, ngay_bh, ghi_chu, created_by, tdg_id);
+            return evidenceJdbcTemplate.update(sql, so_vb, ngay_bh, ghi_chu, created_by, tdg_id);
         }
     }
 
     public int deleteTdg(int id) {
-        return jdbcTemplate.update("update TBL_Tudanhgia set IsDeleted = 1 where ID = ?", id);
+        return evidenceJdbcTemplate.update("update TBL_Tudanhgia set IsDeleted = 1 where ID = ?", id);
     }
 }

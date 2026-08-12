@@ -21,6 +21,19 @@ public class SurveyStatsService {
         jdbcTemplate.update("EXEC dbo.sp_recompute_campaign ?, ?", surveyId, actualCampaignId);
     }
 
+    private boolean hasSurveyResponses(String surveyId) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dbo.survey_responses WHERE survey_id = ?", 
+                Integer.class, 
+                surveyId
+            );
+            return count != null && count > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public List<OptionStatDto> getQuestionOptionStats(String surveyId, String campaignId, String questionId) {
         String sql;
         Object[] params;
@@ -31,12 +44,23 @@ public class SurveyStatsService {
             sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id = ? AND question_id = ?";
             params = new Object[] { surveyId, campaignId, questionId };
         }
-        return jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
+        List<OptionStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
             rs.getString("option_id"),
             rs.getString("option_text"),
             rs.getInt("count"),
             rs.getBigDecimal("percentage")
         ), params);
+
+        if (list.isEmpty() && hasSurveyResponses(surveyId)) {
+            recomputeCampaign(surveyId, campaignId);
+            list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
+                rs.getString("option_id"),
+                rs.getString("option_text"),
+                rs.getInt("count"),
+                rs.getBigDecimal("percentage")
+            ), params);
+        }
+        return list;
     }
 
     public QuestionNumericStatDto getQuestionNumericStats(String surveyId, String campaignId, String questionId) {
@@ -60,6 +84,19 @@ public class SurveyStatsService {
             rs.getInt("text_count")
         ), params);
 
+        if (list.isEmpty() && hasSurveyResponses(surveyId)) {
+            recomputeCampaign(surveyId, campaignId);
+            list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
+                questionId,
+                rs.getInt("total_responses"),
+                rs.getBigDecimal("mean"),
+                rs.getBigDecimal("std_dev"),
+                rs.getBigDecimal("min_value"),
+                rs.getBigDecimal("max_value"),
+                rs.getInt("text_count")
+            ), params);
+        }
+
         return list.isEmpty() ? new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0) : list.get(0);
     }
 
@@ -81,6 +118,16 @@ public class SurveyStatsService {
             rs.getBigDecimal("std_dev")
         ), params);
 
+        if (list.isEmpty() && hasSurveyResponses(surveyId)) {
+            recomputeCampaign(surveyId, campaignId);
+            list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
+                blockId,
+                rs.getInt("total_responses"),
+                rs.getBigDecimal("mean"),
+                rs.getBigDecimal("std_dev")
+            ), params);
+        }
+
         return list.isEmpty() ? new BlockStatDto(blockId, 0, null, null) : list.get(0);
     }
 
@@ -101,6 +148,16 @@ public class SurveyStatsService {
             rs.getInt("total_responses"),
             rs.getString("computed_at")
         ), params);
+
+        if (list.isEmpty() || (list.get(0).getTotalResponses() == 0 && hasSurveyResponses(surveyId))) {
+            recomputeCampaign(surveyId, campaignId);
+            list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
+                surveyId,
+                campaignId,
+                rs.getInt("total_responses"),
+                rs.getString("computed_at")
+            ), params);
+        }
 
         return list.isEmpty() ? new OverallStatDto(surveyId, campaignId, 0, null) : list.get(0);
     }

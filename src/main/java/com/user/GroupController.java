@@ -38,7 +38,17 @@ public class GroupController {
     @Autowired
     private MCExtend mcExtend;
 
-    private int getOrCreateUserId(JSONObject mObj) {
+    private static boolean isNumericStr(String str) {
+        if (str == null || str.isBlank()) return false;
+        try {
+            Long.parseLong(str.trim());
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private String getOrCreateUserId(JSONObject mObj) {
         if (mObj.has("email") && !mObj.getString("email").trim().isEmpty()) {
             String email = mObj.getString("email").trim();
             String name = mObj.optString("ten_day_du", "");
@@ -53,32 +63,44 @@ public class GroupController {
             }
 
             try {
-                List<Integer> ids = jdbcTemplate.query(
-                    "SELECT ID FROM TBL_USER WHERE Email = ? AND (IsDeleted IS NULL OR IsDeleted = '0') ORDER BY ID ASC",
-                    (rs, rowNum) -> rs.getInt("ID"),
+                List<String> ids = jdbcTemplate.queryForList(
+                    "SELECT CAST(ID AS VARCHAR(100)) FROM users WHERE Email = ? AND (IsDeleted IS NULL OR IsDeleted = '0')",
+                    String.class,
                     email
                 );
                 if (!ids.isEmpty()) {
-                    return ids.get(0);
+                    String existingId = ids.get(0);
+                    if (isNumericStr(existingId)) {
+                        return existingId.trim();
+                    } else {
+                        // Existing user in users table has non-numeric ID (e.g. 'Bùi Anh Tu?n').
+                        // Register/generate a valid numeric ID and repair users.ID.
+                        String newId = userExtend.RegisterUser(null, email, "123456", "", 4);
+                        if (newId != null && isNumericStr(newId)) {
+                            jdbcTemplate.update("UPDATE users SET ID = ? WHERE Email = ?", newId, email);
+                            return newId;
+                        }
+                    }
                 } else {
-                    int newId = userExtend.RegisterUser(name, email, "123456", "", 4);
+                    String newId = userExtend.RegisterUser(name, email, "123456", "", 4);
                     return newId;
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
-        return mObj.optInt("id", -1);
+        if (mObj.has("id")) {
+            String idStr = mObj.get("id").toString().trim();
+            if (isNumericStr(idStr)) {
+                return idStr;
+            }
+        }
+        return null;
     }
 
     @PostMapping("/listgroups")
     public String listGroups(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
-        
-        System.out.println("SQL: " + "SELECT a.ID, a.group_name, a.kd_id, b.Fullname as creator " +
-						 "FROM TBL_GROUP a " +
-						 "INNER JOIN TBL_USER b ON b.ID = a.CreatedBy " +
-						 "WHERE (a.IsDeleted IS NULL OR a.IsDeleted = 0)"); 
         try {
             JSONObject jin = new JSONObject(sReq);
             String session_id = jin.getString("session_id");
@@ -91,9 +113,8 @@ public class GroupController {
             int user_type = sst.UserType;
             int user_id = sst.UserID;
 
-            String sql = "SELECT a.ID, a.group_name, a.kd_id, b.Fullname as creator " +
+            String sql = "SELECT a.ID, a.group_name, a.kd_id, a.CreatedBy " +
                          "FROM TBL_GROUP a " +
-                         "INNER JOIN TBL_USER b ON b.ID = a.CreatedBy " +
                          "WHERE (a.IsDeleted IS NULL OR a.IsDeleted = 0)";
             
             List<Object> params = new java.util.ArrayList<>();
@@ -108,8 +129,32 @@ public class GroupController {
                 params.add(user_id);
             }
 
-            System.out.println("SQL: " + sql);
             List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, params.toArray());
+
+            // Collect creator IDs to fetch creator names from Core DB
+            List<Object> creatorIds = rows.stream()
+                                          .map(row -> row.get("CreatedBy"))
+                                          .filter(java.util.Objects::nonNull)
+                                          .distinct()
+                                          .collect(Collectors.toList());
+
+            Map<String, String> creatorNameMap = new java.util.HashMap<>();
+            if (!creatorIds.isEmpty()) {
+                List<String> creatorIdStrs = creatorIds.stream()
+                                                       .map(String::valueOf)
+                                                       .collect(Collectors.toList());
+                String sqlUsers = "SELECT CAST(p.ID AS VARCHAR(100)) as user_id, p.fullname as creator_name " +
+                                  "FROM personnel p " +
+                                  "WHERE p.isDeleted = 0 " +
+                                  "AND CAST(p.ID AS VARCHAR(100)) IN (" +
+                                  creatorIdStrs.stream().map(id -> "?").collect(Collectors.joining(",")) + ")";
+                List<Map<String, Object>> userRows = jdbcTemplate.queryForList(sqlUsers, creatorIdStrs.toArray());
+                for (Map<String, Object> uRow : userRows) {
+                    if (uRow.get("user_id") != null && uRow.get("creator_name") != null) {
+                        creatorNameMap.put(String.valueOf(uRow.get("user_id")), (String) uRow.get("creator_name"));
+                    }
+                }
+            }
 
             JSONArray jaGroups = new JSONArray();
             for (Map<String, Object> row : rows) {
@@ -117,7 +162,9 @@ public class GroupController {
                 jo.put("id", row.get("ID"));
                 jo.put("group_name", row.get("group_name"));
                 jo.put("kd_id", row.get("kd_id"));
-                jo.put("creator", row.get("creator"));
+                Object creatorId = row.get("CreatedBy");
+                String cKey = creatorId != null ? String.valueOf(creatorId) : "";
+                jo.put("creator", creatorNameMap.getOrDefault(cKey, ""));
                 jaGroups.put(jo);
             }
 
@@ -144,7 +191,7 @@ public class GroupController {
 	        int group_id = jin.getInt("group_id");
 	        String sql = "SELECT b.ID as member_id, b.Fullname as ten_day_du, b.Email, b.Mobile, a.IS_LEADER " +
 	                     "FROM TBL_GROUP_MEMBER a " +
-	                     "INNER JOIN TBL_USER b ON b.ID = a.MEMBER_ID " +
+	                     "INNER JOIN users b ON b.ID = a.MEMBER_ID " +
 	                     "WHERE a.GROUP_ID = ? AND (a.IsDeleted IS NULL OR a.IsDeleted = 0)";
 	        
 	        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, group_id);
@@ -194,36 +241,41 @@ public class GroupController {
                 return jout.toString();
             }
 
-            // Step 2: Collect member IDs
-            List<Integer> memberIds = memberRows.stream()
-                                                .map(row -> (Integer) row.get("MEMBER_ID"))
-                                                .collect(Collectors.toList());
+            // Step 2: Collect member IDs as Strings
+            List<String> memberIds = memberRows.stream()
+                                               .map(row -> String.valueOf(row.get("MEMBER_ID")))
+                                               .filter(id -> id != null && !id.equals("null"))
+                                               .distinct()
+                                               .collect(Collectors.toList());
 
-            // Step 3: Query user info from core DB in one shot
-            String sqlUsers = "SELECT ID as member_id, Fullname as ten_day_du, Email, Mobile " +
-                              "FROM TBL_USER WHERE ID IN (" +
+            // Step 3: Query user info from core DB using CAST to VARCHAR(100)
+            String sqlUsers = "SELECT CAST(u.ID AS VARCHAR(100)) as member_id, p.fullname as ten_day_du, u.Email, p.sdtCaNhan as Mobile " +
+                              "FROM users u " +
+                              "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 " +
+                              "WHERE CAST(u.ID AS VARCHAR(100)) IN (" +
                               memberIds.stream().map(id -> "?").collect(Collectors.joining(",")) + ")";
             List<Map<String, Object>> userRows = jdbcTemplate.queryForList(sqlUsers, memberIds.toArray());
 
             // Step 4: Build a lookup map for user info
-            Map<Integer, Map<String, Object>> userMap = userRows.stream()
+            Map<String, Map<String, Object>> userMap = userRows.stream()
                     .collect(Collectors.toMap(
-                            row -> (Integer) row.get("member_id"),
-                            row -> row
+                            row -> String.valueOf(row.get("member_id")),
+                            row -> row,
+                            (existing, replacement) -> existing
                     ));
 
             // Step 5: Merge results
             JSONArray jaMembers = new JSONArray();
             for (Map<String, Object> memberRow : memberRows) {
-                Integer memberId = (Integer) memberRow.get("MEMBER_ID");
+                String memberId = String.valueOf(memberRow.get("MEMBER_ID"));
                 Map<String, Object> userInfo = userMap.get(memberId);
 
                 JSONObject jo = new JSONObject();
                 jo.put("member_id", memberId);
                 if (userInfo != null) {
-                    jo.put("ten_day_du", userInfo.get("ten_day_du"));
-                    jo.put("email", userInfo.get("Email"));
-                    jo.put("mobile", userInfo.get("Mobile"));
+                    jo.put("ten_day_du", userInfo.get("ten_day_du") != null ? userInfo.get("ten_day_du") : "");
+                    jo.put("email", userInfo.get("Email") != null ? userInfo.get("Email") : "");
+                    jo.put("mobile", userInfo.get("Mobile") != null ? userInfo.get("Mobile") : "");
                 }
                 jo.put("is_leader", memberRow.get("IS_LEADER"));
                 jaMembers.put(jo);
@@ -283,8 +335,8 @@ public class GroupController {
             String insertMemberSql = "INSERT INTO TBL_GROUP_MEMBER (GROUP_ID, MEMBER_ID, IS_LEADER, CreatedBy, CREATEDTIME, IsDeleted) VALUES (?, ?, ?, ?, GETDATE(), 0)";
             for (int i = 0; i < members.length(); i++) {
                 JSONObject mObj = members.getJSONObject(i);
-                int memberId = getOrCreateUserId(mObj);
-                if (memberId == -1) {
+                String memberId = getOrCreateUserId(mObj);
+                if (memberId == null || memberId.isBlank()) {
                     continue;
                 }
                 int isLeader = mObj.optInt("is_leader", 0);
@@ -442,8 +494,8 @@ public class GroupController {
 
             for (int i = 0; i < members.length(); i++) {
                 JSONObject mObj = members.getJSONObject(i);
-                int memberId = getOrCreateUserId(mObj);
-                if (memberId == -1) {
+                String memberId = getOrCreateUserId(mObj);
+                if (memberId == null || memberId.isBlank()) {
                     continue;
                 }
 

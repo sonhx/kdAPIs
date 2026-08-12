@@ -1,9 +1,13 @@
 package com.ctcl;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Date;
-import java.util.ArrayList;
+import java.util.Set;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,8 +23,32 @@ public class CtclExtend {
 	public final String host = Config.host;
 
 	@Autowired
-    @Qualifier("evidenceJdbcTemplate")
-    private JdbcTemplate jdbcTemplate;
+	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	@Qualifier("evidenceJdbcTemplate")
+	private JdbcTemplate evidenceJdbcTemplate;
+
+	private Map<String, String> getCreatorNames(Set<String> createdByIds) {
+		Map<String, String> resultMap = new HashMap<>();
+		if (createdByIds == null || createdByIds.isEmpty()) return resultMap;
+
+		List<String> idList = new ArrayList<>(createdByIds);
+		String inSql = String.join(",", Collections.nCopies(idList.size(), "?"));
+
+		try {
+			String sql = "SELECT CAST(id AS VARCHAR(100)) as id, fullname FROM personnel WHERE CAST(id AS VARCHAR(100)) IN (" + inSql + ") AND isDeleted = 0";
+			List<Map<String, Object>> list = jdbcTemplate.queryForList(sql, idList.toArray());
+			for (Map<String, Object> r : list) {
+				if (r.get("id") != null && r.get("fullname") != null) {
+					resultMap.put(r.get("id").toString().trim(), r.get("fullname").toString());
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return resultMap;
+	}
 
 	public String removeExtra(String sInput, String regex) {
 		while (sInput.matches(regex)) {
@@ -32,21 +60,25 @@ public class CtclExtend {
 
 	public int UserOrg(int userID) {
 		String sql = "select ORG_ID from tbl_org_member where member_id = ? and (isdeleted is null or isdeleted = 0)";
-		List<Integer> list = jdbcTemplate.queryForList(sql, Integer.class, userID);
+		List<Integer> list = evidenceJdbcTemplate.queryForList(sql, Integer.class, userID);
 		return list.isEmpty() ? 0 : list.get(0);
 	}
 
 	public JSONArray listCtcl(int kd_id, String doituong_kd) {
 		JSONArray jsa = new JSONArray();
-		String sql = "SELECT a.*, b.Name as org_name, b.Code as org_code, "
-				+ " c.Fullname as Creator FROM TBL_CaitienCL a "
-				+ " left join TBL_ORG b on b.ID = a.org_id "
-				+ " INNER JOIN TBL_USER c on c.ID = a.CreatedBy  "
-				+ " where a.kd_id = ?"
-				+ " and a.doituong_kd = ?"
-				+ " and (a.IsDeleted is null or a.IsDeleted=0)";
+		String sql = "SELECT a.*, b.Name as org_name, b.Code as org_code FROM TBL_CaitienCL a "
+				+ " LEFT JOIN TBL_ORG b ON b.ID = a.org_id "
+				+ " WHERE a.kd_id = ? AND a.doituong_kd = ? AND (a.IsDeleted IS NULL OR a.IsDeleted = 0)";
 
-		List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kd_id, doituong_kd);
+		List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, kd_id, doituong_kd);
+
+		Set<String> creatorIds = new HashSet<>();
+		for (Map<String, Object> row : rows) {
+			Object cb = row.get("CreatedBy");
+			if (cb != null) creatorIds.add(cb.toString().trim());
+		}
+		Map<String, String> creatorNames = getCreatorNames(creatorIds);
+
 		for (Map<String, Object> row : rows) {
 			JSONObject jo = new JSONObject();
 			jo.put("id", row.get("ID"));
@@ -54,7 +86,10 @@ public class CtclExtend {
 			jo.put("ten", row.get("ten"));
 			jo.put("ghi_chu", row.get("ghi_chu"));
 			jo.put("created_time", row.get("CreatedTime"));
-			jo.put("creator", row.get("Creator"));
+
+			String cbStr = row.get("CreatedBy") != null ? row.get("CreatedBy").toString().trim() : "";
+			jo.put("creator", creatorNames.getOrDefault(cbStr, ""));
+
 			String path = row.get("path") == null ? "" : host + row.get("path");
 			jo.put("path", path);
 			jo.put("so_vb", row.get("so_vb") == null ? "" : row.get("so_vb"));
@@ -71,16 +106,19 @@ public class CtclExtend {
 
 	public JSONArray listCtclWithOrg(int kd_id, String doituong_kd, int org_id) {
 		JSONArray jsa = new JSONArray();
-		String sql = "SELECT a.*, b.Name as org_name, b.Code as org_code, "
-				+ " c.Fullname as Creator FROM TBL_CaitienCL a "
-				+ " left join TBL_ORG b on b.ID = a.org_id "
-				+ " INNER JOIN TBL_USER c on c.ID = a.CreatedBy  "
-				+ " where a.kd_id = ?"
-				+ " and org_id = ?"
-				+ " and a.doituong_kd = ?"
-				+ " and (a.IsDeleted is null or a.IsDeleted=0)";
+		String sql = "SELECT a.*, b.Name as org_name, b.Code as org_code FROM TBL_CaitienCL a "
+				+ " LEFT JOIN TBL_ORG b ON b.ID = a.org_id "
+				+ " WHERE a.kd_id = ? AND a.org_id = ? AND a.doituong_kd = ? AND (a.IsDeleted IS NULL OR a.IsDeleted = 0)";
 
-		List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kd_id, org_id, doituong_kd);
+		List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, kd_id, org_id, doituong_kd);
+
+		Set<String> creatorIds = new HashSet<>();
+		for (Map<String, Object> row : rows) {
+			Object cb = row.get("CreatedBy");
+			if (cb != null) creatorIds.add(cb.toString().trim());
+		}
+		Map<String, String> creatorNames = getCreatorNames(creatorIds);
+
 		for (Map<String, Object> row : rows) {
 			JSONObject jo = new JSONObject();
 			jo.put("id", row.get("ID"));
@@ -88,7 +126,10 @@ public class CtclExtend {
 			jo.put("ten", row.get("ten"));
 			jo.put("ghi_chu", row.get("ghi_chu"));
 			jo.put("created_time", row.get("CreatedTime"));
-			jo.put("creator", row.get("Creator"));
+
+			String cbStr = row.get("CreatedBy") != null ? row.get("CreatedBy").toString().trim() : "";
+			jo.put("creator", creatorNames.getOrDefault(cbStr, ""));
+
 			String path = row.get("path") == null ? "" : host + row.get("path");
 			jo.put("path", path);
 			jo.put("so_vb", row.get("so_vb") == null ? "" : row.get("so_vb"));
@@ -105,7 +146,7 @@ public class CtclExtend {
 
 	public boolean isCtclExisted(String ten) {
 		String sql = "select count(*) from TBL_CaitienCL where ten = ? and (IsDeleted is null or IsDeleted=0)";
-		Integer count = jdbcTemplate.queryForObject(sql, Integer.class, ten);
+		Integer count = evidenceJdbcTemplate.queryForObject(sql, Integer.class, ten);
 		return count != null && count > 0;
 	}
 
@@ -128,12 +169,12 @@ public class CtclExtend {
 		sql.append(" where ID = ?");
 		params.add(id);
 
-		return jdbcTemplate.update(sql.toString(), params.toArray());
+		return evidenceJdbcTemplate.update(sql.toString(), params.toArray());
 	}
 
 	public int updateStateCtcl(int id, int is_locked) {
 		String sql = "update TBL_CaitienCL set is_locked = ? where ID = ?";
-		return jdbcTemplate.update(sql, is_locked, id);
+		return evidenceJdbcTemplate.update(sql, is_locked, id);
 	}
 
 	public int assignCtcl(int org_id, String noi_dung, String thoi_han, String ghi_chu, int created_by,
@@ -143,9 +184,9 @@ public class CtclExtend {
 				: "insert into TBL_CaitienCL (noi_dung, org_id, thoi_han, ghi_chu, CreatedTime, CreatedBy, kd_id, doituong_kd) values (?, ?, CONVERT(DATETIME, ?, 102), ?, GETDATE(), ?, ?, ?)";
 
 		if (thoi_han == null) {
-			return jdbcTemplate.update(sql, noi_dung, org_id, ghi_chu, created_by, kd_id, doituong_kd);
+			return evidenceJdbcTemplate.update(sql, noi_dung, org_id, ghi_chu, created_by, kd_id, doituong_kd);
 		} else {
-			return jdbcTemplate.update(sql, noi_dung, org_id, thoi_han, ghi_chu, created_by, kd_id, doituong_kd);
+			return evidenceJdbcTemplate.update(sql, noi_dung, org_id, thoi_han, ghi_chu, created_by, kd_id, doituong_kd);
 		}
 	}
 
@@ -154,18 +195,18 @@ public class CtclExtend {
 			int kd_id, String doituong_kd) {
 		String sql = "insert into TBL_CaitienCL (noi_dung, ten, so_vb, ngay_bh, path, ghi_chu, CreatedTime, CreatedBy, kd_id, doituong_kd) "
 				+ " values (?, ?, ?, CONVERT(DATETIME, ?, 102), ?, ?, GETDATE(), ?, ?, ?)";
-		return jdbcTemplate.update(sql, noi_dung, ten, so_vb, ngay_bh, path, ghi_chu, created_by, kd_id, doituong_kd);
+		return evidenceJdbcTemplate.update(sql, noi_dung, ten, so_vb, ngay_bh, path, ghi_chu, created_by, kd_id, doituong_kd);
 	}
 
 	public int deleteCtcl(int id) {
 		String sql = "update TBL_CaitienCL set IsDeleted = 1 where ID = ?";
-		return jdbcTemplate.update(sql, id);
+		return evidenceJdbcTemplate.update(sql, id);
 	}
 
 	public JSONObject getDetails(int id) {
 		JSONObject joDetails = new JSONObject();
 		String sql = "select * from TBL_CaitienCL where ID = ?";
-		List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, id);
+		List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, id);
 		if (!rows.isEmpty()) {
 			Map<String, Object> row = rows.get(0);
 			joDetails.put("id", id);
@@ -177,18 +218,3 @@ public class CtclExtend {
 		return joDetails;
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

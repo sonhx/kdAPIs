@@ -2,82 +2,82 @@
 -- DDL & PROCEDURES FOR SURVEY STATISTICS (ULTRA-FAST ACTIVE ANSWERS DESIGN)
 -- ==========================================
 
--- 1. DROP existing tables if they exist (clean setup)
-IF OBJECT_ID('dbo.survey_question_option_stats', 'U') IS NOT NULL DROP TABLE dbo.survey_question_option_stats;
-IF OBJECT_ID('dbo.survey_question_stats', 'U') IS NOT NULL DROP TABLE dbo.survey_question_stats;
-IF OBJECT_ID('dbo.survey_block_stats', 'U') IS NOT NULL DROP TABLE dbo.survey_block_stats;
-IF OBJECT_ID('dbo.survey_overall_stats', 'U') IS NOT NULL DROP TABLE dbo.survey_overall_stats;
+-- 1. CREATE TABLES IF NOT EXISTS
+IF OBJECT_ID('dbo.survey_question_option_stats', 'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.survey_question_option_stats (
+    id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
+    survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    block_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    question_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    option_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    option_text nvarchar(500) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    count int NOT NULL DEFAULT 0,
+    percentage decimal(6,2) NULL,
+    total_responses int NOT NULL DEFAULT 0,
+    computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
+  );
+END
 
--- 2. DROP existing views
-IF OBJECT_ID('dbo.vw_responses_with_campaign', 'V') IS NOT NULL DROP VIEW dbo.vw_responses_with_campaign;
-IF OBJECT_ID('dbo.vw_question_option_map', 'V') IS NOT NULL DROP VIEW dbo.vw_question_option_map;
+IF OBJECT_ID('dbo.survey_question_stats', 'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.survey_question_stats (
+    id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
+    survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    block_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    question_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    total_responses int NOT NULL DEFAULT 0,
+    mean decimal(9,4) NULL,
+    std_dev decimal(9,4) NULL,
+    min_value decimal(9,4) NULL,
+    max_value decimal(9,4) NULL,
+    text_count int NULL,
+    computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
+  );
+END
 
--- 3. DROP existing procedures
-IF OBJECT_ID('dbo.sp_compute_question_option_stats', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_compute_question_option_stats;
-IF OBJECT_ID('dbo.sp_compute_question_numeric_stats', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_compute_question_numeric_stats;
-IF OBJECT_ID('dbo.sp_compute_block_stats', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_compute_block_stats;
-IF OBJECT_ID('dbo.sp_compute_survey_overall_stats', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_compute_survey_overall_stats;
-IF OBJECT_ID('dbo.sp_recompute_campaign', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_recompute_campaign;
+IF OBJECT_ID('dbo.survey_block_stats', 'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.survey_block_stats (
+    id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
+    survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    block_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    total_responses int NOT NULL DEFAULT 0,
+    mean decimal(9,4) NULL,
+    std_dev decimal(9,4) NULL,
+    computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
+  );
+END
 
--- 4. CREATE TABLES
--- Option level stats (Multiple choice / Grid column distribution)
-CREATE TABLE dbo.survey_question_option_stats (
-  id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
-  survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-  campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  block_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  question_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-  option_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  option_text nvarchar(500) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  count int NOT NULL DEFAULT 0,
-  percentage decimal(6,2) NULL,
-  total_responses int NOT NULL DEFAULT 0,
-  computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
-);
+IF OBJECT_ID('dbo.survey_overall_stats', 'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.survey_overall_stats (
+    id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
+    survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    total_responses int NOT NULL DEFAULT 0,
+    computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
+  );
+END
 
--- Numeric/Likert question aggregates
-CREATE TABLE dbo.survey_question_stats (
-  id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
-  survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-  campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  block_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  question_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-  total_responses int NOT NULL DEFAULT 0,
-  mean decimal(9,4) NULL,
-  std_dev decimal(9,4) NULL,
-  min_value decimal(9,4) NULL,
-  max_value decimal(9,4) NULL,
-  text_count int NULL,
-  computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
-);
+-- 5. CREATE INDEXES IF NOT EXISTS
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_qos_question_campaign_option' AND object_id = OBJECT_ID('dbo.survey_question_option_stats'))
+  CREATE INDEX IX_qos_question_campaign_option ON dbo.survey_question_option_stats(question_id, campaign_id, option_id);
 
--- Block level aggregates
-CREATE TABLE dbo.survey_block_stats (
-  id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
-  survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-  campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  block_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-  total_responses int NOT NULL DEFAULT 0,
-  mean decimal(9,4) NULL,
-  std_dev decimal(9,4) NULL,
-  computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
-);
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_qos_survey_campaign' AND object_id = OBJECT_ID('dbo.survey_question_option_stats'))
+  CREATE INDEX IX_qos_survey_campaign ON dbo.survey_question_option_stats(survey_id, campaign_id);
 
--- Survey overall aggregates
-CREATE TABLE dbo.survey_overall_stats (
-  id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
-  survey_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-  campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-  total_responses int NOT NULL DEFAULT 0,
-  computed_at datetime2(7) NOT NULL DEFAULT SYSUTCDATETIME()
-);
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_qs_question_campaign' AND object_id = OBJECT_ID('dbo.survey_question_stats'))
+  CREATE INDEX IX_qs_question_campaign ON dbo.survey_question_stats(question_id, campaign_id);
 
--- 5. CREATE INDEXES
-CREATE INDEX IX_qos_question_campaign_option ON dbo.survey_question_option_stats(question_id, campaign_id, option_id);
-CREATE INDEX IX_qos_survey_campaign ON dbo.survey_question_option_stats(survey_id, campaign_id);
-CREATE INDEX IX_qs_question_campaign ON dbo.survey_question_stats(question_id, campaign_id);
-CREATE INDEX IX_block_stats_survey_campaign ON dbo.survey_block_stats(survey_id, campaign_id);
-CREATE INDEX IX_overall_stats_survey_campaign ON dbo.survey_overall_stats(survey_id, campaign_id);
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_block_stats_survey_campaign' AND object_id = OBJECT_ID('dbo.survey_block_stats'))
+  CREATE INDEX IX_block_stats_survey_campaign ON dbo.survey_block_stats(survey_id, campaign_id);
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_overall_stats_survey_campaign' AND object_id = OBJECT_ID('dbo.survey_overall_stats'))
+  CREATE INDEX IX_overall_stats_survey_campaign ON dbo.survey_overall_stats(survey_id, campaign_id);
 GO
 
 -- 6. CREATE VIEWS

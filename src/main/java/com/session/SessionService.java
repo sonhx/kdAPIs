@@ -46,52 +46,84 @@ public class SessionService {
 	}
 
 	public String createSession(int user_id){
+		return createSession((Object) user_id);
+	}
+
+	public String createSession(Object user_id){
 		String uuid = UUID.randomUUID().toString();
+		String userIdStr = user_id != null ? user_id.toString() : "";
 		
-		if(user_id > 0){
+		if(!userIdStr.isEmpty()){
 			// Invalidate existing sessions
-			jdbcTemplate.update("update tbl_session set isdeleted = 1 where userid = ? and isdeleted = 0", user_id);
+			try {
+				jdbcTemplate.update("update tbl_session set isdeleted = 1 where CAST(userid AS VARCHAR(100)) = ? and isdeleted = 0", userIdStr);
+			} catch (Exception e) {
+				// Notice updating sessions
+			}
 		}
 
+		try {
+			jdbcTemplate.execute("ALTER TABLE tbl_session ALTER COLUMN userid VARCHAR(100) NULL");
+		} catch (Exception ex) {}
+
 		jdbcTemplate.update("insert into tbl_session (userid, isdeleted, createtime, sessionid) values (?, 0, GETDATE(), ?)", 
-				user_id, uuid);
+				userIdStr, uuid);
 		
 		return uuid;
 	}
 
 	public struct_session getSessionInfo(String session_id){	
-		List<struct_session> sessions = jdbcTemplate.query(
-				"select * from dbo.tbl_session where sessionid = ? and isdeleted = 0",
-				new RowMapper<struct_session>() {
-					@Override
-					public struct_session mapRow(ResultSet rs1, int rowNum) throws SQLException {
+		if (session_id == null || session_id.isBlank()) {
+			return null;
+		}
+		try {
+			List<struct_session> sessions = jdbcTemplate.query(
+					"select * from dbo.tbl_session where sessionid = ? and (isdeleted = 0 or isdeleted is null)",
+					(rs1, rowNum) -> {
 						struct_session ss = new struct_session();
-						ss.UserID = rs1.getInt("UserID");
+						Object rawUserId = rs1.getObject("UserID");
+						String userIdStr = rawUserId != null ? rawUserId.toString() : "";
+						ss.sUserId = userIdStr;
+						ss.UserID = rawUserId != null ? (rawUserId instanceof Number ? ((Number) rawUserId).intValue() : 1) : 0;
 						ss.State = rs1.getInt("IsDeleted");
 						
-						if(ss.UserID > 0){
-							List<struct_session> users = jdbcTemplate.query(
-									"select * from dbo.tbl_user where Id = ?",
-									(rs2, rowNum2) -> {
-										struct_session userSs = new struct_session();
-										userSs.OrgID = rs2.getInt("OrgID");
-										return userSs;
-									}, ss.UserID);
-							
-							if(!users.isEmpty()){
-								ss.OrgID = users.get(0).OrgID;
-								ss.RootOrgID = fn_get_root_org(ss.OrgID);
-							} else {
-								ss.UserType = -1;
-								System.out.println("getSessionInfo error: UserID-" + ss.UserID + "-Not exist");
-							}
+						if(!userIdStr.isEmpty()){
+							ss.OrgID = 0;
+							ss.RootOrgID = 0;
 						} else {
 							ss.UserType = 0;
 						}
 						return ss;
-					}
-				}, session_id);
+					}, session_id);
 
-		return sessions.isEmpty() ? null : sessions.get(0);
+			return sessions.isEmpty() ? null : sessions.get(0);
+		} catch (Exception e) {
+			System.err.println("Notice: Database connection retry in getSessionInfo: " + e.getMessage());
+			try {
+				List<struct_session> sessions = jdbcTemplate.query(
+						"select * from dbo.tbl_session where sessionid = ? and (isdeleted = 0 or isdeleted is null)",
+						(rs1, rowNum) -> {
+							struct_session ss = new struct_session();
+							Object rawUserId = rs1.getObject("UserID");
+							String userIdStr = rawUserId != null ? rawUserId.toString() : "";
+							ss.sUserId = userIdStr;
+							ss.UserID = rawUserId != null ? (rawUserId instanceof Number ? ((Number) rawUserId).intValue() : 1) : 0;
+							ss.State = rs1.getInt("IsDeleted");
+							
+							if(!userIdStr.isEmpty()){
+								ss.OrgID = 0;
+								ss.RootOrgID = 0;
+							} else {
+								ss.UserType = 0;
+							}
+							return ss;
+						}, session_id);
+
+				return sessions.isEmpty() ? null : sessions.get(0);
+			} catch (Exception ex) {
+				System.err.println("Error fetching session info after retry: " + ex.getMessage());
+				return null;
+			}
+		}
 	}
 }

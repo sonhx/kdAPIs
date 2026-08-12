@@ -31,10 +31,8 @@ public class kdclExtend {
 
     public JSONObject KTXStats(int nam) {
         JSONObject joKTX = new JSONObject();
-        String sql = "select a.*, b.Fullname from TBL_KTX a "
-                + " INNER JOIN TBL_USER b on b.ID = a.CreatedBy "
-                + " where a.nam = ? and (a.IsDeleted is null or a.IsDeleted =0)";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, nam);
+        String sql = "select a.* from TBL_KTX a where a.nam = ? and (a.IsDeleted is null or a.IsDeleted =0)";
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, nam);
         for (Map<String, Object> row : rows) {
             joKTX.put("nam", nam);
             if (row.get("tong_dien_tich") != null && (int) row.get("tong_dien_tich") > 0)
@@ -47,7 +45,16 @@ public class kdclExtend {
                 joKTX.put("sv_o_ktx", row.get("sv_o_ktx"));
             joKTX.put("created_time", row.get("CreatedTime"));
             joKTX.put("created_by", row.get("CreatedBy"));
-            joKTX.put("creator", row.get("Fullname"));
+
+            String creator = "";
+            Object createdByObj = row.get("CreatedBy");
+            if (createdByObj != null) {
+                try {
+                    List<String> list = jdbcTemplate.queryForList("select COALESCE(Fullname, Email, '') from users where CAST(ID AS VARCHAR(100)) = ?", String.class, createdByObj.toString());
+                    if (!list.isEmpty() && list.get(0) != null) creator = list.get(0);
+                } catch (Exception e) {}
+            }
+            joKTX.put("creator", creator);
         }
         return joKTX;
     }

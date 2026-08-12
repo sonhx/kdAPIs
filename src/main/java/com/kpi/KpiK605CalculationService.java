@@ -1,10 +1,10 @@
 package com.kpi;
 
-import com.khcn.openalex.OpenAlexService;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -15,18 +15,19 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-public class KpiG205CalculationService {
+public class KpiK605CalculationService {
 
-    private static final Logger log = LoggerFactory.getLogger(KpiG205CalculationService.class);
+    private static final Logger log = LoggerFactory.getLogger(KpiK605CalculationService.class);
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private JdbcTemplate jdbcTemplate; // Primary IQA database connection
+
+    @Autowired
+    @Qualifier("evidenceJdbcTemplate")
+    private JdbcTemplate evidenceJdbcTemplate; // kiemdinh database connection
 
     @Autowired
     private kpiExtend kpiExtendService;
-
-    @Autowired(required = false)
-    private OpenAlexService openAlexService;
 
     @jakarta.annotation.PostConstruct
     public void initTableSchema() {
@@ -38,7 +39,6 @@ public class KpiG205CalculationService {
             if ("varchar".equalsIgnoreCase(notesColType)) {
                 log.info("Altering kpi_data_points.notes column to NVARCHAR(MAX)...");
                 jdbcTemplate.execute("ALTER TABLE kpi_data_points ALTER COLUMN notes NVARCHAR(MAX);");
-                log.info("Successfully altered kpi_data_points.notes column to NVARCHAR(MAX).");
             }
         } catch (Exception e) {
             log.warn("Could not check/alter kpi_data_points.notes column: {}", e.getMessage());
@@ -51,21 +51,21 @@ public class KpiG205CalculationService {
 	/*@org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
 	public void onApplicationReady() {
 	    try {
-	        log.info("Triggering initial calculation for KPI G2.05 on application startup...");
-	        calculateAndSaveG205(null);
+	        log.info("Triggering initial calculation for KPI K6.05 on application startup...");
+	        calculateAndSaveK605(null);
 	    } catch (Exception e) {
-	        log.error("Failed to calculate KPI G2.05 on startup", e);
+	        log.error("Failed to calculate KPI K6.05 on startup", e);
 	    }
 	}*/
 
     /**
-     * Scheduled Monthly Run for KPI G2.05 calculation.
-     * Runs at 00:20 AM on the 1st of every month.
+     * Scheduled Monthly Run for KPI K6.05 calculation.
+     * Runs at 00:25 AM on the 1st of every month.
      */
-    @Scheduled(cron = "0 20 0 1 * ?")
-    public void scheduledMonthlyG205Calculation() {
-        log.info("Executing scheduled monthly calculation for KPI G2.05 (Số bài báo bình quân mỗi GV)...");
-        calculateAndSaveG205(null);
+    @Scheduled(cron = "0 25 0 1 * ?")
+    public void scheduledMonthlyK605Calculation() {
+        log.info("Executing scheduled monthly calculation for KPI K6.05 (Tỷ lệ minh chứng QA được số hóa)...");
+        calculateAndSaveK605(null);
     }
 
     private Object toNVarChar(String val) {
@@ -73,42 +73,42 @@ public class KpiG205CalculationService {
     }
 
     /**
-     * Calculate and save KPI G2.05 data point into kpi_data_points.
-     * Formula: Total Papers from OpenAlex / Total Lecturers from Personnel table, rounded to 1 decimal place.
+     * Calculate and save KPI K6.05 data point into kpi_data_points.
+     * Formula: (Digitized proofs with non-null path / Total active proofs registered in kiemdinh.TBL_Minhchung) * 100%, rounded to 1 decimal place.
      *
      * @param referenceDate Optional date reference for target period (defaults to current date if null).
-     * @return JSONObject containing status, totalWorks, totalLecturers, actualValue, notes, etc.
+     * @return JSONObject containing status, totalProofs, digitizedProofs, actualValue, notes, etc.
      */
     @Transactional
-    public JSONObject calculateAndSaveG205(Date referenceDate) {
+    public JSONObject calculateAndSaveK605(Date referenceDate) {
         JSONObject result = new JSONObject();
         try {
             Date refDate = referenceDate != null ? referenceDate : new Date();
 
-            // 1. Fetch KPI definition for G2.05 (auto-insert if missing)
+            // 1. Fetch KPI definition for K6.05 (auto-insert if missing)
             List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(
-                "SELECT kpi_id, cycle_id FROM kpi_definitions WHERE kpi_code = 'G2.05' AND (is_deleted = 0 OR is_deleted IS NULL)"
+                "SELECT kpi_id, cycle_id FROM kpi_definitions WHERE kpi_code = 'K6.05' AND (is_deleted = 0 OR is_deleted IS NULL)"
             );
 
             if (kpiRows.isEmpty()) {
-                log.info("KPI G2.05 definition not found in kpi_definitions. Inserting default definition...");
+                log.info("KPI K6.05 definition not found in kpi_definitions. Inserting default definition...");
                 try {
                     jdbcTemplate.update(
                         "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle, target) " +
-                        "VALUES ('G2.05', N'Số bài báo bình quân mỗi GV', N'G – Giảng viên & Cán bộ', 'bài/GV', N'Tổng số bài báo OpenAlex / Tổng số giảng viên', N'OpenAlex / Personnel', N'Hàng tháng', 1.0)"
+                        "VALUES ('K6.05', N'Tỷ lệ minh chứng QA được số hóa', N'K – Kiểm định & Đánh giá', '%', N'Số minh chứng có file/link đã tải lên / Tổng minh chứng đã đăng ký × 100%', N'TBL_Minhchung (kiemdinh)', N'Hàng tháng', 80.0)"
                     );
                     kpiRows = jdbcTemplate.queryForList(
-                        "SELECT kpi_id, cycle_id FROM kpi_definitions WHERE kpi_code = 'G2.05' AND (is_deleted = 0 OR is_deleted IS NULL)"
+                        "SELECT kpi_id, cycle_id FROM kpi_definitions WHERE kpi_code = 'K6.05' AND (is_deleted = 0 OR is_deleted IS NULL)"
                     );
                 } catch (Exception ex) {
-                    log.error("Failed to insert KPI G2.05 definition: {}", ex.getMessage());
+                    log.error("Failed to insert KPI K6.05 definition: {}", ex.getMessage());
                 }
             }
 
             if (kpiRows.isEmpty()) {
-                log.warn("KPI G2.05 definition not found in kpi_definitions table.");
+                log.warn("KPI K6.05 definition not found in kpi_definitions table.");
                 result.put("status", "ERROR");
-                result.put("message", "KPI G2.05 definition not found in kpi_definitions.");
+                result.put("message", "KPI K6.05 definition not found in kpi_definitions.");
                 return result;
             }
 
@@ -138,42 +138,25 @@ public class KpiG205CalculationService {
             // Get or create period_instance ID for current period
             int periodId = kpiExtendService.getOrCreatePeriodInstance(cycleId, cycleType, refDate);
 
-            // 2. Count total research papers from openalex_works
-            String totalWorksSql = "SELECT COUNT(*) FROM openalex_works";
-            Integer totalWorks = jdbcTemplate.queryForObject(totalWorksSql, Integer.class);
-            if (totalWorks == null) totalWorks = 0;
+            // 2. Query kiemdinh.TBL_Minhchung for total proofs and digitized proofs (path != null and non-empty)
+            String totalProofsSql = "SELECT COUNT(*) FROM TBL_Minhchung WHERE (IsDeleted = 0 OR IsDeleted IS NULL)";
+            Integer totalCount = evidenceJdbcTemplate.queryForObject(totalProofsSql, Integer.class);
+            int totalProofs = totalCount != null ? totalCount : 0;
 
-            if (totalWorks == 0 && openAlexService != null) {
-                try {
-                    log.info("openalex_works is empty. Triggering OpenAlex works sync...");
-                    openAlexService.syncOpenAlexWorks(false);
-                    totalWorks = jdbcTemplate.queryForObject(totalWorksSql, Integer.class);
-                    if (totalWorks == null) totalWorks = 0;
-                } catch (Exception syncEx) {
-                    log.error("Failed to sync OpenAlex works: {}", syncEx.getMessage());
-                }
-            }
+            String digitizedProofsSql = "SELECT COUNT(*) FROM TBL_Minhchung WHERE (IsDeleted = 0 OR IsDeleted IS NULL) AND (path IS NOT NULL AND LTRIM(RTRIM(CAST(path AS NVARCHAR(MAX)))) <> '')";
+            Integer digitizedCount = evidenceJdbcTemplate.queryForObject(digitizedProofsSql, Integer.class);
+            int digitizedProofs = digitizedCount != null ? digitizedCount : 0;
 
-            // 3. Count total active lecturers from personnel table
-            String totalLecturersSql = 
-                "SELECT COUNT(*) FROM personnel " +
-                "WHERE (isDeleted = 0 OR isDeleted IS NULL) " +
-                "  AND trangThai = N'Đang làm việc' " +
-                "  AND tenChucVu LIKE N'%Giảng viên%'";
-
-            Integer totalLecturers = jdbcTemplate.queryForObject(totalLecturersSql, Integer.class);
-            if (totalLecturers == null) totalLecturers = 0;
-
-            // 4. Calculate ratio (total works / total lecturers) and round up to 1 digit after the decimal point
-            double ratio = totalLecturers > 0 ? (totalWorks * 1.0 / totalLecturers) : 0.0;
-            double actualValue = Math.round(ratio * 10.0) / 10.0; // Rounded to 1 decimal place
+            // 3. Calculate percentage ratio (digitizedProofs / totalProofs * 100) rounded to 1 decimal place
+            double ratio = totalProofs > 0 ? ((digitizedProofs * 100.0) / totalProofs) : 0.0;
+            double actualValue = Math.round(ratio * 10.0) / 10.0;
 
             String notes = String.format(
-                "Tự động tính toán KPI G2.05 từ OpenAlex & Personnel: %d/%d bài báo trên tổng số giảng viên (%.1f bài/GV)",
-                totalWorks, totalLecturers, actualValue
+                "Tự động tính toán KPI K6.05 từ kiemdinh.TBL_Minhchung: %d/%d minh chứng QA đã số hóa (%.1f%%)",
+                digitizedProofs, totalProofs, actualValue
             );
 
-            // 5. Upsert into kpi_data_points table
+            // 4. Upsert into kpi_data_points table in primary IQA database
             String checkExistSql = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC";
             List<Integer> existingDataIds = jdbcTemplate.query(checkExistSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, periodId);
 
@@ -182,28 +165,28 @@ public class KpiG205CalculationService {
                 dataId = existingDataIds.get(0);
                 String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), notes = ? WHERE data_id = ?";
                 jdbcTemplate.update(updateSql, actualValue, toNVarChar(notes), dataId);
-                log.info("Updated kpi_data_points (data_id: {}) for KPI G2.05: {} bài/GV", dataId, actualValue);
+                log.info("Updated kpi_data_points (data_id: {}) for KPI K6.05: {}%", dataId, actualValue);
             } else {
                 String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes) VALUES (?, ?, ?, GETDATE(), 5, ?)";
                 jdbcTemplate.update(insertSql, kpiId, periodId, actualValue, toNVarChar(notes));
                 dataId = jdbcTemplate.queryForObject(checkExistSql, Integer.class, kpiId, periodId);
-                log.info("Inserted new kpi_data_points (data_id: {}) for KPI G2.05: {} bài/GV", dataId, actualValue);
+                log.info("Inserted new kpi_data_points (data_id: {}) for KPI K6.05: {}%", dataId, actualValue);
             }
 
             result.put("status", "SUCCESS");
-            result.put("kpi_code", "G2.05");
+            result.put("kpi_code", "K6.05");
             result.put("kpi_id", kpiId);
             result.put("period_id", periodId);
             result.put("data_id", dataId);
-            result.put("total_works", totalWorks);
-            result.put("total_lecturers", totalLecturers);
+            result.put("digitized_proofs", digitizedProofs);
+            result.put("total_proofs", totalProofs);
             result.put("actual_value", actualValue);
             result.put("notes", notes);
 
         } catch (Exception e) {
-            log.error("Error calculating KPI G2.05", e);
+            log.error("Error calculating KPI K6.05", e);
             result.put("status", "ERROR");
-            result.put("message", "Lỗi tính toán KPI G2.05: " + e.getMessage());
+            result.put("message", "Lỗi tính toán KPI K6.05: " + e.getMessage());
         }
 
         return result;

@@ -31,11 +31,14 @@ public class kpiExtend {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
+	@Autowired
+	private com.notification.NotificationExtend notificationExtend;
+
 	/**
 	 * On startup, migrate kpi_assignments CHECK constraint on 'role' to allow
 	 * both 'A' (department data-entry) and 'B' (approver) roles.
 	 */
-	@PostConstruct
+	/*@PostConstruct
 	public void migrateKpiAssignmentsConstraints() {
 		try {
 			// Drop the old CHECK constraint that only allows 'A', then recreate allowing 'A' or 'B'
@@ -60,7 +63,7 @@ public class kpiExtend {
 				"END";
 			jdbcTemplate.execute(migrateSql);
 			logger.info("kpi_assignments role CHECK constraint migrated to allow A and B.");
-
+	
 			// Migration: Add is_approved, approved_by, approved_at to kpi_data_points and ensure department_id is VARCHAR(100)
 			jdbcTemplate.execute(
 				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'is_approved') " +
@@ -78,7 +81,7 @@ public class kpiExtend {
 		} catch (Exception e) {
 			logger.warn("Could not migrate kpi_assignments or kpi_data_points constraints: {}", e.getMessage());
 		}
-	}
+	}*/
 
 	/**
 	 * Save a KPI assignment to the kpi_assignments table
@@ -863,12 +866,12 @@ public class kpiExtend {
 			List<Map<String, Object>> assignRows = new ArrayList<>();
 			try {
 				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name, " +
-							   "COALESCE(u.FullName, p.fullname) as assigned_by_name, " +
-							   "COALESCE(u.Email, NULLIF(p.emailCanBo, ''), p.email) as assigned_by_email " +
+							   "p.fullname as assigned_by_name, " +
+							   "COALESCE(NULLIF(p.emailCanBo, ''), p.email, u.Email) as assigned_by_email " +
 							   "FROM kpi_assignments a " +
 							   "LEFT JOIN orgs o ON CAST(a.department_id AS VARCHAR(100)) = CAST(o.id AS VARCHAR(100)) AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
-							   "LEFT JOIN TBL_USER u ON (CASE WHEN ISNUMERIC(a.assigned_by) = 1 THEN CAST(a.assigned_by AS INT) ELSE NULL END) = u.ID " +
-							   "LEFT JOIN personnel p ON CAST(a.assigned_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR a.assigned_by = p.id";
+							   "LEFT JOIN users u ON (CASE WHEN ISNUMERIC(a.assigned_by) = 1 AND a.assigned_by NOT LIKE '%.%' THEN CAST(a.assigned_by AS INT) ELSE NULL END) = u.ID " +
+							   "LEFT JOIN personnel p ON CAST(a.assigned_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR (u.Email IS NOT NULL AND (p.emailCanBo = u.Email OR p.email = u.Email))";
 				assignRows = jdbcTemplate.queryForList(assignSql);
 			} catch (Exception e) {
 				logger.error("Error executing assignSql: " + e.getMessage());
@@ -903,12 +906,12 @@ public class kpiExtend {
 			// 3. Fetch all KPI data points
 			List<Map<String, Object>> dpRows = new ArrayList<>();
 			try {
-				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, COALESCE(u.FullName, p.fullname) AS approved_by_name " +
+				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, p.fullname AS approved_by_name " +
 							   "FROM kpi_data_points dp " +
 							   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
 							   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
-							   "LEFT JOIN TBL_USER u ON (CASE WHEN ISNUMERIC(dp.approved_by) = 1 THEN CAST(dp.approved_by AS INT) ELSE NULL END) = u.ID " +
-							   "LEFT JOIN personnel p ON CAST(dp.approved_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) " +
+							   "LEFT JOIN users u ON (CASE WHEN ISNUMERIC(dp.approved_by) = 1 AND dp.approved_by NOT LIKE '%.%' THEN CAST(dp.approved_by AS INT) ELSE NULL END) = u.ID " +
+							   "LEFT JOIN personnel p ON CAST(dp.approved_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR (u.Email IS NOT NULL AND (p.emailCanBo = u.Email OR p.email = u.Email)) " +
 							   "ORDER BY dp.data_id DESC";
 				dpRows = jdbcTemplate.queryForList(dpSql);
 			} catch (Exception e) {
@@ -1764,7 +1767,7 @@ public class kpiExtend {
 			String sql = "SELECT v.version_id, v.data_id, v.actual_value, v.notes, v.evidence_link, v.evidence_file_name, v.evidence_file_size, v.updated_at, v.change_type, v.version_number, u.Fullname as updated_by_name " +
 						 "FROM kpi_value_versions v " +
 						 "JOIN kpi_data_points d ON v.data_id = d.data_id " +
-						 "LEFT JOIN tbl_user u ON v.updated_by = u.ID " +
+						 "LEFT JOIN users u ON v.updated_by = u.ID " +
 						 "WHERE d.kpi_id = ? AND (v.department_id = ? OR (v.department_id IS NULL AND ? IS NULL)) " +
 						 "ORDER BY v.version_number DESC";
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId, deptId, deptId);
@@ -1820,6 +1823,19 @@ public class kpiExtend {
 			int dataId = ((Number) rows.get(0).get("data_id")).intValue();
 			String updateSql = "UPDATE kpi_data_points SET is_approved = 1, approved_by = ?, approved_at = GETDATE() WHERE data_id = ?";
 			jdbcTemplate.update(updateSql, userId, dataId);
+
+			try {
+				if (notificationExtend != null) {
+					notificationExtend.dispatchNotification(
+						"KPI_APPROVED", "KPI", "success",
+						"KPI đã được phê duyệt",
+						"Số liệu báo cáo cho KPI đã được phê duyệt thành công.",
+						"CHUYEN_VIEN", sDeptId, "KPI_DATA", String.valueOf(kpiId), "/kpi", userId, null
+					);
+				}
+			} catch (Exception ex) {
+				logger.warn("Could not dispatch KPI approval notification: " + ex.getMessage());
+			}
 			
 			response.put("code", 200);
 			response.put("description", "Đã phê duyệt số liệu KPI thành công!");
@@ -1860,6 +1876,19 @@ public class kpiExtend {
 				return response;
 			}
 			int dataId = ((Number) rows.get(0).get("data_id")).intValue();
+			Object existingApprovedBy = rows.get(0).get("approved_by");
+
+			// Permission check: Non-admin users cannot unapprove data approved by someone else
+			boolean isUserAdmin = userId != null && ("admin".equalsIgnoreCase(userId) || "1".equalsIgnoreCase(userId) || "system".equalsIgnoreCase(userId));
+			if (!isUserAdmin && existingApprovedBy != null && !existingApprovedBy.toString().trim().isEmpty()) {
+				String appBy = existingApprovedBy.toString().trim();
+				if (!appBy.equalsIgnoreCase(userId.trim())) {
+					response.put("code", 403);
+					response.put("description", "Bạn chỉ được phép Hủy phê duyệt số liệu do chính mình phê duyệt.");
+					return response;
+				}
+			}
+
 			String updateSql = "UPDATE kpi_data_points SET is_approved = 0, approved_by = NULL, approved_at = NULL WHERE data_id = ?";
 			jdbcTemplate.update(updateSql, dataId);
 

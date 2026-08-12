@@ -27,64 +27,64 @@ public class CourseTestResultService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @PostConstruct
-    public void initDatabaseTable() {
-        try {
-            log.info("Initializing course_test_results database table...");
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'course_test_results') " +
-                "BEGIN " +
-                "CREATE TABLE course_test_results (" +
-                "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                "    semester NVARCHAR(100) NOT NULL," +
-                "    tt INT NULL," +
-                "    course_code VARCHAR(50) NOT NULL," +
-                "    course_name NVARCHAR(255) NOT NULL," +
-                "    credits INT NULL," +
-                "    total_students INT NULL," +
-                "    graded_students INT NULL," +
-                "    count_0_1 INT DEFAULT 0," +
-                "    count_1_2 INT DEFAULT 0," +
-                "    count_2_3 INT DEFAULT 0," +
-                "    count_3_4 INT DEFAULT 0," +
-                "    count_4_5 INT DEFAULT 0," +
-                "    count_5_6 INT DEFAULT 0," +
-                "    count_6_7 INT DEFAULT 0," +
-                "    count_7_8 INT DEFAULT 0," +
-                "    count_8_9 INT DEFAULT 0," +
-                "    count_9_10 INT DEFAULT 0," +
-                "    count_c INT DEFAULT 0," +
-                "    count_v INT DEFAULT 0," +
-                "    count_h INT DEFAULT 0," +
-                "    count_dc INT DEFAULT 0," +
-                "    count_m INT DEFAULT 0," +
-                "    avg_score FLOAT NULL," +
-                "    total_hp_students INT NULL," +
-                "    fail_count INT NULL," +
-                "    other_count INT NULL," +
-                "    fail_rate FLOAT NULL," +
-                "    created_at DATETIME2 DEFAULT GETDATE()" +
-                "); " +
-                "CREATE INDEX IX_course_test_code ON course_test_results(course_code);" +
-                "CREATE INDEX IX_course_test_sem ON course_test_results(semester);" +
-                "END"
-            );
-            log.info("course_test_results table checked/created.");
-
-            // Clear table if previous records have corrupted '?' Unicode characters
-            try {
-                Integer corruptCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM course_test_results WHERE course_name LIKE '%?%'", Integer.class);
-                if (corruptCount != null && corruptCount > 0) {
-                    log.info("Found {} corrupted records with '?' in course_test_results. Clearing for fresh Unicode seed...", corruptCount);
-                    jdbcTemplate.execute("TRUNCATE TABLE course_test_results");
-                }
-            } catch (Exception ignored) {}
-
-            seedInitialDataIfEmpty();
-        } catch (Exception e) {
-            log.error("Error initializing course_test_results table: {}", e.getMessage(), e);
-        }
-    }
+	/*@PostConstruct
+	public void initDatabaseTable() {
+	    try {
+	        log.info("Initializing course_test_results database table...");
+	        jdbcTemplate.execute(
+	            "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'course_test_results') " +
+	            "BEGIN " +
+	            "CREATE TABLE course_test_results (" +
+	            "    id INT IDENTITY(1,1) PRIMARY KEY," +
+	            "    semester NVARCHAR(100) NOT NULL," +
+	            "    tt INT NULL," +
+	            "    course_code VARCHAR(50) NOT NULL," +
+	            "    course_name NVARCHAR(255) NOT NULL," +
+	            "    credits INT NULL," +
+	            "    total_students INT NULL," +
+	            "    graded_students INT NULL," +
+	            "    count_0_1 INT DEFAULT 0," +
+	            "    count_1_2 INT DEFAULT 0," +
+	            "    count_2_3 INT DEFAULT 0," +
+	            "    count_3_4 INT DEFAULT 0," +
+	            "    count_4_5 INT DEFAULT 0," +
+	            "    count_5_6 INT DEFAULT 0," +
+	            "    count_6_7 INT DEFAULT 0," +
+	            "    count_7_8 INT DEFAULT 0," +
+	            "    count_8_9 INT DEFAULT 0," +
+	            "    count_9_10 INT DEFAULT 0," +
+	            "    count_c INT DEFAULT 0," +
+	            "    count_v INT DEFAULT 0," +
+	            "    count_h INT DEFAULT 0," +
+	            "    count_dc INT DEFAULT 0," +
+	            "    count_m INT DEFAULT 0," +
+	            "    avg_score FLOAT NULL," +
+	            "    total_hp_students INT NULL," +
+	            "    fail_count INT NULL," +
+	            "    other_count INT NULL," +
+	            "    fail_rate FLOAT NULL," +
+	            "    created_at DATETIME2 DEFAULT GETDATE()" +
+	            "); " +
+	            "CREATE INDEX IX_course_test_code ON course_test_results(course_code);" +
+	            "CREATE INDEX IX_course_test_sem ON course_test_results(semester);" +
+	            "END"
+	        );
+	        log.info("course_test_results table checked/created.");
+	
+	        // Clear table if previous records have corrupted '?' Unicode characters
+	        try {
+	            Integer corruptCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM course_test_results WHERE course_name LIKE '%?%'", Integer.class);
+	            if (corruptCount != null && corruptCount > 0) {
+	                log.info("Found {} corrupted records with '?' in course_test_results. Clearing for fresh Unicode seed...", corruptCount);
+	                jdbcTemplate.execute("TRUNCATE TABLE course_test_results");
+	            }
+	        } catch (Exception ignored) {}
+	
+	        seedInitialDataIfEmpty();
+	    } catch (Exception e) {
+	        log.error("Error initializing course_test_results table: {}", e.getMessage(), e);
+	    }
+	}*/
 
     private void seedInitialDataIfEmpty() {
         try {

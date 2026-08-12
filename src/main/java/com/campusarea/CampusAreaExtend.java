@@ -199,7 +199,7 @@ public class CampusAreaExtend {
     }
 
     private String getUserName(int id) {
-        try { return jdbcTemplate.queryForObject("select Fullname from TBL_USER where ID=?", String.class, id); } catch (Exception e) { return "unknown"; }
+        try { return jdbcTemplate.queryForObject("select Fullname from users where ID=?", String.class, id); } catch (Exception e) { return "unknown"; }
     }
 
     private String getFeedbackTypeName(int val) {

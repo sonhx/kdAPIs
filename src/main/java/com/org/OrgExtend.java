@@ -54,23 +54,23 @@ public class OrgExtend {
 		}
 	}
 
-	public int addMember(int user_id, int org_id) {
+	public int addMember(Object user_id, int org_id) {
 		DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
 		Date date = new Date();
 		String sql = "insert into TBL_ORG_MEMBER (MEMBER_ID, ORG_ID, Created_Time, IsDeleted) values (?, ?, ?, 0)";
 		try {
-			return jdbcTemplate.update(sql, user_id, org_id, dateFormat.format(date));
+			return jdbcTemplate.update(sql, user_id.toString(), org_id, dateFormat.format(date));
 		} catch (Exception e) {
 			e.printStackTrace();
 			return -2;
 		}
 	}
 
-	public JSONObject memberOrg(int member_id) {
+	public JSONObject memberOrg(Object member_id) {
 		JSONObject joOrg = new JSONObject();
 		String sql = "SELECT o.* FROM [dbo].[TBL_ORG_MEMBER] m INNER JOIN TBL_ORG o ON o.ID = m.ORG_ID WHERE m.MEMBER_ID = ? AND (m.IsDeleted is null or m.IsDeleted =0)";
 		try {
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, member_id);
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, member_id.toString());
 			if (!rows.isEmpty()) {
 				Map<String, Object> row = rows.get(0);
 				joOrg.put("org_id", row.get("ID"));
@@ -85,7 +85,7 @@ public class OrgExtend {
 
 	public JSONArray OrgUsers(int org_id) {
 		JSONArray jsaUsers = new JSONArray();
-		String sql = "SELECT a.Created_Time, b.ID, b.Fullname, b.LoginName, b.Email FROM TBL_ORG_MEMBER a INNER JOIN TBL_USER b on b.ID = a.MEMBER_ID where a.ORG_ID = ? and (a.IsDeleted is null or a.IsDeleted = 0) and (b.IsDeleted is null or b.IsDeleted = 0)";
+		String sql = "SELECT a.Created_Time, b.ID, p.fullname as Fullname, b.Email FROM TBL_ORG_MEMBER a INNER JOIN users b on b.ID = a.MEMBER_ID LEFT JOIN personnel p ON (p.emailCanBo = b.Email OR p.email = b.Email) AND p.isDeleted = 0 where a.ORG_ID = ? and (a.IsDeleted is null or a.IsDeleted = 0) and (b.IsDeleted is null or b.IsDeleted = 0)";
 		try {
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, org_id);
 			for (Map<String, Object> row : rows) {
@@ -93,7 +93,7 @@ public class OrgExtend {
 				jo.put("id", row.get("ID"));
 				jo.put("created_time", row.get("Created_Time"));
 				jo.put("full_name", row.get("Fullname"));
-				jo.put("login_name", row.get("LoginName"));
+				jo.put("login_name", row.get("Fullname"));
 				jo.put("email", row.get("Email"));
 				jsaUsers.put(jo);
 			}

@@ -16,7 +16,9 @@ public class AutorunService {
 
     @PostConstruct
     public void startWatchThread() {
-        new Thread(this::watchDirectory).start();
+        Thread thread = new Thread(this::watchDirectory);
+        thread.setDaemon(true);
+        thread.start();
     }
 
     private void watchDirectory() {

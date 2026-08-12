@@ -1424,7 +1424,7 @@ public class employeesExtend {
 			String sql = "SELECT v.version_id, v.data_id, v.actual_value, v.notes, v.evidence_link, v.evidence_file_name, v.evidence_file_size, v.updated_at, v.change_type, v.version_number, u.Fullname as updated_by_name " +
 						 "FROM kpi_value_versions v " +
 						 "JOIN kpi_data_points d ON v.data_id = d.data_id " +
-						 "LEFT JOIN tbl_user u ON v.updated_by = u.ID " +
+						 "LEFT JOIN users u ON v.updated_by = u.ID " +
 						 "WHERE d.kpi_id = ? AND (v.department_id = ? OR (v.department_id IS NULL AND ? IS NULL)) " +
 						 "ORDER BY v.version_number DESC";
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId, deptId, deptId);

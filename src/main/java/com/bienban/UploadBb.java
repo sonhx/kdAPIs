@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,6 +27,7 @@ public class UploadBb {
 	private SessionService sessionService;
 
 	@Autowired
+	@Qualifier("evidenceJdbcTemplate")
 	private JdbcTemplate jdbcTemplate;
 
 	@PostMapping("/{session_id}")

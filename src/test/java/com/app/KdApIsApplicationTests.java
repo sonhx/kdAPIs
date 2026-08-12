@@ -111,6 +111,9 @@ class KdApIsApplicationTests {
 	@Autowired
 	private com.kpi.KpiN308CalculationService kpiN308CalculationService;
 
+	@Autowired
+	private com.kpi.KpiK605CalculationService kpiK605CalculationService;
+
 	@Test
 	void testKpiN308Calculation() {
 		System.out.println("--- START TEST: testKpiN308Calculation ---");
@@ -120,5 +123,17 @@ class KdApIsApplicationTests {
 		assertTrue(result.has("actual_value"));
 		assertTrue(result.has("notes"));
 		System.out.println("--- END TEST: testKpiN308Calculation (SUCCESS) ---");
+	}
+
+	@Test
+	void testKpiK605Calculation() {
+		System.out.println("--- START TEST: testKpiK605Calculation ---");
+		JSONObject result = kpiK605CalculationService.calculateAndSaveK605(null);
+		assertNotNull(result);
+		assertEquals("SUCCESS", result.optString("status"));
+		assertTrue(result.has("actual_value"));
+		assertTrue(result.has("notes"));
+		System.out.println("K6.05 Result: " + result.toString(2));
+		System.out.println("--- END TEST: testKpiK605Calculation (SUCCESS) ---");
 	}
 }

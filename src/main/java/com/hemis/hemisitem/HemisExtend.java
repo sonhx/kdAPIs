@@ -38,7 +38,7 @@ public class HemisExtend {
 	public static JSONObject KTXStats(int nam){
 		JSONObject joKTX =  new JSONObject();
 		String sql = "select a.*, b.Fullname from TBL_KTX a "
-				+ " INNER JOIN TBL_USER b on b.ID = a.CreatedBy "
+				+ " INNER JOIN users b on b.ID = a.CreatedBy "
 				+ " where a.nam = ?"
 				+ " and (a.IsDeleted is null or a.IsDeleted =0)";
 		try (Connection conn = ConnectionUtils.getMyConnection();

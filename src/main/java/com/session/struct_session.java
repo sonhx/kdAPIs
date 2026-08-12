@@ -3,6 +3,7 @@ package com.session;
 public class struct_session {
 		public int UserType;
 		public int UserID;
+		public String sUserId;
 		public int State;
 		public int UrbanID;
 		public int DistrictID;

@@ -381,7 +381,7 @@ public class SurveySyncScheduler {
         }
     }
 
-    @Scheduled(fixedDelay = 900000) // 15 mins
+    @Scheduled(fixedDelay = 5*60*60*1000, initialDelay = 5*60*60*1000)
     public void syncOngoingSurveyDetails() {
         System.out.println("Starting Slink Survey Details Sync...");
         try {
@@ -399,7 +399,7 @@ public class SurveySyncScheduler {
 
             for (String surveyId : activeSurveyIds) {
                 int page = 1;
-                int limit = 20;
+                int limit = 100;
                 boolean hasMore = true;
                 
                 while (hasMore) {
@@ -474,55 +474,48 @@ public class SurveySyncScheduler {
             final Timestamp finalCreatedAt = createdAt;
             final Timestamp finalUpdatedAt = updatedAt;
 
-            TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-            transactionTemplate.executeWithoutResult(status -> {
-                Timestamp dbUpdatedAt = null;
-                boolean exists = false;
-                try {
-                    dbUpdatedAt = jdbcTemplate.queryForObject("SELECT updated_at FROM survey_responses WHERE id = ?", Timestamp.class, finalId);
-                    exists = true;
-                } catch (EmptyResultDataAccessException e) {
-                    // Not found
-                }
-                
-                final Timestamp finalDbUpdatedAt = dbUpdatedAt;
-                final boolean finalExists = exists;
-
-                if (finalExists) {
-                    if (finalDbUpdatedAt == null || (finalUpdatedAt != null && finalUpdatedAt.after(finalDbUpdatedAt))) {
-                        String updateSql = "UPDATE survey_responses SET is_answered=?, updated_at=? WHERE id=?";
-                        jdbcTemplate.update(connection -> {
-                            java.sql.PreparedStatement ps = connection.prepareStatement(updateSql);
-                            ps.setBoolean(1, finalAnswered);
-                            ps.setTimestamp(2, finalUpdatedAt);
-                            ps.setString(3, finalId);
-                            return ps;
-                        });
-                        
-                        // We can just delete answers and re-insert them if it was updated
-                        jdbcTemplate.update("DELETE FROM survey_response_answers WHERE response_id = ?", finalId);
-                        insertAnswers(finalSurveyId, finalId, res.optJSONArray("danhSachTraLoi"));
-                    }
-                } else {
-                    String insertSql = "INSERT INTO survey_responses (id, survey_id, user_code, full_name, role, class_code, is_answered, started_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            Timestamp dbUpdatedAt = null;
+            boolean exists = false;
+            try {
+                dbUpdatedAt = jdbcTemplate.queryForObject("SELECT updated_at FROM survey_responses WHERE id = ?", Timestamp.class, finalId);
+                exists = true;
+            } catch (EmptyResultDataAccessException e) {
+                // Not found
+            }
+            
+            if (exists) {
+                if (dbUpdatedAt == null || (finalUpdatedAt != null && finalUpdatedAt.after(dbUpdatedAt))) {
+                    String updateSql = "UPDATE survey_responses SET is_answered=?, updated_at=? WHERE id=?";
                     jdbcTemplate.update(connection -> {
-                        java.sql.PreparedStatement ps = connection.prepareStatement(insertSql);
-                        ps.setString(1, finalId);
-                        ps.setString(2, finalSurveyId);
-                        ps.setString(3, finalUserCode);
-                        ps.setNString(4, finalHoTen);
-                        ps.setNString(5, finalRole);
-                        ps.setString(6, finalClassCode);
-                        ps.setBoolean(7, finalAnswered);
-                        ps.setTimestamp(8, finalStartedAt);
-                        ps.setTimestamp(9, finalCreatedAt);
-                        ps.setTimestamp(10, finalUpdatedAt);
+                        java.sql.PreparedStatement ps = connection.prepareStatement(updateSql);
+                        ps.setBoolean(1, finalAnswered);
+                        ps.setTimestamp(2, finalUpdatedAt);
+                        ps.setString(3, finalId);
                         return ps;
                     });
                     
+                    jdbcTemplate.update("DELETE FROM survey_response_answers WHERE response_id = ?", finalId);
                     insertAnswers(finalSurveyId, finalId, res.optJSONArray("danhSachTraLoi"));
                 }
-            });
+            } else {
+                String insertSql = "INSERT INTO survey_responses (id, survey_id, user_code, full_name, role, class_code, is_answered, started_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                jdbcTemplate.update(connection -> {
+                    java.sql.PreparedStatement ps = connection.prepareStatement(insertSql);
+                    ps.setString(1, finalId);
+                    ps.setString(2, finalSurveyId);
+                    ps.setString(3, finalUserCode);
+                    ps.setNString(4, finalHoTen);
+                    ps.setNString(5, finalRole);
+                    ps.setString(6, finalClassCode);
+                    ps.setBoolean(7, finalAnswered);
+                    ps.setTimestamp(8, finalStartedAt);
+                    ps.setTimestamp(9, finalCreatedAt);
+                    ps.setTimestamp(10, finalUpdatedAt);
+                    return ps;
+                });
+                
+                insertAnswers(finalSurveyId, finalId, res.optJSONArray("danhSachTraLoi"));
+            }
         } catch (Exception e) {
             System.out.println("Error updating survey response " + res.optString("_id") + ": " + e.getMessage());
             e.printStackTrace();
@@ -535,12 +528,14 @@ public class SurveySyncScheduler {
     }
 
     private void insertAnswers(String surveyId, String responseId, JSONArray answers) {
-        if (answers == null) return;
+        if (answers == null || answers.length() == 0) return;
+        
+        List<Object[]> batchParams = new java.util.ArrayList<>();
         for (int i = 0; i < answers.length(); i++) {
             JSONObject ans = answers.getJSONObject(i);
             String ansId = ans.optString("_id", java.util.UUID.randomUUID().toString());
             String originalQId = ans.getString("idCauHoi");
-            String qId = generateUniqueId(surveyId, originalQId); // Transform using same hashing logic!
+            String qId = generateUniqueId(surveyId, originalQId);
             String traLoiKhac = ans.optString("traLoiKhac", null);
             
             JSONArray listLuaChon = ans.optJSONArray("listLuaChon");
@@ -553,25 +548,11 @@ public class SurveySyncScheduler {
                 choicesStr = listLuaChonBang.toString();
             }
             
-            final String finalAnsId = ansId;
-            final String finalResponseId = responseId;
-            final String finalQId = qId;
-            final String finalChoicesStr = choicesStr;
-            final String finalTraLoiKhac = traLoiKhac;
-
-            jdbcTemplate.update("DELETE FROM survey_response_answers WHERE id = ?", finalAnsId);
-
-            String sql = "INSERT INTO survey_response_answers (id, response_id, question_id, choices, other_answer) VALUES (?, ?, ?, ?, ?)";
-            jdbcTemplate.update(connection -> {
-                java.sql.PreparedStatement ps = connection.prepareStatement(sql);
-                ps.setString(1, finalAnsId);
-                ps.setString(2, finalResponseId);
-                ps.setString(3, finalQId);
-                ps.setNString(4, finalChoicesStr);
-                ps.setNString(5, finalTraLoiKhac);
-                return ps;
-            });
+            batchParams.add(new Object[]{ansId, responseId, qId, choicesStr, traLoiKhac});
         }
+
+        String sql = "INSERT INTO survey_response_answers (id, response_id, question_id, choices, other_answer) VALUES (?, ?, ?, ?, ?)";
+        jdbcTemplate.batchUpdate(sql, batchParams);
     }
 
     private void updateSurveyCampaigns(String surveyId) {

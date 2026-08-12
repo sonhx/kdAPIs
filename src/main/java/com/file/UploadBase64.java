@@ -26,6 +26,7 @@ public class UploadBase64 {
     private SessionService sessionService;
 
     @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("evidenceJdbcTemplate")
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -113,11 +114,11 @@ public class UploadBase64 {
             String qdSo = jin.optString("qd_so", null);
             String nqSo = jin.optString("nq_so", null);
             String gcnSo = jin.optString("gcn_so", null);
-            String gcnThoihan = jin.getString("gcn_thoihan");
+            String gcnThoihan = jin.optString("gcn_thoihan", null);
 
             String tenbang = tenbang(loaiTl);
             String path = fPath(kdId, doituongKd, loaiTl, subTl);
-            int kqId = registerKq(tenbang, ghiChu, sst.UserID, kdId, doituongKd, kdScope);
+            int kqId = getOrCreateKq(tenbang, ghiChu, sst.UserID, kdId, doituongKd, kdScope);
             
             String fullPath = path + "/" + kqId;
             String fdir = fullPath.replaceFirst(Config.homePath, Config.homeDir);
@@ -244,7 +245,16 @@ public class UploadBase64 {
         jdbcTemplate.update(sql, params.toArray());
     }
 
-    private int registerKq(String tenbang, String ghiChu, int userId, int kdId, String doituongKd, int scope) {
+    private int getOrCreateKq(String tenbang, String ghiChu, int userId, int kdId, String doituongKd, int scope) {
+        String querySql = "select ID from " + tenbang + " where kd_id = ? and doituong_kd = ? and (IsDeleted is null or IsDeleted = 0)";
+        java.util.List<Integer> existing = jdbcTemplate.queryForList(querySql, Integer.class, kdId, doituongKd);
+        if (!existing.isEmpty()) {
+            int kqId = existing.get(0);
+            if (ghiChu != null && !ghiChu.trim().isEmpty()) {
+                jdbcTemplate.update("update " + tenbang + " set ghi_chu = ?, CreatedTime = GETDATE(), CreatedBy = ? where ID = ?", ghiChu, userId, kqId);
+            }
+            return kqId;
+        }
         String sql = "insert into " + tenbang + " (ghi_chu, Createdtime, CreatedBy, kd_id, doituong_kd, scope) values (?, GETDATE(), ?, ?, ?, ?)";
         jdbcTemplate.update(sql, ghiChu, userId, kdId, doituongKd, scope);
         return jdbcTemplate.queryForObject("select max(ID) from " + tenbang, Integer.class);
@@ -252,14 +262,25 @@ public class UploadBase64 {
 
     private void registerKqDoc(int kqId, String path, String ten, String so, String thoihan, String loai, String ghiChu, int userId) {
         String fullPath = path + "/" + ten;
-        String sql = "insert into TBL_Ketqua_doc (kq_id, ten, so, loai, ghi_chu, path, Createdtime, CreatedBy, ExpiryDate) values (?, ?, ?, ?, ?, ?, GETDATE(), ?, " 
-                   + (thoihan == null ? "NULL" : "CONVERT(DATETIME, ?, 102)") + ")";
-        
-        java.util.List<Object> params = new java.util.ArrayList<>();
-        params.add(kqId); params.add(ten); params.add(so); params.add(loai); params.add(ghiChu); params.add(fullPath); params.add(userId);
-        if (thoihan != null) params.add(thoihan);
-        
-        jdbcTemplate.update(sql, params.toArray());
+        String checkSql = "select ID from TBL_Ketqua_doc where kq_id = ? and loai = ? and (IsDeleted is null or IsDeleted = 0)";
+        java.util.List<Integer> existingDocs = jdbcTemplate.queryForList(checkSql, Integer.class, kqId, loai);
+        if (!existingDocs.isEmpty()) {
+            int docId = existingDocs.get(0);
+            String updateSql = "update TBL_Ketqua_doc set ten = ?, so = ?, ghi_chu = ?, path = ?, Createdtime = GETDATE(), CreatedBy = ?, ExpiryDate = " 
+                             + (thoihan == null ? "NULL" : "TRY_CONVERT(DATETIME, ?, 120)") + " where ID = ?";
+            java.util.List<Object> updateParams = new java.util.ArrayList<>();
+            updateParams.add(ten); updateParams.add(so); updateParams.add(ghiChu); updateParams.add(fullPath); updateParams.add(userId);
+            if (thoihan != null) updateParams.add(thoihan);
+            updateParams.add(docId);
+            jdbcTemplate.update(updateSql, updateParams.toArray());
+        } else {
+            String sql = "insert into TBL_Ketqua_doc (kq_id, ten, so, loai, ghi_chu, path, Createdtime, CreatedBy, ExpiryDate) values (?, ?, ?, ?, ?, ?, GETDATE(), ?, " 
+                       + (thoihan == null ? "NULL" : "TRY_CONVERT(DATETIME, ?, 120)") + ")";
+            java.util.List<Object> params = new java.util.ArrayList<>();
+            params.add(kqId); params.add(ten); params.add(so); params.add(loai); params.add(ghiChu); params.add(fullPath); params.add(userId);
+            if (thoihan != null) params.add(thoihan);
+            jdbcTemplate.update(sql, params.toArray());
+        }
     }
 
     private void registerMinhchung_ed(String path, String maMc, String filename, int userId, int kdId, String doituongKd) {

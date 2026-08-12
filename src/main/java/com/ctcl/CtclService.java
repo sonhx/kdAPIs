@@ -43,14 +43,15 @@ public class CtclService {
 
 			int kd_id = jin.getInt("kd_id");
 			String doituong_kd = jin.getString("doituong_kd");
-			String user_type = jin.getString("user_type");
-
+			/*String user_type = jin.getString("user_type");
+			
 			if (user_type.equalsIgnoreCase("phongban")) {
 				int org_id = ctclExtend.UserOrg(sst.UserID);
 				jsa = ctclExtend.listCtclWithOrg(kd_id, doituong_kd, org_id);
 			} else {
 				jsa = ctclExtend.listCtcl(kd_id, doituong_kd);
-			}
+			}*/
+			jsa = ctclExtend.listCtcl(kd_id, doituong_kd);
 
 			jout.put("list_ctcl", jsa);
 			jout.put("code", 200);

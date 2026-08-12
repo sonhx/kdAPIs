@@ -36,33 +36,33 @@ public class ScimagoIngestionService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    @PostConstruct
-    public void initDatabaseTables() {
-        try {
-            log.info("Initializing SCImago Database Tables...");
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'scimago_rankings') " +
-                "BEGIN " +
-                "CREATE TABLE scimago_rankings (" +
-                "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                "    source_id INT NULL," +
-                "    title NVARCHAR(500) NOT NULL," +
-                "    issn_clean VARCHAR(8) NOT NULL," +
-                "    sjr_score FLOAT NULL," +
-                "    best_quartile VARCHAR(5) NOT NULL," +
-                "    h_index INT NULL," +
-                "    ranking_year INT NOT NULL," +
-                "    created_at DATETIME2 DEFAULT GETDATE()," +
-                "    CONSTRAINT UQ_issn_year UNIQUE (issn_clean, ranking_year)" +
-                "); " +
-                "CREATE INDEX IX_scimago_lookup ON scimago_rankings(issn_clean, ranking_year, best_quartile);" +
-                "END"
-            );
-            log.info("SCImago Database Tables initialized successfully.");
-        } catch (Exception e) {
-            log.error("Error initializing SCImago database tables: {}", e.getMessage(), e);
-        }
-    }
+	/*@PostConstruct
+	public void initDatabaseTables() {
+	    try {
+	        log.info("Initializing SCImago Database Tables...");
+	        jdbcTemplate.execute(
+	            "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'scimago_rankings') " +
+	            "BEGIN " +
+	            "CREATE TABLE scimago_rankings (" +
+	            "    id INT IDENTITY(1,1) PRIMARY KEY," +
+	            "    source_id INT NULL," +
+	            "    title NVARCHAR(500) NOT NULL," +
+	            "    issn_clean VARCHAR(8) NOT NULL," +
+	            "    sjr_score FLOAT NULL," +
+	            "    best_quartile VARCHAR(5) NOT NULL," +
+	            "    h_index INT NULL," +
+	            "    ranking_year INT NOT NULL," +
+	            "    created_at DATETIME2 DEFAULT GETDATE()," +
+	            "    CONSTRAINT UQ_issn_year UNIQUE (issn_clean, ranking_year)" +
+	            "); " +
+	            "CREATE INDEX IX_scimago_lookup ON scimago_rankings(issn_clean, ranking_year, best_quartile);" +
+	            "END"
+	        );
+	        log.info("SCImago Database Tables initialized successfully.");
+	    } catch (Exception e) {
+	        log.error("Error initializing SCImago database tables: {}", e.getMessage(), e);
+	    }
+	}*/
 
     /**
      * Scheduled annual ingestion on July 1st at 01:00 AM.

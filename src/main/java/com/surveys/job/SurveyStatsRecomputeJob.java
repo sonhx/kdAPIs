@@ -37,6 +37,14 @@ public class SurveyStatsRecomputeJob {
                     surveyStatsService.recomputeCampaign(surveyId, campaignId);
                 }
             }
+
+            // Also recompute overall stats (campaignId = null) for surveys with responses
+            String sqlSurveys = "SELECT DISTINCT survey_id FROM survey_responses";
+            List<String> surveyIds = jdbcTemplate.queryForList(sqlSurveys, String.class);
+            for (String sId : surveyIds) {
+                surveyStatsService.recomputeCampaign(sId, null);
+            }
+
             System.out.println("Completed scheduled survey statistics recomputation successfully.");
         } catch (Exception e) {
             System.err.println("Error in SurveyStatsRecomputeJob: " + e.getMessage());

@@ -51,6 +51,12 @@ public class kpiServices {
 	@Autowired
 	private KpiG201CalculationService kpiG201CalculationService;
 
+	@Autowired
+	private KpiK605CalculationService kpiK605CalculationService;
+
+	@Autowired
+	private KpiD807CalculationService kpiD807CalculationService;
+
 	// TODO change table name departments as it does not exist in the database
 	private Integer resolveKpiId(String kpiCode) {
 		if (kpiCode == null || kpiCode.isEmpty())
@@ -968,7 +974,7 @@ public class kpiServices {
 			boolean isAdmin = false;
 			try {
 				List<Map<String, Object>> userRows = jdbcTemplate
-						.queryForList("SELECT IsAdmin, Email FROM tbl_user WHERE ID = ?", sst.UserID);
+						.queryForList("SELECT IsAdmin, Email FROM users WHERE ID = ?", sst.UserID);
 				if (!userRows.isEmpty()) {
 					Map<String, Object> uRow = userRows.get(0);
 					int adminVal = uRow.get("IsAdmin") != null ? ((Number) uRow.get("IsAdmin")).intValue() : 0;
@@ -1091,6 +1097,26 @@ public class kpiServices {
 	public String calculateG201() {
 		System.out.println("-------calculateG201 requested");
 		JSONObject result = kpiG201CalculationService.calculateAndSaveG201(null);
+		return result.toString();
+	}
+
+	/**
+	 * POST / GET /kpi/calculate/k605 - Manually trigger calculation for KPI K6.05
+	 */
+	@RequestMapping(value = {"/calculate/k605", "/calculate-k605", "/calculate/k6.05"})
+	public String calculateK605() {
+		System.out.println("-------calculateK605 requested");
+		JSONObject result = kpiK605CalculationService.calculateAndSaveK605(null);
+		return result.toString();
+	}
+
+	/**
+	 * POST / GET /kpi/calculate/d807 - Manually trigger calculation for KPI D8.07
+	 */
+	@RequestMapping(value = {"/calculate/d807", "/calculate-d807", "/calculate/d8.07"})
+	public String calculateD807() {
+		System.out.println("-------calculateD807 requested");
+		JSONObject result = kpiD807CalculationService.calculateAndSaveD807(null);
 		return result.toString();
 	}
 

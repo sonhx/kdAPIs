@@ -23,12 +23,18 @@ public class TccbExtend {
         }
     }
 
-    public String getUserFullName(int userId) {
+    public String getUserFullName(Object userId) {
         try {
-            return jdbcTemplate.queryForObject("select Fullname from tbl_user where ID=?", String.class, userId);
+            String sql = "SELECT p.fullname FROM users u JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 WHERE u.ID=?";
+            List<String> names = jdbcTemplate.queryForList(sql, String.class, userId.toString());
+            return names.isEmpty() ? "unknown" : names.get(0);
         } catch (Exception e) {
             return "unknown";
         }
+    }
+
+    public String getUserFullName(int userId) {
+        return getUserFullName((Object) userId);
     }
 
     public String getPersonName(int personId) {

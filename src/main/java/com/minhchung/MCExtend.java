@@ -4,26 +4,55 @@ import java.io.File;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+
 import com.config.Config;
 import com.file.UploadBase64;
-import com.ocr.OcrExtend;
 
 @Service
 public class MCExtend {
     public final String host = Config.host;
 
     @Autowired
-    @Qualifier("evidenceJdbcTemplate")
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    @Qualifier("evidenceJdbcTemplate")
+    private JdbcTemplate evidenceJdbcTemplate;
+
+    private Map<String, String> getCreatorNames(Set<String> createdByIds) {
+        Map<String, String> resultMap = new HashMap<>();
+        if (createdByIds == null || createdByIds.isEmpty()) return resultMap;
+
+        List<String> idList = new ArrayList<>(createdByIds);
+        String inSql = String.join(",", Collections.nCopies(idList.size(), "?"));
+
+        try {
+            String sql = "SELECT CAST(id AS VARCHAR(100)) as id, fullname FROM personnel WHERE CAST(id AS VARCHAR(100)) IN (" + inSql + ") AND isDeleted = 0";
+            List<Map<String, Object>> list = jdbcTemplate.queryForList(sql, idList.toArray());
+            for (Map<String, Object> r : list) {
+                if (r.get("id") != null && r.get("fullname") != null) {
+                    resultMap.put(r.get("id").toString().trim(), r.get("fullname").toString());
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return resultMap;
+    }
 
     public int UploadFrame(JSONArray jsFrame) {
         try {
@@ -46,7 +75,7 @@ public class MCExtend {
 
                 String sql = "insert into TBL_FRAME(TYPE, F_INDEX, NAME, ParentID, CreatedBy, CreatedTime, UpdatedBy, UpdatedTime, IsDeleted) "
                         + " OUTPUT inserted.ID values(?, ?, ?, ?, 8, getDate(), 8, getDate(), 0)";
-                Integer ID = jdbcTemplate.queryForObject(sql, Integer.class, phanloai, chiso, ten, iParentID);
+                Integer ID = evidenceJdbcTemplate.queryForObject(sql, Integer.class, phanloai, chiso, ten, iParentID);
                 if (ID == null) ID = 0;
 
                 if (phanloai.equalsIgnoreCase("lv")) {
@@ -65,7 +94,7 @@ public class MCExtend {
     public JSONArray loop_frame(int root_org_id, JSONArray result_arr, 
             int kd_id, String doituong_kd, int status, JSONArray mc_list) {
         String sql = "select * from TBL_FRAME where ParentID=? and kd_id = ? and doituong_kd = ? and status = ? and (IsDeleted is null or IsDeleted=0)";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd, status);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd, status);
         
         for (Map<String, Object> row : rows) {
             JSONObject c = new JSONObject();
@@ -76,7 +105,7 @@ public class MCExtend {
             c.put("label", row.get("NAME"));
             
             String sqlMC = "select * from TBL_MINHCHUNG WHERE F_ID = ? and (IsDeleted is null or IsDeleted = 0)";
-            List<Map<String, Object>> mcRows = jdbcTemplate.queryForList(sqlMC, frame_id);
+            List<Map<String, Object>> mcRows = evidenceJdbcTemplate.queryForList(sqlMC, frame_id);
             for (Map<String, Object> mcRow : mcRows) {
                 JSONObject joMC = new JSONObject();
                 joMC.put("ID", mcRow.get("ID"));
@@ -122,11 +151,8 @@ public class MCExtend {
 
     public JSONArray listMCbyFrame(int frame_id, String sGroups) {
         JSONArray mc_list = new JSONArray();
-        StringBuilder sql = new StringBuilder("select a.*, b.Fullname as creator, c.Fullname as emp, c1.Fullname as uploader, d.group_name "
+        StringBuilder sql = new StringBuilder("select a.*, d.group_name "
                 + " from TBL_MINHCHUNG a "
-                + " left join TBL_USER b on b.id = a.CreatedBy "
-                + " left join TBL_USER c on c.ID = a.emp_id "
-                + " left join TBL_USER c1 on c1.ID = a.UploadedBy "
                 + " left join TBL_GROUP d on d.ID = a.group_id "
                 + " where a.f_id = ? "
                 + " and (a.IsDeleted is null or a.IsDeleted = 0)");
@@ -135,7 +161,16 @@ public class MCExtend {
         if (sGroups != null && !sGroups.trim().isEmpty() && sGroups.matches("^[0-9,\\s]+$")) {
             sql.append(" and a.group_id in (").append(sGroups).append(")");
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql.toString(), params.toArray());
+
+        Set<String> userIds = new HashSet<>();
+        for (Map<String, Object> r : rows) {
+            if (r.get("CreatedBy") != null) userIds.add(r.get("CreatedBy").toString().trim());
+            if (r.get("emp_id") != null) userIds.add(r.get("emp_id").toString().trim());
+            if (r.get("UploadedBy") != null) userIds.add(r.get("UploadedBy").toString().trim());
+        }
+        Map<String, String> userNames = getCreatorNames(userIds);
+
         for (Map<String, Object> row : rows) {
             JSONObject joMc = new JSONObject();
             int id = (int) row.get("ID");
@@ -147,9 +182,15 @@ public class MCExtend {
             joMc.put("is_locked", row.get("is_locked"));
             joMc.put("created_time", row.get("CreatedTime") != null ? row.get("CreatedTime").toString() : "");
             joMc.put("has_ocr", row.get("content") != null);
-            joMc.put("creator", row.get("creator"));
-            joMc.put("emp_id", row.get("emp_id") != null ? row.get("emp_id") : -1);
-            joMc.put("emp", row.get("emp") != null ? row.get("emp") : "Chưa phân công");
+
+            String cbStr = row.get("CreatedBy") != null ? row.get("CreatedBy").toString().trim() : "";
+            joMc.put("creator", userNames.getOrDefault(cbStr, ""));
+
+            int emp_id = row.get("emp_id") != null ? (int) row.get("emp_id") : -1;
+            joMc.put("emp_id", emp_id);
+            String empStr = emp_id > 0 ? String.valueOf(emp_id) : "";
+            joMc.put("emp", userNames.containsKey(empStr) && !userNames.get(empStr).isEmpty() ? userNames.get(empStr) : "Chưa phân công");
+
             int org_id = row.get("org_id") != null ? (int) row.get("org_id") : 0;
             if (org_id > 0) joMc.put("org_id", org_id);
             int group_id = row.get("group_id") != null ? (int) row.get("group_id") : 0;
@@ -164,7 +205,8 @@ public class MCExtend {
             int uploaded_by = row.get("UploadedBy") != null ? (int) row.get("UploadedBy") : 0;
             if (uploaded_by > 0) {
                 joMc.put("uploaded_by", uploaded_by);
-                joMc.put("uploader", row.get("uploader"));
+                String upStr = String.valueOf(uploaded_by);
+                joMc.put("uploader", userNames.getOrDefault(upStr, ""));
                 joMc.put("uploaded_time", row.get("UploadedTime") != null ? row.get("UploadedTime").toString() : "");
             } else {
                 joMc.put("uploaded_by", -1);
@@ -183,7 +225,7 @@ public class MCExtend {
     public int get_mc_list(int root_id, String sGroups, JSONArray result_arr) {
         try {
             String sql = "select ID from TBL_FRAME where ParentID = ? and (IsDeleted is null or IsDeleted = 0)";
-            List<Integer> ids = jdbcTemplate.queryForList(sql, Integer.class, root_id);
+            List<Integer> ids = evidenceJdbcTemplate.queryForList(sql, Integer.class, root_id);
             for (int frame_id : ids) {
                 JSONArray js = listMCbyFrame(frame_id, sGroups);
                 if (js != null) {
@@ -208,22 +250,28 @@ public class MCExtend {
            .append("  SELECT f.ID FROM TBL_FRAME f INNER JOIN RecursiveFrames rf ON f.ParentID = rf.ID ")
            .append("  WHERE (f.IsDeleted IS NULL OR f.IsDeleted = 0) ")
            .append(") ")
-           .append("SELECT a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.is_locked, a.CreatedTime, ")
+           .append("SELECT a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.is_locked, a.CreatedTime, a.CreatedBy, ")
            .append("       a.emp_id, a.org_id, a.group_id, a.deadline, a.UploadedBy, a.UploadedTime, ")
            .append("       CASE WHEN a.content IS NOT NULL THEN 1 ELSE 0 END as has_ocr, ")
-           .append("       b.Fullname as creator, c.Fullname as emp, c1.Fullname as uploader, d.group_name ")
+           .append("       d.group_name ")
            .append("FROM TBL_MINHCHUNG a ")
            .append("INNER JOIN RecursiveFrames rf ON a.f_id = rf.ID ")
-           .append("LEFT JOIN TBL_USER b ON b.id = a.CreatedBy ")
-           .append("LEFT JOIN TBL_USER c ON c.ID = a.emp_id ")
-           .append("LEFT JOIN TBL_USER c1 ON c1.ID = a.UploadedBy ")
            .append("LEFT JOIN TBL_GROUP d ON d.ID = a.group_id ")
            .append("WHERE (a.IsDeleted IS NULL OR a.IsDeleted = 0) ");
         if (sGroups != null && !sGroups.trim().isEmpty() && sGroups.matches("^[0-9,\\s]+$")) {
             sql.append(" AND a.group_id IN (").append(sGroups).append(")");
         }
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), root_id);
+            List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql.toString(), root_id);
+
+            Set<String> userIds = new HashSet<>();
+            for (Map<String, Object> r : rows) {
+                if (r.get("CreatedBy") != null) userIds.add(r.get("CreatedBy").toString().trim());
+                if (r.get("emp_id") != null) userIds.add(r.get("emp_id").toString().trim());
+                if (r.get("UploadedBy") != null) userIds.add(r.get("UploadedBy").toString().trim());
+            }
+            Map<String, String> userNames = getCreatorNames(userIds);
+
             for (Map<String, Object> row : rows) {
                 JSONObject joMc = new JSONObject();
                 int id = (int) row.get("ID");
@@ -235,9 +283,15 @@ public class MCExtend {
                 joMc.put("is_locked", row.get("is_locked"));
                 joMc.put("created_time", row.get("CreatedTime") != null ? row.get("CreatedTime").toString() : "");
                 joMc.put("has_ocr", (int) row.get("has_ocr") == 1);
-                joMc.put("creator", row.get("creator"));
-                joMc.put("emp_id", row.get("emp_id") != null ? row.get("emp_id") : -1);
-                joMc.put("emp", row.get("emp") != null ? row.get("emp") : "Chưa phân công");
+
+                String cbStr = row.get("CreatedBy") != null ? row.get("CreatedBy").toString().trim() : "";
+                joMc.put("creator", userNames.getOrDefault(cbStr, ""));
+
+                int emp_id = row.get("emp_id") != null ? (int) row.get("emp_id") : -1;
+                joMc.put("emp_id", emp_id);
+                String empStr = emp_id > 0 ? String.valueOf(emp_id) : "";
+                joMc.put("emp", userNames.containsKey(empStr) && !userNames.get(empStr).isEmpty() ? userNames.get(empStr) : "Chưa phân công");
+
                 int org_id = row.get("org_id") != null ? (int) row.get("org_id") : 0;
                 if (org_id > 0) joMc.put("org_id", org_id);
                 int group_id = row.get("group_id") != null ? (int) row.get("group_id") : 0;
@@ -252,7 +306,8 @@ public class MCExtend {
                 int uploaded_by = row.get("UploadedBy") != null ? (int) row.get("UploadedBy") : 0;
                 if (uploaded_by > 0) {
                     joMc.put("uploaded_by", uploaded_by);
-                    joMc.put("uploader", row.get("uploader"));
+                    String upStr = String.valueOf(uploaded_by);
+                    joMc.put("uploader", userNames.getOrDefault(upStr, ""));
                     joMc.put("uploaded_time", row.get("UploadedTime") != null ? row.get("UploadedTime").toString() : "");
                 } else {
                     joMc.put("uploaded_by", -1);
@@ -281,17 +336,14 @@ public class MCExtend {
            .append("  SELECT f.ID FROM TBL_FRAME f INNER JOIN RecursiveFrames rf ON f.ParentID = rf.ID ")
            .append("  WHERE (f.IsDeleted IS NULL OR f.IsDeleted = 0) ")
            .append(") ")
-           .append("SELECT a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.is_locked, a.CreatedTime, ")
+           .append("SELECT a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.is_locked, a.CreatedTime, a.CreatedBy, ")
            .append("       a.emp_id, a.org_id, a.group_id, a.deadline, a.UploadedBy, a.UploadedTime, ")
            .append("       CASE WHEN a.content IS NOT NULL THEN 1 ELSE 0 END as has_ocr, ")
-           .append("       b.Fullname as creator, c.Fullname as emp, c1.Fullname as uploader, d.group_name, ")
+           .append("       d.group_name, ")
            .append("       COUNT(*) OVER() as total_count, ")
            .append("       SUM(CASE WHEN a.path IS NOT NULL OR a.UploadedTime IS NOT NULL THEN 1 ELSE 0 END) OVER() as uploaded_count ")
            .append("FROM TBL_MINHCHUNG a ")
            .append("INNER JOIN RecursiveFrames rf ON a.f_id = rf.ID ")
-           .append("LEFT JOIN TBL_USER b ON b.id = a.CreatedBy ")
-           .append("LEFT JOIN TBL_USER c ON c.ID = a.emp_id ")
-           .append("LEFT JOIN TBL_USER c1 ON c1.ID = a.UploadedBy ")
            .append("LEFT JOIN TBL_GROUP d ON d.ID = a.group_id ")
            .append("WHERE (a.IsDeleted IS NULL OR a.IsDeleted = 0) ");
 
@@ -322,7 +374,16 @@ public class MCExtend {
         }
 
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
+            List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql.toString(), params.toArray());
+
+            Set<String> userIds = new HashSet<>();
+            for (Map<String, Object> r : rows) {
+                if (r.get("CreatedBy") != null) userIds.add(r.get("CreatedBy").toString().trim());
+                if (r.get("emp_id") != null) userIds.add(r.get("emp_id").toString().trim());
+                if (r.get("UploadedBy") != null) userIds.add(r.get("UploadedBy").toString().trim());
+            }
+            Map<String, String> userNames = getCreatorNames(userIds);
+
             boolean firstRow = true;
             for (Map<String, Object> row : rows) {
                 if (firstRow) {
@@ -344,9 +405,15 @@ public class MCExtend {
                 joMc.put("is_locked", row.get("is_locked"));
                 joMc.put("created_time", row.get("CreatedTime") != null ? row.get("CreatedTime").toString() : "");
                 joMc.put("has_ocr", (int) row.get("has_ocr") == 1);
-                joMc.put("creator", row.get("creator"));
-                joMc.put("emp_id", row.get("emp_id") != null ? row.get("emp_id") : -1);
-                joMc.put("emp", row.get("emp") != null ? row.get("emp") : "Chưa phân công");
+
+                String cbStr = row.get("CreatedBy") != null ? row.get("CreatedBy").toString().trim() : "";
+                joMc.put("creator", userNames.getOrDefault(cbStr, ""));
+
+                int emp_id = row.get("emp_id") != null ? (int) row.get("emp_id") : -1;
+                joMc.put("emp_id", emp_id);
+                String empStr = emp_id > 0 ? String.valueOf(emp_id) : "";
+                joMc.put("emp", userNames.containsKey(empStr) && !userNames.get(empStr).isEmpty() ? userNames.get(empStr) : "Chưa phân công");
+
                 int org_id = row.get("org_id") != null ? (int) row.get("org_id") : 0;
                 if (org_id > 0) joMc.put("org_id", org_id);
                 int group_id = row.get("group_id") != null ? (int) row.get("group_id") : 0;
@@ -361,7 +428,8 @@ public class MCExtend {
                 int uploaded_by = row.get("UploadedBy") != null ? (int) row.get("UploadedBy") : 0;
                 if (uploaded_by > 0) {
                     joMc.put("uploaded_by", uploaded_by);
-                    joMc.put("uploader", row.get("uploader"));
+                    String upStr = String.valueOf(uploaded_by);
+                    joMc.put("uploader", userNames.getOrDefault(upStr, ""));
                     joMc.put("uploaded_time", row.get("UploadedTime") != null ? row.get("UploadedTime").toString() : "");
                 } else {
                     joMc.put("uploaded_by", -1);
@@ -379,7 +447,7 @@ public class MCExtend {
     public String getOCRContent(int mc_id) {
         try {
             String sql = "select a.content from TBL_MINHCHUNG a where a.id = ?";
-            return jdbcTemplate.queryForObject(sql, String.class, mc_id);
+            return evidenceJdbcTemplate.queryForObject(sql, String.class, mc_id);
         } catch (Exception e) {
             return null;
         }
@@ -387,7 +455,7 @@ public class MCExtend {
 
     public JSONArray fn_loop_org_all(int root_org_id, JSONArray result_arr, int kd_id, String doituong_kd, int status) {
         String sql = "select * from TBL_FRAME where ParentID=? and kd_id = ? and doituong_kd = ? and status = ? and (IsDeleted is null or IsDeleted=0)";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd, status);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd, status);
         for (Map<String, Object> row : rows) {
             JSONObject c = new JSONObject();
             int frame_id = (int) row.get("ID");
@@ -406,7 +474,7 @@ public class MCExtend {
     public JSONArray fn_loop_org_all_edited(int root_org_id, JSONArray result_arr, int kd_id, String sGroups, String doituong_kd) {
         try {
             String sql = "select * from TBL_FRAME where ParentID = ? and kd_id = ? and doituong_kd = ? and (IsDeleted is null or IsDeleted = 0)";
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd);
+            List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd);
             int skipped_id = -1;
             for (Map<String, Object> row : rows) {
                 int frame_id = (int) row.get("ID");
@@ -449,13 +517,13 @@ public class MCExtend {
 
     public boolean isMaMCUnique(String ma_mc, int kd_id, String doituong_kd, int status) {
         String sql = "select count(*) from TBL_MINHCHUNG where ma_mc = ? and kd_id = ? and doituong_kd = ? and status = ? and (IsDeleted is null or IsDeleted=0)";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, ma_mc, kd_id, doituong_kd, status);
+        Integer count = evidenceJdbcTemplate.queryForObject(sql, Integer.class, ma_mc, kd_id, doituong_kd, status);
         return count == null || count == 0;
     }
 
     public boolean isProofExisted(String ma_mc, String ten_mc) {
         String sql = "select count(*) from TBL_Minhchung where ma_mc = ? and ten_mc like ?";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, ma_mc, ma_mc + "- %" + ten_mc);
+        Integer count = evidenceJdbcTemplate.queryForObject(sql, Integer.class, ma_mc, ma_mc + "- %" + ten_mc);
         return count != null && count > 0;
     }
 
@@ -466,7 +534,7 @@ public class MCExtend {
         String full_ten_mc = ma_mc + "- " + ten_mc;
         String sql = "insert into TBL_Minhchung (tieu_chuan, tieu_chi, ma_mc, ten_mc, org_id, status, IsDeleted) "
                 + " values(?, ?, ?, ?, ?, 0, 0)";
-        return jdbcTemplate.update(sql, tieu_chuan, tieu_chi, ma_mc, full_ten_mc, org_id);
+        return evidenceJdbcTemplate.update(sql, tieu_chuan, tieu_chi, ma_mc, full_ten_mc, org_id);
     }
 
     public int updateMCTable(int mc_id, String ten_mc, String ten_file, String path, int emp_id, int created_by) {
@@ -485,7 +553,7 @@ public class MCExtend {
         sql.append(", CreatedTime = GETDATE(), CreatedBy = ? where ID = ?");
         params.add(created_by);
         params.add(mc_id);
-        return jdbcTemplate.update(sql.toString(), params.toArray());
+        return evidenceJdbcTemplate.update(sql.toString(), params.toArray());
     }
 
     public int updateProofwUpload(int mc_id, JSONObject joInputFile, int emp_id, int created_by) {
@@ -526,7 +594,7 @@ public class MCExtend {
 
     public JSONObject mcDetailbyID(int mc_id) {
         String sql = "select * from TBL_Minhchung where ID = ?";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, mc_id);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, mc_id);
         JSONObject jo = new JSONObject();
         if (!rows.isEmpty()) {
             Map<String, Object> row = rows.get(0);
@@ -542,19 +610,19 @@ public class MCExtend {
 
     public boolean isFrameIndexExisted(String type, String f_index) {
         String sql = "select count(*) from TBL_FRAME where TYPE = ? and F_INDEX = ?";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, type, f_index);
+        Integer count = evidenceJdbcTemplate.queryForObject(sql, Integer.class, type, f_index);
         return count != null && count > 0;
     }
 
     public boolean isFrameIndexExisted(String type, String f_index, int kd_id) {
         String sql = "select count(*) from TBL_FRAME where TYPE = ? and F_INDEX = ? and kd_id = ? and (IsDeleted is null or IsDeleted = 0)";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, type, f_index, kd_id);
+        Integer count = evidenceJdbcTemplate.queryForObject(sql, Integer.class, type, f_index, kd_id);
         return count != null && count > 0;
     }
 
     public JSONObject frameInfo(int id) {
         String sql = "select * from TBL_FRAME where ID = ?";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, id);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, id);
         JSONObject jo = new JSONObject();
         if (!rows.isEmpty()) {
             Map<String, Object> row = rows.get(0);
@@ -567,7 +635,7 @@ public class MCExtend {
 
     public JSONObject parentInfo(int id) {
         String sql = "select * from TBL_FRAME where ID in (select ParentID from TBL_FRAME where ID = ?)";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, id);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, id);
         JSONObject jo = new JSONObject();
         if (!rows.isEmpty()) {
             Map<String, Object> row = rows.get(0);
@@ -588,7 +656,7 @@ public class MCExtend {
 
     public int parentID(int id) {
         String sql = "select ParentID from TBL_FRAME where ID = ?";
-        List<Integer> list = jdbcTemplate.queryForList(sql, Integer.class, id);
+        List<Integer> list = evidenceJdbcTemplate.queryForList(sql, Integer.class, id);
         return list.isEmpty() ? -1 : list.get(0);
     }
 
@@ -616,7 +684,7 @@ public class MCExtend {
             String sql = "INSERT INTO TBL_FRAME ( TYPE, PARENTID, F_INDEX, F_F_INDEX, NAME, CREATEDBY, CREATEDTIME, UPDATEDBY, UPDATEDTIME, IsDeleted, status, doituong_kd, kd_id) "
                        + " OUTPUT INSERTED.ID "
                        + " SELECT ?, PARENTID, ?, ?, ?, ?, GETDATE(), ?, GETDATE(), 0, ?, ?, ? FROM TBL_FRAME WHERE ID = ?";
-            ID = jdbcTemplate.queryForObject(sql, Integer.class, type, f_index, f_f_index, fullName, created_by, created_by, status, doituong_kd, kd_id, ref_id);
+            ID = evidenceJdbcTemplate.queryForObject(sql, Integer.class, type, f_index, f_f_index, fullName, created_by, created_by, status, doituong_kd, kd_id, ref_id);
             if (create_sub && ID != null) {
                 subFoldersCreation(ID);
             }
@@ -649,7 +717,7 @@ public class MCExtend {
                    + "        END AS f_index "
                    + " FROM MaxIndex";
         try {
-            return jdbcTemplate.queryForObject(sql, String.class, ID, kd_id);
+            return evidenceJdbcTemplate.queryForObject(sql, String.class, ID, kd_id);
         } catch (Exception e) {
             e.printStackTrace();
             return null;
@@ -677,7 +745,7 @@ public class MCExtend {
                    + "       END AS f_index "
                    + "FROM MaxIndex";
         try {
-            return jdbcTemplate.queryForObject(sql, String.class, ID, ID, kd_id);
+            return evidenceJdbcTemplate.queryForObject(sql, String.class, ID, ID, kd_id);
         } catch (Exception e) {
             e.printStackTrace();
             return null;
@@ -702,7 +770,7 @@ public class MCExtend {
             String fullName = type + " " + f_index + ". " + name;
             String sql = "INSERT INTO TBL_FRAME ( TYPE, PARENTID, F_INDEX, F_F_INDEX, NAME, CREATEDBY, CREATEDTIME, UPDATEDBY, UPDATEDTIME, IsDeleted, status, doituong_kd, kd_id) "
                        + " OUTPUT INSERTED.ID values (?, ?, ?, ?, ?, ?, GETDATE(), ?, GETDATE(), 0, ?, ?, ?)";
-            ID = jdbcTemplate.queryForObject(sql, Integer.class, type, ref_id, f_index, f_f_index, fullName, created_by, created_by, status, doituong_kd, kd_id);
+            ID = evidenceJdbcTemplate.queryForObject(sql, Integer.class, type, ref_id, f_index, f_f_index, fullName, created_by, created_by, status, doituong_kd, kd_id);
             if (create_sub && ID != null) {
                 subFoldersCreation(ID);
             }
@@ -714,16 +782,16 @@ public class MCExtend {
     }
 
     public int deleteFrame(int frame_id) {
-        return jdbcTemplate.update("update TBL_FRAME set IsDeleted = 1 where ID = ?", frame_id);
+        return evidenceJdbcTemplate.update("update TBL_FRAME set IsDeleted = 1 where ID = ?", frame_id);
     }
 
     public int updateFrame(int frame_id, String label) {
-        return jdbcTemplate.update("update TBL_FRAME set Name = ? where ID = ?", label, frame_id);
+        return evidenceJdbcTemplate.update("update TBL_FRAME set Name = ? where ID = ?", label, frame_id);
     }
 
     public JSONArray fn_loop_org_all_with_assigment(int root_org_id, JSONArray result_arr, int tc_id, int kd_id, String doituong_kd) {
         String sql = "select * from TBL_FRAME where ParentID=? and kd_id = ? and doituong_kd = ? and (IsDeleted is null or IsDeleted=0)";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, root_org_id, kd_id, doituong_kd);
         for (Map<String, Object> row : rows) {
             JSONObject c = new JSONObject();
             int frame_id = (int) row.get("ID");
@@ -762,13 +830,13 @@ public class MCExtend {
         String sql = "select a.*, b.Name as org_name, b.Code as org_code from TBL_Minhchung a left join TBL_ORG b on b.ID = a.org_id "
                 + " where a.tieu_chuan in (select concat('H',F_INDEX) from TBL_frame where ParentID in (select ID from TBL_FRAME where F_INDEX= ? and type = 'LV' and kd_id = ? and doituong_kd = ?)) "
                 + " and a.kd_id = ? and a.doituong_kd = ? and (a.IsDeleted is null or a.IsDeleted =0) and a.org_id = ?";
-        return rowsToJSONArray(jdbcTemplate.queryForList(sql, f_index, kd_id, doituong_kd, kd_id, doituong_kd, org_id));
+        return rowsToJSONArray(evidenceJdbcTemplate.queryForList(sql, f_index, kd_id, doituong_kd, kd_id, doituong_kd, org_id));
     }
 
     public JSONArray level2ProofsWithAssigment(String f_index, int org_id, int kd_id, String doituong_kd) {
         String sql = "select a.*, b.Name as org_name, b.Code as org_code from TBL_Minhchung a left join TBL_ORG b on b.ID = a.org_id "
                 + " where a.tieu_chuan = ? and a.kd_id = ? and a.doituong_kd = ? and (a.IsDeleted is null or a.IsDeleted =0) and a.org_id = ?";
-        return rowsToJSONArray(jdbcTemplate.queryForList(sql, "H" + f_index, kd_id, doituong_kd, org_id));
+        return rowsToJSONArray(evidenceJdbcTemplate.queryForList(sql, "H" + f_index, kd_id, doituong_kd, org_id));
     }
 
     public JSONArray level3ProofsWithAssigment(String f_index, int org_id, int kd_id, String doituong_kd) {
@@ -776,20 +844,20 @@ public class MCExtend {
         String tieu_chi = padLeftZeros(idx[0], 2) + "." + padLeftZeros(idx[1], 2);
         String sql = "select a.*, b.Name as org_name, b.Code as org_code from TBL_Minhchung a left join TBL_ORG b on b.ID = a.org_id "
                 + " where a.tieu_chi = ? and a.kd_id = ? and a.doituong_kd = ? and (a.IsDeleted is null or a.IsDeleted =0) and a.org_id = ?";
-        return rowsToJSONArray(jdbcTemplate.queryForList(sql, tieu_chi, kd_id, doituong_kd, org_id));
+        return rowsToJSONArray(evidenceJdbcTemplate.queryForList(sql, tieu_chi, kd_id, doituong_kd, org_id));
     }
 
     public JSONArray level1Proofs(String f_index, int kd_id, String doituong_kd, int status) {
         String sql = "select a.*, b.Name as org_name, b.Code as org_code from TBL_Minhchung a left join TBL_ORG b on b.ID = a.org_id "
                 + " where a.tieu_chuan in (select concat('H',F_INDEX) from TBL_frame where ParentID in (select ID from TBL_FRAME where F_INDEX= ? and type = 'LV' and kd_id = ? and doituong_kd = ?)) "
                 + " and a.kd_id = ? and a.doituong_kd = ? and a.status = ? and (a.IsDeleted is null or a.IsDeleted =0)";
-        return rowsToJSONArray(jdbcTemplate.queryForList(sql, f_index, kd_id, doituong_kd, kd_id, doituong_kd, status));
+        return rowsToJSONArray(evidenceJdbcTemplate.queryForList(sql, f_index, kd_id, doituong_kd, kd_id, doituong_kd, status));
     }
 
     public JSONArray level2Proofs(String f_index, int kd_id, String doituong_kd, int status) {
         String sql = "select a.*, b.Name as org_name, b.Code as org_code from TBL_Minhchung a left join TBL_ORG b on b.ID = a.org_id "
                 + " where a.tieu_chuan = ? and a.kd_id = ? and a.doituong_kd = ? and a.status = ? and (a.IsDeleted is null or a.IsDeleted =0)";
-        return rowsToJSONArray(jdbcTemplate.queryForList(sql, "H" + f_index, kd_id, doituong_kd, status));
+        return rowsToJSONArray(evidenceJdbcTemplate.queryForList(sql, "H" + f_index, kd_id, doituong_kd, status));
     }
 
     public JSONArray level3Proofs(String f_index, int kd_id, String doituong_kd, int status) {
@@ -797,7 +865,7 @@ public class MCExtend {
         String tieu_chi = padLeftZeros(idx[0], 2) + "." + padLeftZeros(idx[1], 2);
         String sql = "select a.*, b.Name as org_name, b.Code as org_code from TBL_Minhchung a left join TBL_ORG b on b.ID = a.org_id "
                 + " where a.tieu_chi = ? and a.kd_id = ? and a.doituong_kd = ? and a.status = ? and (a.IsDeleted is null or a.IsDeleted =0)";
-        return rowsToJSONArray(jdbcTemplate.queryForList(sql, tieu_chi, kd_id, doituong_kd, status));
+        return rowsToJSONArray(evidenceJdbcTemplate.queryForList(sql, tieu_chi, kd_id, doituong_kd, status));
     }
 
     private JSONArray rowsToJSONArray(List<Map<String, Object>> rows) {
@@ -827,47 +895,47 @@ public class MCExtend {
     }
 
     public int changeLockStateFrameProofs(int id, int is_locked) {
-        jdbcTemplate.update("Update TBL_MINHCHUNG set is_locked = ? where f_id = ?", is_locked, id);
+        evidenceJdbcTemplate.update("Update TBL_MINHCHUNG set is_locked = ? where f_id = ?", is_locked, id);
         update_state_frame_tree(id, is_locked);
         return 1;
     }
 
     public int update_state_frame_tree(int root_id, int state) {
-        List<Integer> ids = jdbcTemplate.queryForList("select ID from TBL_FRAME where ParentID=?", Integer.class, root_id);
+        List<Integer> ids = evidenceJdbcTemplate.queryForList("select ID from TBL_FRAME where ParentID=?", Integer.class, root_id);
         for (int frame_id : ids) {
-            jdbcTemplate.update("Update TBL_MINHCHUNG set is_locked = ? where f_id = ?", state, frame_id);
+            evidenceJdbcTemplate.update("Update TBL_MINHCHUNG set is_locked = ? where f_id = ?", state, frame_id);
             update_state_frame_tree(frame_id, state);
         }
         return 1;
     }
 
     public int deleteProof(int proof_id) {
-        return jdbcTemplate.update("update TBL_Minhchung set IsDeleted = 1 where ID = ?", proof_id);
+        return evidenceJdbcTemplate.update("update TBL_Minhchung set IsDeleted = 1 where ID = ?", proof_id);
     }
 
     public int updateState(int id, int is_locked) {
-        return jdbcTemplate.update("update TBL_Minhchung set is_locked = ? where ID = ?", is_locked, id);
+        return evidenceJdbcTemplate.update("update TBL_Minhchung set is_locked = ? where ID = ?", is_locked, id);
     }
 
     public void convert(int kd_id, String doituong_kd) {
         String sql = "select * from tbl_minhchung where kd_id = ? and doituong_kd = ?";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kd_id, doituong_kd);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, kd_id, doituong_kd);
         for (Map<String, Object> row : rows) {
             String tieu_chi = (String) row.get("tieu_chi");
             String[] parts = tieu_chi.split("\\.");
             String f_index = Integer.parseInt(parts[0]) + "." + Integer.parseInt(parts[1]);
-            jdbcTemplate.update("update tbl_minhchung set f_id = (select id from tbl_frame where F_INDEX = ?) where ID = ?", f_index, row.get("ID"));
+            evidenceJdbcTemplate.update("update tbl_minhchung set f_id = (select id from tbl_frame where F_INDEX = ?) where ID = ?", f_index, row.get("ID"));
         }
     }
 
     public void convert1() {
         DecimalFormat df = new DecimalFormat("00");
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select * from tbl_frame where type = 'tieuchi'");
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList("select * from tbl_frame where type = 'tieuchi'");
         for (Map<String, Object> row : rows) {
             String F_INDEX = (String) row.get("F_INDEX");
             String[] parts = F_INDEX.split("\\.");
             String f_f_index = df.format(Integer.parseInt(parts[0])) + "." + df.format(Integer.parseInt(parts[1]));
-            jdbcTemplate.update("update tbl_frame set f_f_index = ? where ID = ?", f_f_index, row.get("ID"));
+            evidenceJdbcTemplate.update("update tbl_frame set f_f_index = ? where ID = ?", f_f_index, row.get("ID"));
         }
     }
 
@@ -877,7 +945,7 @@ public class MCExtend {
         params.add(kd_id);
         if (doituong_kd != null) { sql.append(" and doituong_kd = ?"); params.add(doituong_kd); }
         if (status != -1) { sql.append(" and status = ?"); params.add(status); }
-        return rowsToJSONArray(jdbcTemplate.queryForList(sql.toString(), params.toArray()));
+        return rowsToJSONArray(evidenceJdbcTemplate.queryForList(sql.toString(), params.toArray()));
     }
 
     public JSONArray kdProofs_reduced(int kd_id, String doituong_kd, int status) {
@@ -886,7 +954,7 @@ public class MCExtend {
         params.add(kd_id);
         if (doituong_kd != null) { sql.append(" and doituong_kd = ?"); params.add(doituong_kd); }
         if (status != -1) { sql.append(" and status = ?"); params.add(status); }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql.toString(), params.toArray());
         JSONArray ja = new JSONArray();
         for (Map<String, Object> row : rows) {
             JSONObject jo = new JSONObject();
@@ -941,23 +1009,23 @@ public class MCExtend {
 
     public void assignMC2Employee(int mc_id, int emp_id) {
         String sql = "update TBL_MINHCHUNG set emp_id = ? where ID = ?";
-        jdbcTemplate.update(sql, emp_id, mc_id);
+        evidenceJdbcTemplate.update(sql, emp_id, mc_id);
     }
 
     public void approveMC(int mc_id, int emp_id, int status, String note, int user_id) {
         String sql = "insert into TBL_APPROVAL_HISTORY (MC_ID, EMP_ID, STATUS, NOTE, CREATEDBY, CREATEDTIME, ISDELETED) VALUES (?, ?, ?, ?, ?, GETDATE(), 0)";
-        jdbcTemplate.update(sql, mc_id, emp_id, status, note, user_id);
+        evidenceJdbcTemplate.update(sql, mc_id, emp_id, status, note, user_id);
     }
 
     public int cloneMc(int src_mc_id, int dest_mc_id, int user_id) {
         String sql = "update DEST set DEST.ten_mc = SRC.ten_mc, DEST.path = SRC.path, DEST.content = SRC.content, DEST.CreatedBy = ?, DEST.CreatedTime = GETDATE() "
                    + " from TBL_MINHCHUNG DEST INNER JOIN TBL_MINHCHUNG SRC on DEST.ID = ? and SRC.ID = ?";
-        return jdbcTemplate.update(sql, user_id, dest_mc_id, src_mc_id);
+        return evidenceJdbcTemplate.update(sql, user_id, dest_mc_id, src_mc_id);
     }
 
     public JSONArray searchByMaMc(String ma_mc, int kd_id) {
         String sql = "select * from TBL_MINHCHUNG where kd_id = ? and ma_mc = ? and (IsDeleted is null or IsDeleted = 0)";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kd_id, ma_mc);
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, kd_id, ma_mc);
         return rowsToJSONArray(rows);
     }
 
@@ -1143,7 +1211,6 @@ public class MCExtend {
                 String emp = "Chưa phân công";
                 boolean isAssigned = false;
                 if (joP.has("emp_id") && joP.optInt("emp_id", -1) > 0) {
-                    // source property is emp_id
                     emp_id = joP.getInt("emp_id");
                     emp = joP.getString("emp");
                     isAssigned = true;
@@ -1230,7 +1297,7 @@ public class MCExtend {
     public String groupName(int group_id) {
         try {
             String sql = "select group_name from TBL_GROUP where ID = ?";
-            return jdbcTemplate.queryForObject(sql, String.class, group_id);
+            return evidenceJdbcTemplate.queryForObject(sql, String.class, group_id);
         } catch (Exception e) {
             return "Chưa phân công";
         }
@@ -1243,7 +1310,7 @@ public class MCExtend {
                        + " COUNT( CASE WHEN content is not null THEN 1 END ) AS ocred, "
                        + " COUNT( * ) AS total "
                        + " FROM TBL_Minhchung ";
-            List<Map<String, Object>> list = jdbcTemplate.queryForList(sql);
+            List<Map<String, Object>> list = evidenceJdbcTemplate.queryForList(sql);
             if (!list.isEmpty()) {
                 Map<String, Object> map = list.get(0);
                 joStats.put("total", map.get("total"));
@@ -1261,7 +1328,7 @@ public class MCExtend {
         try {
             String sql = "select ten_mc, so_ngay_thang, noi_ban_hanh from TBL_Minhchung "
                        + " where ma_mc = ? and kd_id = ? and (IsDeleted is null or IsDeleted = 0)";
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, ma_mc, kd_id);
+            List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, ma_mc, kd_id);
             if (!rows.isEmpty()) {
                 Map<String, Object> map = rows.get(0);
                 joDetails.put("ten_mc", map.get("ten_mc"));
@@ -1281,7 +1348,7 @@ public class MCExtend {
                        + " FROM TBL_FRAME AS T1 "
                        + " JOIN TBL_FRAME AS T2 ON (T2.ID = ? AND T2.TYPE = 'sub' AND T1.ParentID = T2.ParentID AND T1.TYPE = 'sub') "
                        + "                     OR (T2.ID = ? AND T2.TYPE = N'Tiêu chí' AND T1.ParentID = T2.ID)";
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, frame_id, frame_id);
+            List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, frame_id, frame_id);
             for (Map<String, Object> row : rows) {
                 JSONObject jo = new JSONObject();
                 jo.put("ID", row.get("ID"));
@@ -1301,7 +1368,7 @@ public class MCExtend {
             String sIDs = parseIdsToString(jsMcs);
             if (sIDs.isEmpty() || !sIDs.matches("^[0-9,\\s]+$")) return 0;
             String sql = "UPDATE TBL_Minhchung SET f_id = ? WHERE ID IN (" + sIDs + ")";
-            return jdbcTemplate.update(sql, frame_id);
+            return evidenceJdbcTemplate.update(sql, frame_id);
         } catch (Exception e) {
             e.printStackTrace();
             return -1;
@@ -1341,7 +1408,7 @@ public class MCExtend {
                     + " UNION ALL SELECT N'Kết quả' "
                     + " UNION ALL SELECT N'Khác') AS Names "
                     + " where ID = ?";
-            return jdbcTemplate.update(sql, iParentID, iParentID);
+            return evidenceJdbcTemplate.update(sql, iParentID, iParentID);
         } catch (Exception e) {
             e.printStackTrace();
             return -1;
@@ -1350,7 +1417,7 @@ public class MCExtend {
 
     public int assignMC2Group(int mc_id, int group_id) {
         String sql = "update TBL_MINHCHUNG set group_id = ? where ID = ?";
-        return jdbcTemplate.update(sql, group_id, mc_id);
+        return evidenceJdbcTemplate.update(sql, group_id, mc_id);
     }
 
     public int assignFrame2Group(int frame_id, int group_id, int emp_id, String deadline) {
@@ -1369,7 +1436,6 @@ public class MCExtend {
                 sql.append(", emp_id = ?");
                 params.add(emp_id);
             } else {
-                // When admin assigns to group, clear any previous member assignment
                 sql.append(", emp_id = NULL");
             }
             sql.append(", deadline = CONVERT(DATETIME, ?, 103) where ID in (");
@@ -1380,17 +1446,13 @@ public class MCExtend {
                 if (i < arrIDs.size() - 1) sql.append(",");
             }
             sql.append(")");
-            return jdbcTemplate.update(sql.toString(), params.toArray());
+            return evidenceJdbcTemplate.update(sql.toString(), params.toArray());
         } catch (Exception e) {
             e.printStackTrace();
             return -2;
         }
     }
 
-    /**
-     * Get proofs list filtered by member (emp_id = user_id).
-     * Member sees only proofs assigned to them.
-     */
     public int get_mc_list_by_member(int root_id, int user_id, JSONArray result_arr) {
         StringBuilder sql = new StringBuilder();
         sql.append("WITH RecursiveFrames AS ( ")
@@ -1399,20 +1461,26 @@ public class MCExtend {
            .append("  SELECT f.ID FROM TBL_FRAME f INNER JOIN RecursiveFrames rf ON f.ParentID = rf.ID ")
            .append("  WHERE (f.IsDeleted IS NULL OR f.IsDeleted = 0) ")
            .append(") ")
-           .append("SELECT a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.is_locked, a.CreatedTime, ")
+           .append("SELECT a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.is_locked, a.CreatedTime, a.CreatedBy, ")
            .append("       a.emp_id, a.org_id, a.group_id, a.deadline, a.UploadedBy, a.UploadedTime, ")
            .append("       CASE WHEN a.content IS NOT NULL THEN 1 ELSE 0 END as has_ocr, ")
-           .append("       b.Fullname as creator, c.Fullname as emp, c1.Fullname as uploader, d.group_name ")
+           .append("       d.group_name ")
            .append("FROM TBL_MINHCHUNG a ")
            .append("INNER JOIN RecursiveFrames rf ON a.f_id = rf.ID ")
-           .append("LEFT JOIN TBL_USER b ON b.id = a.CreatedBy ")
-           .append("LEFT JOIN TBL_USER c ON c.ID = a.emp_id ")
-           .append("LEFT JOIN TBL_USER c1 ON c1.ID = a.UploadedBy ")
            .append("LEFT JOIN TBL_GROUP d ON d.ID = a.group_id ")
            .append("WHERE (a.IsDeleted IS NULL OR a.IsDeleted = 0) ")
            .append("AND a.emp_id = ?");
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), root_id, user_id);
+            List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql.toString(), root_id, user_id);
+
+            Set<String> userIds = new HashSet<>();
+            for (Map<String, Object> r : rows) {
+                if (r.get("CreatedBy") != null) userIds.add(r.get("CreatedBy").toString().trim());
+                if (r.get("emp_id") != null) userIds.add(r.get("emp_id").toString().trim());
+                if (r.get("UploadedBy") != null) userIds.add(r.get("UploadedBy").toString().trim());
+            }
+            Map<String, String> userNames = getCreatorNames(userIds);
+
             for (Map<String, Object> row : rows) {
                 JSONObject joMc = new JSONObject();
                 int id = (int) row.get("ID");
@@ -1424,9 +1492,15 @@ public class MCExtend {
                 joMc.put("is_locked", row.get("is_locked"));
                 joMc.put("created_time", row.get("CreatedTime") != null ? row.get("CreatedTime").toString() : "");
                 joMc.put("has_ocr", (int) row.get("has_ocr") == 1);
-                joMc.put("creator", row.get("creator"));
-                joMc.put("emp_id", row.get("emp_id") != null ? row.get("emp_id") : -1);
-                joMc.put("emp", row.get("emp") != null ? row.get("emp") : "Chưa phân công");
+
+                String cbStr = row.get("CreatedBy") != null ? row.get("CreatedBy").toString().trim() : "";
+                joMc.put("creator", userNames.getOrDefault(cbStr, ""));
+
+                int emp_id = row.get("emp_id") != null ? (int) row.get("emp_id") : -1;
+                joMc.put("emp_id", emp_id);
+                String empStr = emp_id > 0 ? String.valueOf(emp_id) : "";
+                joMc.put("emp", userNames.containsKey(empStr) && !userNames.get(empStr).isEmpty() ? userNames.get(empStr) : "Chưa phân công");
+
                 int org_id = row.get("org_id") != null ? (int) row.get("org_id") : 0;
                 if (org_id > 0) joMc.put("org_id", org_id);
                 int group_id = row.get("group_id") != null ? (int) row.get("group_id") : 0;
@@ -1441,7 +1515,8 @@ public class MCExtend {
                 int uploaded_by = row.get("UploadedBy") != null ? (int) row.get("UploadedBy") : 0;
                 if (uploaded_by > 0) {
                     joMc.put("uploaded_by", uploaded_by);
-                    joMc.put("uploader", row.get("uploader"));
+                    String upStr = String.valueOf(uploaded_by);
+                    joMc.put("uploader", userNames.getOrDefault(upStr, ""));
                     joMc.put("uploaded_time", row.get("UploadedTime") != null ? row.get("UploadedTime").toString() : "");
                 } else {
                     joMc.put("uploaded_by", -1);
@@ -1457,10 +1532,6 @@ public class MCExtend {
         }
     }
 
-    /**
-     * Assign a single proof to a member (set emp_id).
-     * Used by group leader to delegate a specific proof to a team member.
-     */
     public int assignMC2Member(int mc_id, int member_id, String deadline, int assigned_by) {
         StringBuilder sql = new StringBuilder("UPDATE TBL_MINHCHUNG SET emp_id = ?");
         List<Object> params = new ArrayList<>();
@@ -1471,14 +1542,9 @@ public class MCExtend {
         }
         sql.append(" WHERE ID = ?");
         params.add(mc_id);
-        return jdbcTemplate.update(sql.toString(), params.toArray());
+        return evidenceJdbcTemplate.update(sql.toString(), params.toArray());
     }
 
-    /**
-     * Assign all proofs in a frame branch to a member (set emp_id).
-     * Used by group leader to delegate an entire branch to a team member.
-     * The group_id is preserved (already set by admin).
-     */
     public int assignFrameProofs2Member(int frame_id, int member_id, String deadline) {
         try {
             JSONArray jsProofs = frameProofs(frame_id, null);
@@ -1502,7 +1568,7 @@ public class MCExtend {
                 if (i < arrIDs.size() - 1) sql.append(",");
             }
             sql.append(")");
-            return jdbcTemplate.update(sql.toString(), params.toArray());
+            return evidenceJdbcTemplate.update(sql.toString(), params.toArray());
         } catch (Exception e) {
             e.printStackTrace();
             return -2;

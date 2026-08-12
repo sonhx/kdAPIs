@@ -27,15 +27,15 @@ public class KpiN306CalculationService {
     /**
      * Trigger initial calculation on application startup so live data points are available immediately.
      */
-    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
-    public void onApplicationReady() {
-        try {
-            log.info("Triggering initial calculation for KPI N3.06 on application startup...");
-            calculateAndSaveN306(null);
-        } catch (Exception e) {
-            log.error("Failed to calculate KPI N3.06 on startup", e);
-        }
-    }
+	/*@org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+	public void onApplicationReady() {
+	    try {
+	        log.info("Triggering initial calculation for KPI N3.06 on application startup...");
+	        calculateAndSaveN306(null);
+	    } catch (Exception e) {
+	        log.error("Failed to calculate KPI N3.06 on startup", e);
+	    }
+	}*/
 
     /**
      * Scheduled Monthly Run for KPI N3.06 calculation.

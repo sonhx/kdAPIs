@@ -45,8 +45,12 @@ public class ProfileController {
                 return "{\"code\":700, \"description\":\"Người sử dụng chưa đăng nhập\"}";
             }
 
-            String sql = "select * from dbo.tbl_user where ID=?";
-            List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, sst.UserID);
+            String sql = "select u.*, p.fullname as FullName, p.sdtCaNhan as Mobile, COALESCE(p.donViL3Id, p.donViChinhId) as OrgID, o.ten as OrgName " +
+                         "from dbo.users u " +
+                         "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 " +
+                         "LEFT JOIN orgs o ON o.id = COALESCE(p.donViL3Id, p.donViChinhId) " +
+                         "where u.ID=?";
+            List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, String.valueOf(sst.UserID));
             if (users.isEmpty()) {
                 jout.put("code", 710);
                 jout.put("description", "No user");
@@ -57,15 +61,12 @@ public class ProfileController {
             Map<String, Object> user = users.get(0);
             jout.put("full_name", user.get("FullName"));
             jout.put("email", user.get("Email"));
-            jout.put("mobile", user.get("Mobile"));
-            jout.put("dataimg", user.get("Avatar"));
+            jout.put("mobile", user.get("Mobile") != null ? user.get("Mobile") : "");
+            jout.put("dataimg", "");
             jout.put("id", sst.UserID);
-
             Object orgIdObj = user.get("OrgID");
-            int orgId = orgIdObj != null ? (int) orgIdObj : 0;
-            jout.put("org_id", orgId);
-            String orgName = (orgId != 0) ? userExtend.fn_org_name(orgId) : null;
-            if (orgName != null) jout.put("org_name", orgName);
+            jout.put("org_id", orgIdObj != null ? orgIdObj : 0);
+            if (user.get("OrgName") != null) jout.put("org_name", user.get("OrgName"));
 
             jout.put("code", 200);
         } catch (JSONException e) {
@@ -83,34 +84,30 @@ public class ProfileController {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jo = new JSONObject(sReq);
-            int userId = jo.getInt("user_id");
+            Object userId = jo.get("user_id");
 
             String fullname = jo.optString("full_name", "");
-            String avatar = jo.optString("avatar", "");
             String email = jo.optString("email", "");
-            String mobile = jo.optString("mobile", "");
             String code = jo.optString("code", "");
             int preferredRoleId = jo.optInt("preferred_role_id", -1);
 
+            String sessionId = jo.optString("session_id", "");
+            struct_session sst = !sessionId.isEmpty() ? sessionService.getSessionInfo(sessionId) : null;
+            String updaterId = (sst != null && sst.sUserId != null && !sst.sUserId.isEmpty()) ? sst.sUserId : (userId != null ? userId.toString() : null);
+
             if (!fullname.isEmpty()) {
-                jdbcTemplate.update("Update tbl_User set fullName=? where id=?", fullname, userId);
-            }
-            if (!avatar.isEmpty()) {
-                jdbcTemplate.update("Update tbl_user set Avatar=? where id=?", avatar, userId);
+                jdbcTemplate.update("UPDATE p SET p.fullname=? FROM personnel p JOIN users u ON (p.emailCanBo = u.Email OR p.email = u.Email) WHERE u.id=?", fullname, userId.toString());
             }
             if (!email.isEmpty()) {
-                jdbcTemplate.update("Update tbl_User set Email=? where id=?", email, userId);
-            }
-            if (!mobile.isEmpty()) {
-                jdbcTemplate.update("Update tbl_User set Mobile=? where id=?", mobile, userId);
+                jdbcTemplate.update("Update users set Email=?, UpdatedBy=?, UpdatedTime=GETDATE() where id=?", email, updaterId, userId.toString());
             }
             if (!code.isEmpty()) {
-                jdbcTemplate.update("Update tbl_User set Code=? where id=?", code, userId);
+                jdbcTemplate.update("Update users set Code=?, UpdatedBy=?, UpdatedTime=GETDATE() where id=?", code, updaterId, userId.toString());
             }
 
             if (preferredRoleId >= 0) {
-                String sql = "UPDATE TBL_USER_TYPE SET IsPreferred = CASE WHEN Type = ? THEN 1 ELSE 0 END WHERE UserID =?";
-                jdbcTemplate.update(sql, preferredRoleId, userId);
+                String sql = "UPDATE users_TYPE SET IsPreferred = CASE WHEN Type = ? THEN 1 ELSE 0 END WHERE UserID =?";
+                jdbcTemplate.update(sql, preferredRoleId, userId.toString());
             }
 
             jout.put("code", 200);
@@ -130,7 +127,7 @@ public class ProfileController {
         try {
             JSONObject jsonobjReq = new JSONObject(sReq);
             String sessionId = jsonobjReq.getString("session_id");
-            int userId = jsonobjReq.getInt("user_id");
+            Object userId = jsonobjReq.get("user_id");
 
             struct_session sst = sessionService.getSessionInfo(sessionId);
             if (sst == null) {
@@ -141,30 +138,18 @@ public class ProfileController {
             }
 
             String fullName = jsonobjReq.optString("full_name", "").trim();
-            String mobile = jsonobjReq.optString("mobile", null);
             String email = jsonobjReq.optString("email", null);
             String code = jsonobjReq.optString("code", "").trim();
             String dob = jsonobjReq.optString("dob", null);
+            String adminUpdaterId = (sst.sUserId != null && !sst.sUserId.isEmpty()) ? sst.sUserId : String.valueOf(sst.UserID);
+
+            if (!fullName.isEmpty()) {
+                jdbcTemplate.update("UPDATE p SET p.fullname=? FROM personnel p JOIN users u ON (p.emailCanBo = u.Email OR p.email = u.Email) WHERE u.id=?", fullName, userId.toString());
+            }
 
             List<String> setClauses = new java.util.ArrayList<>();
             List<Object> params = new java.util.ArrayList<>();
 
-            if (!fullName.isEmpty()) {
-                setClauses.add("Fullname = ?");
-                params.add(fullName);
-                if (fullName.lastIndexOf(" ") > 0) {
-                    String ten = fullName.substring(fullName.lastIndexOf(" ") + 1);
-                    String ho = fullName.substring(0, fullName.lastIndexOf(" "));
-                    setClauses.add("FirstName = ?");
-                    params.add(ten);
-                    setClauses.add("LastName = ?");
-                    params.add(ho);
-                }
-            }
-            if (mobile != null) {
-                setClauses.add("Mobile = ?");
-                params.add(mobile);
-            }
             if (email != null) {
                 setClauses.add("Email = ?");
                 params.add(email);
@@ -178,9 +163,13 @@ public class ProfileController {
                 params.add(dob);
             }
 
+            setClauses.add("UpdatedBy = ?");
+            params.add(adminUpdaterId);
+            setClauses.add("UpdatedTime = GETDATE()");
+
             if (!setClauses.isEmpty()) {
-                String sql = "update tbl_user set " + String.join(", ", setClauses) + " where ID = ?";
-                params.add(userId);
+                String sql = "update users set " + String.join(", ", setClauses) + " where ID = ?";
+                params.add(userId.toString());
                 jdbcTemplate.update(sql, params.toArray());
             }
 
@@ -211,7 +200,7 @@ public class ProfileController {
                 return "{\"code\":700, \"description\":\"Người sử dụng chưa đăng nhập\"}";
             }
 
-            String sql = "select * from dbo.tbl_user where ID=?";
+            String sql = "select * from dbo.users where ID=?";
             List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, sst.UserID);
             if (users.isEmpty()) {
                 jout.put("code", 710);
@@ -240,7 +229,7 @@ public class ProfileController {
             }
 
             String hashedNewPassword = BCrypt.hashpw(newPassword, BCrypt.gensalt());
-            jdbcTemplate.update("update dbo.tbl_user set Hash = ? where ID = ?", hashedNewPassword, sst.UserID);
+            jdbcTemplate.update("update dbo.users set Hash = ? where ID = ?", hashedNewPassword, sst.UserID);
 
             jout.put("code", 200);
         } catch (JSONException e) {

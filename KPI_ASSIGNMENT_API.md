@@ -95,7 +95,7 @@ The assignment is inserted into the `kpi_assignments` table with the following s
 | department_id | int | Yes | NULL | Department ID |
 | role | char(1) | Yes | NULL | Role designation |
 | assigned_date | datetime | Yes | GETDATE() | Assignment timestamp (auto-set to current date/time) |
-| assigned_by | int | Yes | NULL | User ID of who made the assignment |
+| assigned_by | varchar | Yes | NULL | User ID / Account ID of who made the assignment |
 
 ## Implementation Details
 

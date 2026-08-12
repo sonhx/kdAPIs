@@ -28,79 +28,77 @@ public class PersonnelSyncScheduler {
     @Value("${slink.api-key:4sUgLOsrtFOkjQ84ar9kvVwjByhAiQPs}")
     private String slinkApiKey;
 
-    @PostConstruct
-    public void init() {
-        try {
-            log.info("Initializing 'personnel' database table...");
-            String createTableSql = 
-                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'personnel') " +
-                "BEGIN " +
-                "    CREATE TABLE personnel ( " +
-                "        id VARCHAR(100) PRIMARY KEY, " +
-                "        maCanBo NVARCHAR(200) NULL, " +
-                "        emailCanBo NVARCHAR(500) NULL, " +
-                "        hoDem NVARCHAR(500) NULL, " +
-                "        ten NVARCHAR(500) NULL, " +
-                "        fullname NVARCHAR(1000) NULL, " +
-                "        trangThai NVARCHAR(200) NULL, " +
-                "        hocHam NVARCHAR(200) NULL, " +
-                "        trinhDoDaoTao NVARCHAR(200) NULL, " +
-                "        email NVARCHAR(500) NULL, " +
-                "        sdtCaNhan NVARCHAR(500) NULL, " +
-                "        donViChinhId VARCHAR(100) NULL, " +
-                "        donViL3Id VARCHAR(100) NULL, " +
-                "        donViViTri NVARCHAR(MAX) NULL, " +
-                "        tenChucVu NVARCHAR(1000) NULL, " +
-                "        isDeleted INT NOT NULL DEFAULT 0, " +
-                "        createdAt DATETIME2 DEFAULT GETDATE(), " +
-                "        updatedAt DATETIME2 DEFAULT GETDATE() " +
-                "    ); " +
-                "    CREATE INDEX IX_personnel_maCanBo ON personnel(maCanBo); " +
-                "    CREATE INDEX IX_personnel_emailCanBo ON personnel(emailCanBo); " +
-                "    CREATE INDEX IX_personnel_donViChinhId ON personnel(donViChinhId); " +
-                "    CREATE INDEX IX_personnel_donViL3Id ON personnel(donViL3Id); " +
-                "END";
-            jdbcTemplate.execute(createTableSql);
-
-            // Migration to add 'donViL3Id' column if missing
-            try {
-                String addL3Col = 
-                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('personnel') AND name = 'donViL3Id') " +
-                    "BEGIN " +
-                    "    ALTER TABLE personnel ADD donViL3Id VARCHAR(100) NULL; " +
-                    "    CREATE INDEX IX_personnel_donViL3Id ON personnel(donViL3Id); " +
-                    "END";
-                jdbcTemplate.execute(addL3Col);
-
-                jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN sdtCaNhan NVARCHAR(500) NULL");
-                jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN fullname NVARCHAR(1000) NULL");
-                jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN emailCanBo NVARCHAR(500) NULL");
-                jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN email NVARCHAR(500) NULL");
-                jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN tenChucVu NVARCHAR(1000) NULL");
-            } catch (Exception ex) {
-                log.debug("Column alter notice: {}", ex.getMessage());
-            }
-
-            log.info("'personnel' table initialized successfully.");
-
-            // Startup sync disabled per deployment requirements
-            /*
-            new Thread(() -> {
-                try {
-                    Thread.sleep(5000); // Wait 5 seconds for application startup
-                    log.info("Triggering initial personnel sync on startup...");
-                    syncPersonnel();
-                } catch (Exception e) {
-                    log.error("Error running initial personnel sync on startup", e);
-                }
-            }).start();
-            */
-
-        } catch (Exception e) {
-            log.error("Failed to initialize 'personnel' database table", e);
-        }
-    }
-
+	/*@PostConstruct
+	public void init() {
+	    try {
+	        log.info("Initializing 'personnel' database table...");
+	        String createTableSql = 
+	            "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'personnel') " +
+	            "BEGIN " +
+	            "    CREATE TABLE personnel ( " +
+	            "        id VARCHAR(100) PRIMARY KEY, " +
+	            "        maCanBo NVARCHAR(200) NULL, " +
+	            "        emailCanBo NVARCHAR(500) NULL, " +
+	            "        hoDem NVARCHAR(500) NULL, " +
+	            "        ten NVARCHAR(500) NULL, " +
+	            "        fullname NVARCHAR(1000) NULL, " +
+	            "        trangThai NVARCHAR(200) NULL, " +
+	            "        hocHam NVARCHAR(200) NULL, " +
+	            "        trinhDoDaoTao NVARCHAR(200) NULL, " +
+	            "        email NVARCHAR(500) NULL, " +
+	            "        sdtCaNhan NVARCHAR(500) NULL, " +
+	            "        donViChinhId VARCHAR(100) NULL, " +
+	            "        donViL3Id VARCHAR(100) NULL, " +
+	            "        donViViTri NVARCHAR(MAX) NULL, " +
+	            "        tenChucVu NVARCHAR(1000) NULL, " +
+	            "        isDeleted INT NOT NULL DEFAULT 0, " +
+	            "        createdAt DATETIME2 DEFAULT GETDATE(), " +
+	            "        updatedAt DATETIME2 DEFAULT GETDATE() " +
+	            "    ); " +
+	            "    CREATE INDEX IX_personnel_maCanBo ON personnel(maCanBo); " +
+	            "    CREATE INDEX IX_personnel_emailCanBo ON personnel(emailCanBo); " +
+	            "    CREATE INDEX IX_personnel_donViChinhId ON personnel(donViChinhId); " +
+	            "    CREATE INDEX IX_personnel_donViL3Id ON personnel(donViL3Id); " +
+	            "END";
+	        jdbcTemplate.execute(createTableSql);
+	
+	        // Migration to add 'donViL3Id' column if missing
+	        try {
+	            String addL3Col = 
+	                "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('personnel') AND name = 'donViL3Id') " +
+	                "BEGIN " +
+	                "    ALTER TABLE personnel ADD donViL3Id VARCHAR(100) NULL; " +
+	                "    CREATE INDEX IX_personnel_donViL3Id ON personnel(donViL3Id); " +
+	                "END";
+	            jdbcTemplate.execute(addL3Col);
+	
+	            jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN sdtCaNhan NVARCHAR(500) NULL");
+	            jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN fullname NVARCHAR(1000) NULL");
+	            jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN emailCanBo NVARCHAR(500) NULL");
+	            jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN email NVARCHAR(500) NULL");
+	            jdbcTemplate.execute("ALTER TABLE personnel ALTER COLUMN tenChucVu NVARCHAR(1000) NULL");
+	        } catch (Exception ex) {
+	            log.debug("Column alter notice: {}", ex.getMessage());
+	        }
+	
+	        log.info("'personnel' table initialized successfully.");
+	
+	        // Startup personnel sync disabled per request
+	        // java.util.concurrent.CompletableFuture.runAsync(() -> {
+	        //     try {
+	        //         Thread.sleep(3000);
+	        //         log.info("Triggering initial personnel sync on startup...");
+	        //         syncPersonnel();
+	        //     } catch (Exception e) {
+	        //         log.error("Error running initial personnel sync on startup", e);
+	        //     }
+	        // });
+	
+	    } catch (Exception e) {
+	        log.error("Failed to initialize 'personnel' database table", e);
+	    }
+	}
+	*/
     /**
      * Compute Level 3 Organization ID by tracing up parent hierarchy in 'orgs' table.
      */
@@ -325,18 +323,20 @@ public class PersonnelSyncScheduler {
             log.info("Personnel Sync Completed. Total API records: {}, Inserted: {}, Updated: {}, Soft-deleted: {}",
                     newApiIds.size(), inserted, updated, softDeleted);
 
-            // Heal TBL_USER FullName using personnel data
+            // Sync users ID using personnel data matching by email
             try {
-                int healedCount = jdbcTemplate.update(
-                    "UPDATE u SET u.FullName = p.fullname " +
-                    "FROM TBL_USER u " +
+                int syncedIds = jdbcTemplate.update(
+                    "UPDATE u SET u.ID = p.id " +
+                    "FROM users u " +
                     "JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) " +
-                    "WHERE p.fullname IS NOT NULL AND p.fullname <> '' AND u.FullName <> p.fullname " +
+                    "WHERE p.id IS NOT NULL AND p.id <> '' AND u.ID <> p.id " +
                     "  AND (u.IsDeleted IS NULL OR u.IsDeleted = '0') AND p.isDeleted = 0"
                 );
-                log.info("Healed {} user fullnames in TBL_USER using personnel table.", healedCount);
+                if (syncedIds > 0) {
+                    log.info("Synced {} user IDs in users using personnel table.", syncedIds);
+                }
             } catch (Exception ex) {
-                log.error("Error healing user fullnames in TBL_USER", ex);
+                log.error("Error syncing user IDs in users", ex);
             }
 
             result.put("status", "SUCCESS");

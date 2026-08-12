@@ -15,7 +15,8 @@ import org.springframework.stereotype.Service;
 public class MCUp {
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    @org.springframework.beans.factory.annotation.Qualifier("evidenceJdbcTemplate")
+    private JdbcTemplate evidenceJdbcTemplate;
 
     @Autowired
     private MCExtend mcExtend;
@@ -170,7 +171,7 @@ public class MCUp {
         try {
             String sql = "insert into TBL_FRAME(TYPE, F_INDEX, F_F_INDEX, NAME, ParentID, kd_id, doituong_kd, CreatedBy, CreatedTime, UpdatedBy, UpdatedTime, IsDeleted) "
                     + " OUTPUT inserted.ID values(?, ?, ?, ?, ?, ?, ?, ?, getDate(), ?, getDate(), 0)";
-            Integer ID = jdbcTemplate.queryForObject(sql, Integer.class, level_name, chiso, f_f_index, ma_mc, iParentID, kd_id, doituong_kd, user_id, user_id);
+            Integer ID = evidenceJdbcTemplate.queryForObject(sql, Integer.class, level_name, chiso, f_f_index, ma_mc, iParentID, kd_id, doituong_kd, user_id, user_id);
             if (ID != null && create_sub) {
                 if (normalize(level_name).equalsIgnoreCase(normalize("Tiêu chí"))) {
                     subFoldersCreation(ID);
@@ -199,7 +200,7 @@ public class MCUp {
                     + " UNION ALL SELECT N'Kết quả' "
                     + " UNION ALL SELECT N'Khác') AS Names "
                     + " where ID = ?";
-            return jdbcTemplate.update(sql, iParentID, iParentID);
+            return evidenceJdbcTemplate.update(sql, iParentID, iParentID);
         } catch (Exception e) {
             e.printStackTrace();
             return -1;
@@ -210,7 +211,7 @@ public class MCUp {
         try {
             String sql = "insert into TBL_Minhchung (ma_mc, ma_mc_chung, ten_mc, noi_ban_hanh, so_ngay_thang, kd_id, doituong_kd, f_id) "
                     + " OUTPUT INSERTED.ID values (?, ?, ?, ?, ?, ?, ?, ?)";
-            Integer mc_id = jdbcTemplate.queryForObject(sql, Integer.class, ma_mc, ma_mc_chung, ten_mc, noi_ban_hanh, so_ngay_thang, kd_id, doituong_kd, frame_id);
+            Integer mc_id = evidenceJdbcTemplate.queryForObject(sql, Integer.class, ma_mc, ma_mc_chung, ten_mc, noi_ban_hanh, so_ngay_thang, kd_id, doituong_kd, frame_id);
             return (mc_id != null) ? mc_id : 0;
         } catch (Exception e) {
             e.printStackTrace();

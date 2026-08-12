@@ -239,17 +239,17 @@ public class EmployeeSyncScheduler {
 			System.out.println(
 					"Department Sync Successful! Inserted: " + deptInsertCount + ", Updated: " + deptUpdateCount);
 
-			// Heal any corrupted names in TBL_USER using the corrected names from employees
-			System.out.println("Healing TBL_USER names from employees table...");
+			// Heal any corrupted names in users using the corrected names from employees
+			System.out.println("Healing users names from employees table...");
 			try {
 				int healedCount = jdbcTemplate.update(
 					"UPDATE u " +
 					"SET u.FullName = e.uName " +
-					"FROM TBL_USER u " +
+					"FROM users u " +
 					"JOIN employees e ON e.uEmail = u.Email " +
 					"WHERE u.FullName <> e.uName AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')"
 				);
-				System.out.println("Healed " + healedCount + " user names in TBL_USER.");
+				System.out.println("Healed " + healedCount + " user names in users.");
 			} catch (Exception ex) {
 				System.err.println("Error healing user names: " + ex.getMessage());
 			}

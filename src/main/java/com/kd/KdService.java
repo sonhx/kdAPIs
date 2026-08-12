@@ -24,7 +24,6 @@ public class KdService {
 
 	@PostMapping("/list")
 	public String listKdApi(@RequestBody String sReq) {
-		System.out.println("-------listKdApi:" + sReq);
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
@@ -43,13 +42,11 @@ public class KdService {
 			e.printStackTrace();
 			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
-		System.out.println("RES(listKdApi):" + jout.toString());
 		return jout.toString();
 	}
 
 	@PostMapping("/list_cycle_ed")
 	public String listCycleApi_ed(@RequestBody String sReq) {
-		System.out.println("-------listCycleApi_ed:" + sReq);
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
@@ -63,13 +60,11 @@ public class KdService {
 			e.printStackTrace();
 			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
-		System.out.println("RES(listCycleApi_ed):" + jout.toString());
 		return jout.toString();
 	}
 
 	@PostMapping("/list_nganh_dt")
 	public String listNganhDTApi(@RequestBody String sReq) {
-		System.out.println("-------listNganhDTApi:" + sReq);
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
@@ -82,7 +77,6 @@ public class KdService {
 			e.printStackTrace();
 			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON error: Thiếu tham số? " + e.getMessage() + "\"}";
 		}
-		System.out.println("RES(listNganhDTApi):" + jout.toString());
 		return jout.toString();
 	}
 

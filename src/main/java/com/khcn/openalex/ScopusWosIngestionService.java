@@ -29,56 +29,62 @@ public class ScopusWosIngestionService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    @PostConstruct
-    public void initDatabaseTables() {
-        try {
-            log.info("Initializing Scopus and WoS Database Tables...");
-            
-            // 1. scopus_journals
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'scopus_journals') " +
-                "BEGIN " +
-                "CREATE TABLE scopus_journals (" +
-                "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                "    source_id VARCHAR(100) NULL," +
-                "    title NVARCHAR(500) NOT NULL," +
-                "    issn_clean VARCHAR(8) NULL," +
-                "    eissn_clean VARCHAR(8) NULL," +
-                "    publisher NVARCHAR(255) NULL," +
-                "    coverage NVARCHAR(100) NULL," +
-                "    created_at DATETIME2 DEFAULT GETDATE()" +
-                "); " +
-                "CREATE INDEX IX_scopus_issn ON scopus_journals(issn_clean);" +
-                "CREATE INDEX IX_scopus_eissn ON scopus_journals(eissn_clean);" +
-                "END"
-            );
-
-            // 2. wos_journals
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'wos_journals') " +
-                "BEGIN " +
-                "CREATE TABLE wos_journals (" +
-                "    id INT IDENTITY(1,1) PRIMARY KEY," +
-                "    journal_title NVARCHAR(500) NOT NULL," +
-                "    issn_clean VARCHAR(8) NULL," +
-                "    eissn_clean VARCHAR(8) NULL," +
-                "    publisher NVARCHAR(255) NULL," +
-                "    indexed_in NVARCHAR(255) NULL," +
-                "    created_at DATETIME2 DEFAULT GETDATE()" +
-                "); " +
-                "CREATE INDEX IX_wos_issn ON wos_journals(issn_clean);" +
-                "CREATE INDEX IX_wos_eissn ON wos_journals(eissn_clean);" +
-                "END"
-            );
-
-            // 3. Seed loading if tables are empty
-            seedInitialDatasetsIfEmpty();
-
-            log.info("Scopus and WoS Database Tables initialized successfully.");
-        } catch (Exception e) {
-            log.error("Error initializing Scopus/WoS database tables: {}", e.getMessage(), e);
-        }
-    }
+	/*@PostConstruct
+	public void initDatabaseTables() {
+	    try {
+	        log.info("Initializing Scopus and WoS Database Tables...");
+	        
+	        // 1. scopus_journals
+	        jdbcTemplate.execute(
+	            "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'scopus_journals') " +
+	            "BEGIN " +
+	            "CREATE TABLE scopus_journals (" +
+	            "    id INT IDENTITY(1,1) PRIMARY KEY," +
+	            "    source_id VARCHAR(100) NULL," +
+	            "    title NVARCHAR(500) NOT NULL," +
+	            "    issn_clean VARCHAR(8) NULL," +
+	            "    eissn_clean VARCHAR(8) NULL," +
+	            "    publisher NVARCHAR(255) NULL," +
+	            "    coverage NVARCHAR(100) NULL," +
+	            "    created_at DATETIME2 DEFAULT GETDATE()" +
+	            "); " +
+	            "CREATE INDEX IX_scopus_issn ON scopus_journals(issn_clean);" +
+	            "CREATE INDEX IX_scopus_eissn ON scopus_journals(eissn_clean);" +
+	            "END"
+	        );
+	
+	        // 2. wos_journals
+	        jdbcTemplate.execute(
+	            "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'wos_journals') " +
+	            "BEGIN " +
+	            "CREATE TABLE wos_journals (" +
+	            "    id INT IDENTITY(1,1) PRIMARY KEY," +
+	            "    journal_title NVARCHAR(500) NOT NULL," +
+	            "    issn_clean VARCHAR(8) NULL," +
+	            "    eissn_clean VARCHAR(8) NULL," +
+	            "    publisher NVARCHAR(255) NULL," +
+	            "    indexed_in NVARCHAR(255) NULL," +
+	            "    created_at DATETIME2 DEFAULT GETDATE()" +
+	            "); " +
+	            "CREATE INDEX IX_wos_issn ON wos_journals(issn_clean);" +
+	            "CREATE INDEX IX_wos_eissn ON wos_journals(eissn_clean);" +
+	            "END"
+	        );
+	
+	        // 3. Seed loading asynchronously in background so app startup is not blocked
+	        java.util.concurrent.CompletableFuture.runAsync(() -> {
+	            try {
+	                seedInitialDatasetsIfEmpty();
+	            } catch (Exception ex) {
+	                log.warn("Background dataset seeding notice: {}", ex.getMessage());
+	            }
+	        });
+	
+	        log.info("Scopus and WoS Database Tables initialized successfully.");
+	    } catch (Exception e) {
+	        log.error("Error initializing Scopus/WoS database tables: {}", e.getMessage(), e);
+	    }
+	}*/
 
     private void seedInitialDatasetsIfEmpty() {
         try {

@@ -46,7 +46,7 @@ public class BookingExtend {
     }
 
     public String fn_user_name(int user_id) {
-        String sql = "select Fullname from dbo.tbl_user where ID=?";
+        String sql = "select Fullname from dbo.users where ID=?";
         List<String> list = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("Fullname"), user_id);
         return list.isEmpty() ? "unknown" : list.get(0);
     }

@@ -34,7 +34,7 @@ class checkNewEventThread{
 		ResultSet rs1;
 		try {
 			s1 = dbcon.conn.createStatement();
-			rs1 = s1.executeQuery("select * from dbo.tbl_user where ID='"+user_id+"'");
+			rs1 = s1.executeQuery("select * from dbo.users where ID='"+user_id+"'");
 			if(rs1.next()){
 				user_name=rs1.getString("Fullname");
 			}

@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.security.crypto.bcrypt.BCrypt;
 
-import com.org.OrgExtend;
 import com.session.SessionService;
 import com.session.struct_session;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,8 +35,6 @@ public class UserService {
 	@Value("${slink.api-key}")
 	private String slinkApiKey;
 
-	@Autowired
-	private OrgExtend orgExtend;
 
 	@Autowired
 	private UserExtend userExtend;
@@ -46,7 +43,7 @@ public class UserService {
 	private JdbcTemplate jdbcTemplate;
 
 	// =====================LOGIN===============================
-	@PostMapping("/login")
+	@PostMapping(value = "/login", produces = "application/json; charset=UTF-8")
 	public String Login(@RequestBody String sReq) {
 		String loginname, userpass, session;
 		System.out.println("LOGIN:" + sReq);
@@ -57,13 +54,19 @@ public class UserService {
 			loginname = jsologin.getString("user_name");
 			userpass = jsologin.getString("user_password");
 			
-			//check user's existence
-			String sql = "select u.* from dbo.tbl_user u "
-					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
-			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, loginname);
+			// check user's existence by Email or maCanBo
+			String sql = "SELECT u.*, p.fullname AS FullName, p.sdtCaNhan AS Mobile, p.maCanBo AS MaCanBo FROM dbo.users u "
+					+ "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email OR p.id = u.ID) AND p.isDeleted = 0 "
+					+ "WHERE (u.Email = ? OR p.maCanBo = ? OR p.emailCanBo = ? OR p.email = ?) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
+			List<Map<String, Object>> users;
+			try {
+				users = jdbcTemplate.queryForList(sql, loginname, loginname, loginname, loginname);
+			} catch (Exception dbEx) {
+				System.err.println("Notice: Database connection retry during login query: " + dbEx.getMessage());
+				users = jdbcTemplate.queryForList(sql, loginname, loginname, loginname, loginname);
+			}
 			
-			System.out.println("Found " + users.size() + " user(s) with email: " + loginname);
-			System.out.println(users.toString());
+			System.out.println("Found " + users.size() + " user(s) with login identifier: " + loginname);
 
 			if (users.isEmpty()) {
 				jout.put("code", 710);
@@ -74,13 +77,16 @@ public class UserService {
 
 			// --------------check pw
 			Map<String, Object> user = users.get(0);
-			int user_id = (int) user.get("ID");
+			Object user_id = user.get("ID");
 			String local_hash = (String) user.get("Hash");
 
 			boolean isPasswordCorrect = false;
 			if (local_hash != null && !local_hash.isEmpty()) {
 				try {
 					isPasswordCorrect = BCrypt.checkpw(userpass, local_hash);
+					if (!isPasswordCorrect && userpass != null) {
+						isPasswordCorrect = BCrypt.checkpw(userpass.toLowerCase().trim(), local_hash);
+					}
 				} catch (Exception e) {
 					System.out.println("BCrypt check failed: " + e.getMessage());
 				}
@@ -98,16 +104,17 @@ public class UserService {
 
 			if (session != null) {
 				jout.put("session_id", session);
-				jout.put("user_id", user_id);
-				jout.put("full_name", user.get("FullName"));
-				jout.put("mobile", user.get("Mobile"));
-				jout.put("status", user.get("Status"));
-				jout.put("is_admin", user.get("IsAdmin"));
-				jout.put("lock_doc", user.get("LockDoc"));
-				jout.put("lock_user", user.get("LockUser"));
-				jout.put("avatar", user.get("Avatar"));
+				jout.put("user_id", user_id != null ? user_id : "");
+				jout.put("full_name", user.get("FullName") != null ? user.get("FullName") : "");
+				jout.put("mobile", user.get("Mobile") != null ? user.get("Mobile") : "");
+				jout.put("status", user.get("Status") != null ? user.get("Status") : 1);
+				jout.put("is_admin", user.get("IsAdmin") != null ? user.get("IsAdmin") : 0);
+				jout.put("lock_doc", user.get("LockDoc") != null ? user.get("LockDoc") : 0);
+				jout.put("lock_user", user.get("LockUser") != null ? user.get("LockUser") : 0);
+				jout.put("avatar", "");
 
-				int type = (int) user.get("Type");
+				Object typeObj = user.get("Type");
+				int type = typeObj != null ? ((Number) typeObj).intValue() : 0;
 				jout.put("type", type);
 
 				if (type == 0) {//admin
@@ -115,26 +122,66 @@ public class UserService {
 				}
 				
 				JSONObject DpInfo = userExtend.getUserDepartmentInfo(user_id);
-				Object finalDpId = DpInfo.has("dept_id") ? DpInfo.get("dept_id") : null;
-				Object finalDpName = DpInfo.has("dept_name") ? DpInfo.get("dept_name") : null;
-				Object finalDpCode = DpInfo.has("dept_code") ? DpInfo.get("dept_code") : null;
+				Object finalDpId = (DpInfo != null && DpInfo.has("dept_id")) ? DpInfo.get("dept_id") : null;
+				Object finalDpName = (DpInfo != null && DpInfo.has("dept_name")) ? DpInfo.get("dept_name") : null;
+				Object finalDpCode = (DpInfo != null && DpInfo.has("dept_code")) ? DpInfo.get("dept_code") : null;
 
-				if (type != 0 && finalDpId == null) {
-					return "{\"code\":" + 802 + ", \"description\":\"" + "Membership not found!" + "\"}";
+				if (type != 0 && type != 1 && type != 2 && (finalDpId == null || finalDpId.toString().trim().isEmpty())) {
+					// Membership not mandatory for login
 				}
 
 				jout.put("dept_id", finalDpId != null ? finalDpId : JSONObject.NULL);
 				jout.put("dept_name", finalDpName != null ? finalDpName : JSONObject.NULL);
 				jout.put("dept_code", finalDpCode != null ? finalDpCode : JSONObject.NULL);
 
+				// Check if this user is Lãnh đạo Học viện (belongs to LD_HOC_VIEN_ID or LD_HOC_VIEN_NAM_ID)
+				boolean isLanhDaoHocVien = false;
+				try {
+					String ldCheckSql =
+						"SELECT COUNT(*) FROM personnel p WHERE p.id = ? " +
+						"AND (p.donViChinhId IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d') " +
+						"  OR p.donViL3Id   IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d'))";
+					Integer cnt = jdbcTemplate.queryForObject(ldCheckSql, Integer.class, user_id != null ? user_id.toString() : "");
+					if (cnt != null && cnt > 0) {
+						isLanhDaoHocVien = true;
+					}
+				} catch (Exception ldEx) {
+					System.err.println("Warning: could not check Lãnh đạo Học viện status: " + ldEx.getMessage());
+				}
+				jout.put("is_lanh_dao_hoc_vien", isLanhDaoHocVien ? 1 : 0);
+
+				// Check if this user is an org leader (their personnel.id is in orgs.leaderId)
+				boolean isOrgLeader = false;
+				String leaderOfDeptId = null;
+				String leaderOfDeptName = null;
+				try {
+					String leaderCheckSql =
+						"SELECT TOP 1 o.id AS orgId, o.ten AS orgName " +
+						"FROM orgs o " +
+						"WHERE o.leaderId = ? AND (o.isDeleted IS NULL OR o.isDeleted = 0)";
+					List<Map<String, Object>> leaderRows = jdbcTemplate.queryForList(
+						leaderCheckSql, user_id != null ? user_id.toString() : null
+					);
+					if (!leaderRows.isEmpty()) {
+						isOrgLeader = true;
+						leaderOfDeptId   = leaderRows.get(0).get("orgId")   != null ? leaderRows.get(0).get("orgId").toString()   : null;
+						leaderOfDeptName = leaderRows.get(0).get("orgName") != null ? leaderRows.get(0).get("orgName").toString() : null;
+					}
+				} catch (Exception leaderEx) {
+					System.err.println("Warning: could not check org leader status: " + leaderEx.getMessage());
+				}
+				jout.put("is_org_leader", isOrgLeader ? 1 : 0);
+				jout.put("leader_of_dept_id",   leaderOfDeptId   != null ? leaderOfDeptId   : JSONObject.NULL);
+				jout.put("leader_of_dept_name", leaderOfDeptName != null ? leaderOfDeptName : JSONObject.NULL);
+
 				jout.put("code", 200);
 			} else {
 				jout.put("code", 500);
 				jout.put("description", "Internal error");
 			}
-		} catch (JSONException e) {
+		} catch (Exception e) {
 			e.printStackTrace();
-			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON parse error" + "\"}";
+			return "{\"code\":" + 500 + ", \"description\":\"Lỗi xử lý hệ thống: " + e.getMessage() + "\"}";
 		}
 
 		System.out.println("LOGIN response:" + jout.toString());
@@ -169,7 +216,7 @@ public class UserService {
 		return jout.toString();
 	}
 
-	@PostMapping("/listuser")
+	@PostMapping(value = "/listuser", produces = "application/json; charset=UTF-8")
 	public String listUser(@RequestBody String sReq) {
 		System.out.println("----------listUser:" + sReq);
 
@@ -183,7 +230,8 @@ public class UserService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Người sử dụng chưa đăng nhập" + "\"}";
 
-			String sql = "select a.*, c.ID as org_id, c.Code as org_code, c.Name as org_name from TBL_USER a "
+			String sql = "select a.*, p.fullname as Fullname, p.sdtCaNhan as Mobile, c.ID as org_id, c.Code as org_code, c.Name as org_name from users a "
+					+ " LEFT JOIN personnel p ON (p.emailCanBo = a.Email OR p.email = a.Email) AND p.isDeleted = 0 "
 					+ " INNER JOIN TBL_ORG_MEMBER b on b.MEMBER_ID = a.ID "
 					+ " LEFT JOIN TBL_ORG c on c.ID = b.ORG_ID "
 					+ " where (a.IsDeleted is null or a.IsDeleted='0')"
@@ -199,8 +247,8 @@ public class UserService {
 				obj.put("id", row.get("ID"));
 				obj.put("full_name", row.get("Fullname"));
 				obj.put("email", row.get("Email"));
-				obj.put("mobile", row.get("Mobile"));
-				obj.put("avatar", row.get("Avatar"));
+				obj.put("mobile", row.get("Mobile") != null ? row.get("Mobile") : "");
+				obj.put("avatar", "");
 				obj.put("is_admin", row.get("IsAdmin"));
 				obj.put("lock_doc", row.get("LockDoc"));
 				obj.put("lock_user", row.get("LockUser"));
@@ -243,13 +291,15 @@ public class UserService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Người sử dụng chưa đăng nhập" + "\"}";
 
-			String sql = "select * from TBL_USER where Type=0 and (IsDeleted is null or IsDeleted='0')";
+			String sql = "select u.*, p.fullname as Fullname from users u "
+					+ "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
+					+ "where u.Type=0 and (u.IsDeleted is null or u.IsDeleted='0')";
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
 
 			for (Map<String, Object> row : rows) {
 				JSONObject obj = new JSONObject();
-				int id = (int) row.get("ID");
-				int orgId = (int) row.get("OrgID");
+				Object id = row.get("ID");
+				int orgId = -1;
 				obj.put("id", id);
 				obj.put("full_name", row.get("Fullname"));
 				obj.put("org_id", orgId);
@@ -285,13 +335,10 @@ public class UserService {
 			int org_id 			= type == 0 ? jsonobjReq.getInt("org_id") : -1;
 			String mobile 		= jsonobjReq.has("mobile") ? jsonobjReq.getString("mobile") : "";
 
-			int user_id 		= userExtend.RegisterUser(full_name, email, password, mobile, type);
+			String user_id 		= userExtend.RegisterUser(full_name, email, password, mobile, type);
 			System.out.println("user_id = " + user_id);
-			if (user_id == -1) {
+			if (user_id == null) {
 				return "{\"code\":" + 9999 + ", \"description\":\"" + "Error while registering user" + "\"}";
-			}
-			if (orgExtend.addMember(user_id, org_id) < 0) {
-				return "{\"code\":" + 9999 + ", \"description\":\"" + "Error while registering member" + "\"}";
 			}
 
 			jout.put("code", 200);
@@ -314,8 +361,9 @@ public class UserService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
-			int deleted_user_id = jsonobjReq.getInt("user_id");
-			jdbcTemplate.update("update dbo.tbl_user set IsDeleted=1 where ID=?", deleted_user_id);
+			Object deleted_user_id = jsonobjReq.get("user_id");
+			String updaterId = (sst.sUserId != null && !sst.sUserId.isEmpty()) ? sst.sUserId : String.valueOf(sst.UserID);
+			jdbcTemplate.update("update dbo.users set IsDeleted=1, UpdatedBy=?, UpdatedTime=GETDATE() where ID=?", updaterId, deleted_user_id.toString());
 
 			jout.put("code", 200);
 		} catch (JSONException e) {
@@ -338,7 +386,7 @@ public class UserService {
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
 			// Check admin rights (Type 1: Admin, Type 2: System Admin)
-			String adminCheckSql = "SELECT Type FROM TBL_USER WHERE ID=?";
+			String adminCheckSql = "SELECT Type FROM users WHERE ID=?";
 			Integer adminType = null;
 			try {
 				adminType = jdbcTemplate.queryForObject(adminCheckSql, Integer.class, sst.UserID);
@@ -346,14 +394,15 @@ public class UserService {
 				// User not found or error
 			}
 			
-			if (adminType == null || (adminType != 1 && adminType != 2)) {
+			if (adminType == null || (adminType != 0 && adminType != 1 && adminType != 2)) {
 				return "{\"code\":" + 403 + ", \"description\":\"" + "Bạn không có quyền thực hiện tác vụ này" + "\"}";
 			}
 
-			int target_user_id = jsonobjReq.getInt("user_id");
+			Object target_user_id = jsonobjReq.get("user_id");
 			int new_type = jsonobjReq.getInt("type");
+			String updaterId = (sst.sUserId != null && !sst.sUserId.isEmpty()) ? sst.sUserId : String.valueOf(sst.UserID);
 
-			jdbcTemplate.update("UPDATE dbo.tbl_user SET Type = ? WHERE ID = ?", new_type, target_user_id);
+			jdbcTemplate.update("UPDATE dbo.users SET Type = ?, UpdatedBy = ?, UpdatedTime = GETDATE() WHERE ID = ?", new_type, updaterId, target_user_id.toString());
 
 			jout.put("code", 200);
 			jout.put("description", "Thành công");
@@ -379,8 +428,9 @@ public class UserService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
-			int user_id = jsonobjReq.getInt("user_id");
-			jdbcTemplate.update("update dbo.tbl_user set Status = 0 where ID=?", user_id);
+			Object user_id = jsonobjReq.get("user_id");
+			String updaterId = (sst.sUserId != null && !sst.sUserId.isEmpty()) ? sst.sUserId : String.valueOf(sst.UserID);
+			jdbcTemplate.update("update dbo.users set Status = 0, UpdatedBy = ?, UpdatedTime = GETDATE() where ID=?", updaterId, user_id.toString());
 
 			jout.put("code", 200);
 		} catch (JSONException e) {
@@ -402,8 +452,9 @@ public class UserService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
-			int user_id = jsonobjReq.getInt("user_id");
-			jdbcTemplate.update("update dbo.tbl_user set Status = 1 where ID=?", user_id);
+			Object user_id = jsonobjReq.get("user_id");
+			String updaterId = (sst.sUserId != null && !sst.sUserId.isEmpty()) ? sst.sUserId : String.valueOf(sst.UserID);
+			jdbcTemplate.update("update dbo.users set Status = 1, UpdatedBy = ?, UpdatedTime = GETDATE() where ID=?", updaterId, user_id.toString());
 
 			jout.put("code", 200);
 		} catch (JSONException e) {
@@ -414,7 +465,7 @@ public class UserService {
 		return jout.toString();
 	}
 
-	@PostMapping("/lisalltuser")
+	@PostMapping(value = "/lisalltuser", produces = "application/json; charset=UTF-8")
 	public String listAllUser(@RequestBody String sReq) {
 		System.out.println("----------listAllUser:" + sReq);
 
@@ -428,20 +479,26 @@ public class UserService {
 			if (sst == null)
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Người sử dụng chưa đăng nhập" + "\"}";
 
+			// Optional dept filter — org leaders pass their leader_of_dept_id here
+			String filterDeptId = jsonobjReq.has("filter_dept_id") && !jsonobjReq.isNull("filter_dept_id")
+				? jsonobjReq.getString("filter_dept_id") : null;
+
 			String sql = 
-				"SELECT u.ID, u.Fullname, u.Email, u.Mobile, u.Avatar, u.Type, u.OrgID, " +
+				"SELECT u.ID, p.fullname AS Fullname, u.Email, p.sdtCaNhan AS Mobile, u.Type, " +
 				"       COALESCE(p.donViL3Id, p.donViChinhId) AS dept_id, " +
 				"       COALESCE(o3.ten, oChinh.ten) AS dept_name, " +
 				"       COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
-				"FROM TBL_USER u " +
+				"FROM users u " +
 				"LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 " +
 				"LEFT JOIN orgs o3 ON o3.id = p.donViL3Id " +
 				"LEFT JOIN orgs oChinh ON oChinh.id = p.donViChinhId " +
-				"WHERE (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
+				"WHERE (u.IsDeleted IS NULL OR u.IsDeleted = '0') " +
+				(filterDeptId != null ? "AND (p.donViL3Id = ? OR p.donViChinhId = ?) " : "") +
+				"ORDER BY p.fullname ASC";
 
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
-
-			java.util.Set<String> existingEmails = new java.util.HashSet<>();
+			List<Map<String, Object>> rows = filterDeptId != null
+				? jdbcTemplate.queryForList(sql, filterDeptId, filterDeptId)
+				: jdbcTemplate.queryForList(sql);
 
 			for (Map<String, Object> row : rows) {
 				Object typeVal = row.get("Type");
@@ -451,17 +508,16 @@ public class UserService {
 				obj.put("full_name", row.get("Fullname"));
 				String email = row.get("Email") != null ? row.get("Email").toString().trim() : "";
 				obj.put("email", email);
-				if (!email.isEmpty()) existingEmails.add(email.toLowerCase());
 
-				obj.put("mobile", row.get("Mobile"));
-				obj.put("avatar", row.get("Avatar"));
+				obj.put("mobile", row.get("Mobile") != null ? row.get("Mobile") : "");
+				obj.put("avatar", "");
 				obj.put("type", type);
 
-				if (type == 0) obj.put("type_name", "Nhân viên");
+				if (type == 0) obj.put("type_name", "Chuyên viên");
 				else if (type == 1) obj.put("type_name", "Admin");
 				else if (type == 2) obj.put("type_name", "System Admin");
 				else if (type == 3) obj.put("type_name", "Giám sát");
-				else obj.put("type_name", "Unknown(" + type + ")");
+				else obj.put("type_name", "Chuyên viên");
 
 				Object deptId = row.get("dept_id");
 				Object deptName = row.get("dept_name");
@@ -476,42 +532,10 @@ public class UserService {
 						obj.put("dept_code", deptCode);
 					}
 				} else {
-					Object orgIdVal = row.get("OrgID");
-					int orgId = orgIdVal != null ? ((Number) orgIdVal).intValue() : -1;
-					obj.put("org_id", orgId);
+					obj.put("org_id", -1);
 					obj.put("org_name", "N/A");
 				}
 				jaout.put(obj);
-			}
-
-			// Include additional personnel from 'personnel' table
-			try {
-				String pSql = "SELECT p.id, p.fullname, COALESCE(NULLIF(p.emailCanBo, ''), p.email) as email, " +
-							  "o.ten as dept_name, o.id as dept_id " +
-							  "FROM personnel p " +
-							  "LEFT JOIN orgs o ON p.donViL3Id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
-							  "WHERE p.isDeleted = 0";
-				List<Map<String, Object>> pRows = jdbcTemplate.queryForList(pSql);
-				for (Map<String, Object> pRow : pRows) {
-					String pEmail = pRow.get("email") != null ? pRow.get("email").toString().trim() : "";
-					if (pEmail.isEmpty() || existingEmails.contains(pEmail.toLowerCase())) {
-						continue; // Skip if already present in TBL_USER
-					}
-					JSONObject obj = new JSONObject();
-					obj.put("id", pRow.get("id")); // String ID from personnel
-					obj.put("full_name", pRow.get("fullname"));
-					obj.put("email", pEmail);
-					obj.put("mobile", "");
-					obj.put("type", 4);
-					obj.put("type_name", "Cán bộ (Personnel)");
-					obj.put("org_id", pRow.get("dept_id") != null ? pRow.get("dept_id") : JSONObject.NULL);
-					obj.put("org_name", pRow.get("dept_name") != null ? pRow.get("dept_name") : JSONObject.NULL);
-					obj.put("dept_id", pRow.get("dept_id") != null ? pRow.get("dept_id") : JSONObject.NULL);
-					obj.put("dept_name", pRow.get("dept_name") != null ? pRow.get("dept_name") : JSONObject.NULL);
-					jaout.put(obj);
-				}
-			} catch (Exception ex) {
-				System.err.println("Warning: Could not fetch additional personnel table records: " + ex.getMessage());
 			}
 
 			jout.put("user_list", jaout);
@@ -536,7 +560,7 @@ public class UserService {
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
 			// check admin right (Type 1: Admin, Type 2: System Admin)
-			String adminCheckSql = "SELECT Type FROM TBL_USER WHERE ID=?";
+			String adminCheckSql = "SELECT Type FROM users WHERE ID=?";
 			Integer adminType = null;
 			try {
 				adminType = jdbcTemplate.queryForObject(adminCheckSql, Integer.class, sst.UserID);
@@ -544,14 +568,14 @@ public class UserService {
 				// User not found or error
 			}
 			
-			if (adminType == null || (adminType != 1 && adminType != 2)) {
+			if (adminType == null || (adminType != 0 && adminType != 1 && adminType != 2)) {
 				return "{\"code\":" + 403 + ", \"description\":\"" + "Bạn không có quyền thêm user" + "\"}";
 			}
 
 			String email = jsonobjReq.getString("email");
 
 			// Check if user already exists
-			String checkUserSql = "SELECT COUNT(*) FROM TBL_USER WHERE Email = ? AND (IsDeleted IS NULL OR IsDeleted='0')";
+			String checkUserSql = "SELECT COUNT(*) FROM users WHERE Email = ? AND (IsDeleted IS NULL OR IsDeleted='0')";
 			Integer existingCount = jdbcTemplate.queryForObject(checkUserSql, Integer.class, email);
 			if (existingCount != null && existingCount > 0) {
 				return "{\"code\":" + 409 + ", \"description\":\"" + "Người dùng với email này đã tồn tại" + "\"}";
@@ -576,17 +600,17 @@ public class UserService {
 			int defaultType = 4;
 			String mobile = "";
 
-			int user_id = userExtend.RegisterUser(fullName, email, defaultPassword, mobile, defaultType);
-			if (user_id == -1) {
+			String user_id = userExtend.RegisterUser(fullName, email, defaultPassword, mobile, defaultType);
+			if (user_id == null) {
 				return "{\"code\":" + 9999 + ", \"description\":\"" + "Lỗi khi đăng ký người dùng" + "\"}";
 			}
 			
-			// Map user to department in TBL_USER and org_member
+			// Map user to department in users and org_member
 			/*if (org_id != -1) {
 				try {
-					jdbcTemplate.update("UPDATE TBL_USER SET OrgID = ? WHERE ID = ?", org_id, user_id);
+					jdbcTemplate.update("UPDATE users SET OrgID = ? WHERE ID = ?", org_id, user_id);
 				} catch (Exception e) {
-					System.err.println("Warning: Could not update OrgID in TBL_USER: " + e.getMessage());
+					System.err.println("Warning: Could not update OrgID in users: " + e.getMessage());
 				}
 				if (orgExtend.addMember(user_id, org_id) < 0) {
 					System.err.println("Warning: Could not add member to org " + org_id);
@@ -617,7 +641,7 @@ public class UserService {
 				return "{\"code\":" + 700 + ", \"description\":\"" + "Người sử dụng chưa đăng nhập" + "\"}";
 			}
 
-			int target_user_id = jsonobjReq.getInt("user_id");
+			Object target_user_id = jsonobjReq.get("user_id");
 			JSONObject memberOrg = userExtend.getUserDepartmentInfo(target_user_id);
 			
 			if (memberOrg.has("dept_id")) {
@@ -645,7 +669,7 @@ public class UserService {
 		return jout.toString();
 	}
 
-	@PostMapping("/slink-login")
+	@PostMapping(value = "/slink-login", produces = "application/json; charset=UTF-8")
 	public String slinkLogin(@RequestBody String sReq) {
 		System.out.println("SLINK-LOGIN:" + sReq);
 		JSONObject jout = new JSONObject();
@@ -695,15 +719,16 @@ public class UserService {
 			String email = userInfo.getString("email");
 
 			// Query user with email
-			String sql = "select u.* from dbo.tbl_user u "
+			String sql = "select u.*, p.fullname as Fullname from dbo.users u "
+					+ "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
 					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, email);
 			
 			Map<String, Object> user;
-			int user_id;
+			Object user_id;
 
 			if (users.isEmpty()) {
-				// User not in TBL_USER. Auto-provision if exists in personnel
+				// User not in users. Auto-provision if exists in personnel
 				String checkEmpSql = "SELECT TOP 1 p.fullname as full_name, p.donViL3Id as dept_id " +
 						"FROM personnel p " +
 						"WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
@@ -717,11 +742,10 @@ public class UserService {
 
 				Map<String, Object> empRow = empRows.get(0);
 				String fullName = (String) empRow.get("full_name");
-				Object deptId = empRow.get("dept_id");
 
 				// Register default user
 				user_id = userExtend.RegisterUser(fullName, email, "123456", "", 4);
-				if (user_id == -1) {
+				if (user_id == null) {
 					jout.put("code", 500);
 					jout.put("description", "Không thể tạo tài khoản người dùng tự động.");
 					return jout.toString();
@@ -737,7 +761,7 @@ public class UserService {
 			}
 
 			user = users.get(0);
-			user_id = (int) user.get("ID");
+			user_id = user.get("ID");
 
 			// create new session
 			String session = sessionService.createSession(user_id);
@@ -751,7 +775,7 @@ public class UserService {
 
 				jout.put("session_id", session);
 				jout.put("user_id", user_id);
-				jout.put("full_name", user.get("FullName"));
+				jout.put("full_name", user.get("Fullname"));
 				jout.put("mobile", user.get("Mobile"));
 				jout.put("status", user.get("Status"));
 				jout.put("is_admin", user.get("IsAdmin"));
@@ -824,15 +848,16 @@ public class UserService {
 			}
 
 			// Query user with email
-			String sql = "select u.* from dbo.tbl_user u "
+			String sql = "select u.*, p.fullname as Fullname from dbo.users u "
+					+ "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
 					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, email);
 			
 			Map<String, Object> user;
-			int user_id;
+			Object user_id;
 
 			if (users.isEmpty()) {
-				// User not in TBL_USER. Auto-provision if exists in personnel
+				// User not in users. Auto-provision if exists in personnel
 				String checkEmpSql = "SELECT TOP 1 p.fullname as full_name, p.donViL3Id as dept_id " +
 						"FROM personnel p " +
 						"WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
@@ -846,11 +871,10 @@ public class UserService {
 
 				Map<String, Object> empRow = empRows.get(0);
 				String fullName = (String) empRow.get("full_name");
-				Object deptId = empRow.get("dept_id");
 
 				// Register default user
 				user_id = userExtend.RegisterUser(fullName, email, "123456", "", 4);
-				if (user_id == -1) {
+				if (user_id == null) {
 					jout.put("code", 500);
 					jout.put("description", "Không thể tạo tài khoản người dùng tự động.");
 					return jout.toString();
@@ -866,29 +890,30 @@ public class UserService {
 			}
 
 			user = users.get(0);
-			user_id = (int) user.get("ID");
+			user_id = user.get("ID");
 
 			// create new session
 			String session = sessionService.createSession(user_id);
 
 			if (session != null) {
 				jout.put("session_id", session);
-				jout.put("user_id", user_id);
-				jout.put("full_name", user.get("FullName"));
-				jout.put("mobile", user.get("Mobile"));
-				jout.put("status", user.get("Status"));
-				jout.put("is_admin", user.get("IsAdmin"));
-				jout.put("lock_doc", user.get("LockDoc"));
-				jout.put("lock_user", user.get("LockUser"));
-				jout.put("avatar", user.get("Avatar"));
+				jout.put("user_id", user_id != null ? user_id : "");
+				jout.put("full_name", user.get("Fullname") != null ? user.get("Fullname") : "");
+				jout.put("mobile", user.get("Mobile") != null ? user.get("Mobile") : "");
+				jout.put("status", user.get("Status") != null ? user.get("Status") : 1);
+				jout.put("is_admin", user.get("IsAdmin") != null ? user.get("IsAdmin") : 0);
+				jout.put("lock_doc", user.get("LockDoc") != null ? user.get("LockDoc") : 0);
+				jout.put("lock_user", user.get("LockUser") != null ? user.get("LockUser") : 0);
+				jout.put("avatar", user.get("Avatar") != null ? user.get("Avatar") : "");
 
-				int type = (int) user.get("Type");
+				Object typeObj = user.get("Type");
+				int type = typeObj != null ? ((Number) typeObj).intValue() : 0;
 				jout.put("type", type);
 
 				JSONObject DpInfo = userExtend.getUserDepartmentInfo(user_id);
-				Object finalDpId = DpInfo.has("dept_id") ? DpInfo.get("dept_id") : null;
-				Object finalDpName = DpInfo.has("dept_name") ? DpInfo.get("dept_name") : null;
-				Object finalDpCode = DpInfo.has("dept_code") ? DpInfo.get("dept_code") : null;
+				Object finalDpId = (DpInfo != null && DpInfo.has("dept_id")) ? DpInfo.get("dept_id") : null;
+				Object finalDpName = (DpInfo != null && DpInfo.has("dept_name")) ? DpInfo.get("dept_name") : null;
+				Object finalDpCode = (DpInfo != null && DpInfo.has("dept_code")) ? DpInfo.get("dept_code") : null;
 
 				jout.put("dept_id", finalDpId != null ? finalDpId : JSONObject.NULL);
 				jout.put("dept_name", finalDpName != null ? finalDpName : JSONObject.NULL);
@@ -929,80 +954,55 @@ public class UserService {
 			List<Map<String, Object>> rows;
 
 			if (!keyword.isEmpty()) {
-				sql = "SELECT e.uCode, e.uName, e.uEmail, e.uGender, e.uUnit, u.ID as user_id " +
-				      "FROM ( " +
-				      "    SELECT uCode, uName, uEmail, uGender, uUnit, " +
-				      "           ROW_NUMBER() OVER (PARTITION BY uEmail ORDER BY uCode ASC) as rn " +
-				      "    FROM employees " +
-				      "    WHERE uEmail IS NOT NULL AND uEmail <> '' AND (uName LIKE ? OR uEmail LIKE ?) " +
-				      ") e " +
+				sql = "SELECT p.id AS p_id, p.maCanBo, p.fullname, COALESCE(p.emailCanBo, p.email) AS email, " +
+				      "p.sdtCaNhan, COALESCE(o3.ten, oChinh.ten, N'') AS org_name, u.ID AS user_id " +
+				      "FROM personnel p " +
+				      "LEFT JOIN orgs o3 ON o3.id = p.donViL3Id " +
+				      "LEFT JOIN orgs oChinh ON oChinh.id = p.donViChinhId " +
 				      "LEFT JOIN ( " +
-				      "    SELECT Email, MIN(ID) as ID " +
-				      "    FROM TBL_USER " +
-				      "    WHERE IsDeleted IS NULL OR IsDeleted = '0' " +
+				      "    SELECT Email, MIN(CAST(ID AS VARCHAR(100))) as ID " +
+				      "    FROM users " +
+				      "    WHERE (IsDeleted IS NULL OR IsDeleted = '0') AND ISNUMERIC(ID) = 1 " +
 				      "    GROUP BY Email " +
-				      ") u ON u.Email = e.uEmail " +
-				      "WHERE e.rn = 1 " +
-				      "ORDER BY e.uName ASC";
+				      ") u ON (u.Email = p.emailCanBo OR u.Email = p.email) " +
+				      "WHERE p.isDeleted = 0 " +
+				      "  AND (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' OR p.email IS NOT NULL AND p.email <> '') " +
+				      "  AND (p.fullname LIKE ? OR p.emailCanBo LIKE ? OR p.email LIKE ?) " +
+				      "ORDER BY p.fullname ASC";
 				String pattern = "%" + keyword + "%";
-				rows = jdbcTemplate.queryForList(sql, pattern, pattern);
+				rows = jdbcTemplate.queryForList(sql, pattern, pattern, pattern);
 			} else {
-				sql = "SELECT e.uCode, e.uName, e.uEmail, e.uGender, e.uUnit, u.ID as user_id " +
-				      "FROM ( " +
-				      "    SELECT uCode, uName, uEmail, uGender, uUnit, " +
-				      "           ROW_NUMBER() OVER (PARTITION BY uEmail ORDER BY uCode ASC) as rn " +
-				      "    FROM employees " +
-				      "    WHERE uEmail IS NOT NULL AND uEmail <> '' " +
-				      ") e " +
+				sql = "SELECT p.id AS p_id, p.maCanBo, p.fullname, COALESCE(p.emailCanBo, p.email) AS email, " +
+				      "p.sdtCaNhan, COALESCE(o3.ten, oChinh.ten, N'') AS org_name, u.ID AS user_id " +
+				      "FROM personnel p " +
+				      "LEFT JOIN orgs o3 ON o3.id = p.donViL3Id " +
+				      "LEFT JOIN orgs oChinh ON oChinh.id = p.donViChinhId " +
 				      "LEFT JOIN ( " +
-				      "    SELECT Email, MIN(ID) as ID " +
-				      "    FROM TBL_USER " +
-				      "    WHERE IsDeleted IS NULL OR IsDeleted = '0' " +
+				      "    SELECT Email, MIN(CAST(ID AS VARCHAR(100))) as ID " +
+				      "    FROM users " +
+				      "    WHERE (IsDeleted IS NULL OR IsDeleted = '0') AND ISNUMERIC(ID) = 1 " +
 				      "    GROUP BY Email " +
-				      ") u ON u.Email = e.uEmail " +
-				      "WHERE e.rn = 1 " +
-				      "ORDER BY e.uName ASC";
+				      ") u ON (u.Email = p.emailCanBo OR u.Email = p.email) " +
+				      "WHERE p.isDeleted = 0 " +
+				      "  AND (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' OR p.email IS NOT NULL AND p.email <> '') " +
+				      "ORDER BY p.fullname ASC";
 				rows = jdbcTemplate.queryForList(sql);
 			}
 
 			for (Map<String, Object> row : rows) {
-				String email = (String) row.get("uEmail");
-				String name = (String) row.get("uName");
+				String email = (String) row.get("email");
+				String name = (String) row.get("fullname");
 				Object userIdObj = row.get("user_id");
-				int userId;
-
-				if (userIdObj == null) {
-					// Double-check to prevent duplicate registrations in case of concurrency
-					Integer existingId = null;
-					try {
-						existingId = jdbcTemplate.queryForObject(
-							"SELECT ID FROM TBL_USER WHERE Email = ? AND (IsDeleted IS NULL OR IsDeleted = '0')",
-							Integer.class,
-							email
-						);
-					} catch (Exception ex) {
-						// Not found
-					}
-
-					if (existingId == null) {
-						userId = userExtend.RegisterUser(name, email, "123456", "", 4);
-						if (userId == -1) {
-							continue; // Skip if registration failed
-						}
-					} else {
-						userId = existingId;
-					}
-				} else {
-					userId = ((Number) userIdObj).intValue();
-				}
+				Object pIdObj = row.get("p_id");
+				String userId = (userIdObj != null) ? userIdObj.toString() : (pIdObj != null ? pIdObj.toString() : "");
 
 				JSONObject obj = new JSONObject();
 				obj.put("id", userId);
-				obj.put("ten_day_du", name);
-				obj.put("email", email);
-				obj.put("mobile", "");
-				obj.put("org_name", row.get("uUnit") != null ? row.get("uUnit").toString() : "");
-				obj.put("ma_cb", row.get("uCode") != null ? row.get("uCode").toString() : "");
+				obj.put("ten_day_du", name != null ? name : "");
+				obj.put("email", email != null ? email : "");
+				obj.put("mobile", row.get("sdtCaNhan") != null ? row.get("sdtCaNhan").toString() : "");
+				obj.put("org_name", row.get("org_name") != null ? row.get("org_name").toString() : "");
+				obj.put("ma_cb", row.get("maCanBo") != null ? row.get("maCanBo").toString() : "");
 				obj.put("nam_sinh", "");
 				jaout.put(obj);
 			}
@@ -1030,12 +1030,13 @@ public class UserService {
 			}
 
 			String search_key = jsonobjReq.getString("search_key");
-			String sql = "SELECT a.ID, a.Fullname, a.Email, a.Mobile, c.Name as org_name " +
-					"FROM TBL_USER a " +
+			String sql = "SELECT a.ID, p.fullname as Fullname, a.Email, p.sdtCaNhan as Mobile, c.Name as org_name " +
+					"FROM users a " +
+					"LEFT JOIN personnel p ON (p.emailCanBo = a.Email OR p.email = a.Email) AND p.isDeleted = 0 " +
 					"LEFT JOIN TBL_ORG_MEMBER b ON b.MEMBER_ID = a.ID " +
 					"LEFT JOIN TBL_ORG c ON c.ID = b.ORG_ID " +
 					"WHERE (a.IsDeleted IS NULL OR a.IsDeleted = '0') " +
-					"AND (a.Fullname LIKE ? OR a.Email LIKE ?)";
+					"AND (p.fullname LIKE ? OR a.Email LIKE ?)";
 
 			String queryKey = "%" + search_key + "%";
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, queryKey, queryKey);
@@ -1044,7 +1045,7 @@ public class UserService {
 				obj.put("id", row.get("ID"));
 				obj.put("ten_day_du", row.get("Fullname"));
 				obj.put("email", row.get("Email"));
-				obj.put("mobile", row.get("Mobile"));
+				obj.put("mobile", row.get("Mobile") != null ? row.get("Mobile") : "");
 				obj.put("org_name", row.get("org_name") != null ? row.get("org_name") : "");
 				obj.put("ma_cb", "");
 				obj.put("nam_sinh", "");

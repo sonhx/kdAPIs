@@ -24,66 +24,66 @@ public class OrgManagerService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @PostConstruct
-    public void initDatabaseTable() {
-        try {
-            log.info("Initializing 'orgs' database table...");
-            String createTableSql = 
-                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'orgs') " +
-                "BEGIN " +
-                "    CREATE TABLE orgs ( " +
-                "        id VARCHAR(100) PRIMARY KEY, " +
-                "        ten NVARCHAR(500) NOT NULL, " +
-                "        maDonVi NVARCHAR(100) NULL, " +
-                "        donViChaId VARCHAR(100) NULL, " +
-                "        tenVietTat NVARCHAR(200) NULL, " +
-                "        level INT NOT NULL DEFAULT 1, " +
-                "        isDeleted INT NOT NULL DEFAULT 0, " +
-                "        createdAt DATETIME2 DEFAULT GETDATE(), " +
-                "        updatedAt DATETIME2 DEFAULT GETDATE() " +
-                "    ); " +
-                "    CREATE INDEX IX_orgs_donViChaId ON orgs(donViChaId); " +
-                "    CREATE INDEX IX_orgs_isDeleted ON orgs(isDeleted); " +
-                "END";
-            jdbcTemplate.execute(createTableSql);
-
-            // Migration to add 'level' column if it didn't exist in older table versions
-            String addLevelColumnSql = 
-                "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('orgs') AND name = 'level') " +
-                "BEGIN " +
-                "    ALTER TABLE orgs ADD level INT NOT NULL DEFAULT 1; " +
-                "END";
-            jdbcTemplate.execute(addLevelColumnSql);
-
-            // Migration to add 'leaderId' and 'leaderName' columns if missing
-            try {
-                String addLeaderColsSql = 
-                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('orgs') AND name = 'leaderId') " +
-                    "BEGIN " +
-                    "    ALTER TABLE orgs ADD leaderId VARCHAR(100) NULL; " +
-                    "    ALTER TABLE orgs ADD leaderName NVARCHAR(500) NULL; " +
-                    "END";
-                jdbcTemplate.execute(addLeaderColsSql);
-            } catch (Exception ex) {
-                log.debug("Notice migration leader columns: {}", ex.getMessage());
-            }
-
-            log.info("'orgs' table initialized successfully with 'level' and 'leader' columns.");
-
-            // Check if initial seeding or re-sync is required
-            Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orgs", Integer.class);
-            if (count == null || count == 0) {
-                log.info("Table 'orgs' is empty. Seeding initial data from orgs.txt...");
-                syncInitialLocalFile();
-            } else {
-                // Perform level re-calculation for existing database records if level column was just added
-                log.info("Triggering level re-sync from orgs.txt to populate hierarchy levels...");
-                syncInitialLocalFile();
-            }
-        } catch (Exception e) {
-            log.error("Failed to initialize or seed 'orgs' table", e);
-        }
-    }
+	/*@PostConstruct
+	public void initDatabaseTable() {
+	    try {
+	        log.info("Initializing 'orgs' database table...");
+	        String createTableSql = 
+	            "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'orgs') " +
+	            "BEGIN " +
+	            "    CREATE TABLE orgs ( " +
+	            "        id VARCHAR(100) PRIMARY KEY, " +
+	            "        ten NVARCHAR(500) NOT NULL, " +
+	            "        maDonVi NVARCHAR(100) NULL, " +
+	            "        donViChaId VARCHAR(100) NULL, " +
+	            "        tenVietTat NVARCHAR(200) NULL, " +
+	            "        level INT NOT NULL DEFAULT 1, " +
+	            "        isDeleted INT NOT NULL DEFAULT 0, " +
+	            "        createdAt DATETIME2 DEFAULT GETDATE(), " +
+	            "        updatedAt DATETIME2 DEFAULT GETDATE() " +
+	            "    ); " +
+	            "    CREATE INDEX IX_orgs_donViChaId ON orgs(donViChaId); " +
+	            "    CREATE INDEX IX_orgs_isDeleted ON orgs(isDeleted); " +
+	            "END";
+	        jdbcTemplate.execute(createTableSql);
+	
+	        // Migration to add 'level' column if it didn't exist in older table versions
+	        String addLevelColumnSql = 
+	            "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('orgs') AND name = 'level') " +
+	            "BEGIN " +
+	            "    ALTER TABLE orgs ADD level INT NOT NULL DEFAULT 1; " +
+	            "END";
+	        jdbcTemplate.execute(addLevelColumnSql);
+	
+	        // Migration to add 'leaderId' and 'leaderName' columns if missing
+	        try {
+	            String addLeaderColsSql = 
+	                "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('orgs') AND name = 'leaderId') " +
+	                "BEGIN " +
+	                "    ALTER TABLE orgs ADD leaderId VARCHAR(100) NULL; " +
+	                "    ALTER TABLE orgs ADD leaderName NVARCHAR(500) NULL; " +
+	                "END";
+	            jdbcTemplate.execute(addLeaderColsSql);
+	        } catch (Exception ex) {
+	            log.debug("Notice migration leader columns: {}", ex.getMessage());
+	        }
+	
+	        log.info("'orgs' table initialized successfully with 'level' and 'leader' columns.");
+	
+	        // Check if initial seeding or re-sync is required
+	        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orgs", Integer.class);
+	        if (count == null || count == 0) {
+	            log.info("Table 'orgs' is empty. Seeding initial data from orgs.txt...");
+	            syncInitialLocalFile();
+	        } else {
+	            // Perform level re-calculation for existing database records if level column was just added
+	            log.info("Triggering level re-sync from orgs.txt to populate hierarchy levels...");
+	            syncInitialLocalFile();
+	        }
+	    } catch (Exception e) {
+	        log.error("Failed to initialize or seed 'orgs' table", e);
+	    }
+	}*/
 
     /**
      * Sync initial data from orgs.txt on local filesystem.

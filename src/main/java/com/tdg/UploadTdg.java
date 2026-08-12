@@ -1,9 +1,9 @@
 package com.tdg;
 
 import java.io.File;
-import java.util.Date;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,7 +17,8 @@ import com.session.struct_session;
 public class UploadTdg {
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    @Qualifier("evidenceJdbcTemplate")
+    private JdbcTemplate evidenceJdbcTemplate;
 
     @Autowired
     private SessionService sessionService;
@@ -52,6 +53,6 @@ public class UploadTdg {
         String dbPath = "/kdgd/doc/" + kdId + "/tdg/" + tenTdg;
         String sql = "insert into TBL_Tudanhgia (ten, ghi_chu, path, Createdtime, CreatedBy, kd_id, doituong_kd, status, IsDeleted) "
                 + " values (?, ?, ?, GETDATE(), ?, ?, ?, 0, 0)";
-        jdbcTemplate.update(sql, tenTdg, ghiChu, dbPath, userId, kdId, doituongKd);
+        evidenceJdbcTemplate.update(sql, tenTdg, ghiChu, dbPath, userId, kdId, doituongKd);
     }
 }

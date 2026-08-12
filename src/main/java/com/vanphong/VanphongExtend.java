@@ -18,10 +18,15 @@ public class VanphongExtend {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    public String fn_user_name(int user_id) {
-        String sql = "select Fullname from dbo.tbl_user where ID=?";
-        List<String> list = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("Fullname"), user_id);
+    public String fn_user_name(Object user_id) {
+        if (user_id == null) return "unknown";
+        String sql = "select p.fullname from dbo.users u JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 where u.ID=?";
+        List<String> list = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("fullname"), user_id.toString());
         return list.isEmpty() ? "unknown" : list.get(0);
+    }
+
+    public String fn_user_name(int user_id) {
+        return fn_user_name((Object) user_id);
     }
 
     // EVENT
@@ -46,7 +51,7 @@ public class VanphongExtend {
             obj.put("one_time", row.get("OneTime"));
             obj.put("name", row.get("Name"));
             obj.put("created_time", row.get("CreatedTime"));
-            obj.put("created_by_name", fn_user_name((int) row.get("CreatedBy")));
+            obj.put("created_by_name", fn_user_name(row.get("CreatedBy")));
             jaout.put(obj);
         }
         return jaout;
@@ -116,7 +121,7 @@ public class VanphongExtend {
             obj.put("fanpage", row.get("Fanpage"));
             obj.put("description", row.get("Description"));
             obj.put("created_time", row.get("CreatedTime"));
-            obj.put("created_by_name", fn_user_name((int) row.get("CreatedBy")));
+            obj.put("created_by_name", fn_user_name(row.get("CreatedBy")));
             jaout.put(obj);
         }
         return jaout;
@@ -146,7 +151,7 @@ public class VanphongExtend {
             obj.put("download", row.get("Download"));
             obj.put("description", row.get("Description"));
             obj.put("created_time", row.get("CreatedTime"));
-            obj.put("created_by_name", fn_user_name((int) row.get("CreatedBy")));
+            obj.put("created_by_name", fn_user_name(row.get("CreatedBy")));
             jaout.put(obj);
         }
         return jaout;

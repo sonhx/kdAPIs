@@ -21,38 +21,38 @@ public class RaciAssignmentService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @PostConstruct
-    public void initTable() {
-        try {
-            log.info("Initializing 'raci_assignments' database table...");
-            String sql = 
-                "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'raci_assignments') " +
-                "BEGIN " +
-                "    CREATE TABLE raci_assignments ( " +
-                "        id BIGINT IDENTITY(1,1) PRIMARY KEY, " +
-                "        deptId VARCHAR(100) NOT NULL, " +
-                "        compId VARCHAR(50) NOT NULL, " +
-                "        namHoc VARCHAR(20) NOT NULL DEFAULT '2025-2026', " +
-                "        isR BIT NOT NULL DEFAULT 0, " +
-                "        isA BIT NOT NULL DEFAULT 0, " +
-                "        isC BIT NOT NULL DEFAULT 0, " +
-                "        isI BIT NOT NULL DEFAULT 0, " +
-                "        slaDays INT NOT NULL DEFAULT 15, " +
-                "        assignee NVARCHAR(250) NULL, " +
-                "        createdAt DATETIME2 DEFAULT GETDATE(), " +
-                "        updatedAt DATETIME2 DEFAULT GETDATE(), " +
-                "        CONSTRAINT UQ_raci_dept_comp_year UNIQUE (deptId, compId, namHoc) " +
-                "    ); " +
-                "    CREATE INDEX IX_raci_deptId ON raci_assignments(deptId); " +
-                "    CREATE INDEX IX_raci_compId ON raci_assignments(compId); " +
-                "END";
-            jdbcTemplate.execute(sql);
-            log.info("'raci_assignments' table initialized successfully.");
-            seedDefaultAssignments();
-        } catch (Exception e) {
-            log.error("Error initializing 'raci_assignments' table", e);
-        }
-    }
+	/*@PostConstruct
+	public void initTable() {
+	    try {
+	        log.info("Initializing 'raci_assignments' database table...");
+	        String sql = 
+	            "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'raci_assignments') " +
+	            "BEGIN " +
+	            "    CREATE TABLE raci_assignments ( " +
+	            "        id BIGINT IDENTITY(1,1) PRIMARY KEY, " +
+	            "        deptId VARCHAR(100) NOT NULL, " +
+	            "        compId VARCHAR(50) NOT NULL, " +
+	            "        namHoc VARCHAR(20) NOT NULL DEFAULT '2025-2026', " +
+	            "        isR BIT NOT NULL DEFAULT 0, " +
+	            "        isA BIT NOT NULL DEFAULT 0, " +
+	            "        isC BIT NOT NULL DEFAULT 0, " +
+	            "        isI BIT NOT NULL DEFAULT 0, " +
+	            "        slaDays INT NOT NULL DEFAULT 15, " +
+	            "        assignee NVARCHAR(250) NULL, " +
+	            "        createdAt DATETIME2 DEFAULT GETDATE(), " +
+	            "        updatedAt DATETIME2 DEFAULT GETDATE(), " +
+	            "        CONSTRAINT UQ_raci_dept_comp_year UNIQUE (deptId, compId, namHoc) " +
+	            "    ); " +
+	            "    CREATE INDEX IX_raci_deptId ON raci_assignments(deptId); " +
+	            "    CREATE INDEX IX_raci_compId ON raci_assignments(compId); " +
+	            "END";
+	        jdbcTemplate.execute(sql);
+	        log.info("'raci_assignments' table initialized successfully.");
+	        seedDefaultAssignments();
+	    } catch (Exception e) {
+	        log.error("Error initializing 'raci_assignments' table", e);
+	    }
+	}*/
 
     private Object toNVarChar(String val) {
         return val == null ? null : new org.springframework.jdbc.core.SqlParameterValue(java.sql.Types.NVARCHAR, val);
