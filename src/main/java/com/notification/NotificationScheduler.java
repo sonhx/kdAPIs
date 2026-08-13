@@ -27,7 +27,7 @@ public class NotificationScheduler {
             System.out.println("[NotificationScheduler] Running KPI risk threshold audit...");
 
             String sql =
-                "SELECT dp.data_id, k.kpi_code, k.kpi_name, dp.actual_value, k.target, k.unit, dp.department_id, o.ten AS dept_name " +
+                "SELECT dp.data_id, k.kpi_code, k.name AS kpi_name, dp.actual_value, k.target, k.unit, dp.department_id, o.ten AS dept_name " +
                 "FROM kpi_data_points dp " +
                 "JOIN kpi_definitions k ON k.kpi_id = dp.kpi_id " +
                 "LEFT JOIN orgs o ON CAST(o.id AS VARCHAR(100)) = CAST(dp.department_id AS VARCHAR(100)) " +
@@ -87,9 +87,9 @@ public class NotificationScheduler {
             System.out.println("[NotificationScheduler] Running daily deadline audit...");
 
             String sql =
-                "SELECT ka.assignment_id, ka.kpi_code, k.kpi_name, ka.department_id, ka.role, ka.assigned_by, o.ten AS dept_name " +
+                "SELECT ka.assignment_id, ka.kpi_code, k.name AS kpi_name, ka.department_id, ka.role, ka.assigned_by, o.ten AS dept_name " +
                 "FROM kpi_assignments ka " +
-                "JOIN kpi_definitions k ON k.kpi_code = ka.kpi_code " +
+                "JOIN kpi_definitions k ON (k.kpi_id = ka.kpi_id OR k.kpi_code = ka.kpi_code) " +
                 "LEFT JOIN orgs o ON CAST(o.id AS VARCHAR(100)) = CAST(ka.department_id AS VARCHAR(100))";
 
             List<Map<String, Object>> assignments = jdbcTemplate.queryForList(sql);

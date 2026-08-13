@@ -870,7 +870,7 @@ public class kpiExtend {
 							   "COALESCE(NULLIF(p.emailCanBo, ''), p.email, u.Email) as assigned_by_email " +
 							   "FROM kpi_assignments a " +
 							   "LEFT JOIN orgs o ON CAST(a.department_id AS VARCHAR(100)) = CAST(o.id AS VARCHAR(100)) AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
-							   "LEFT JOIN users u ON (CASE WHEN ISNUMERIC(a.assigned_by) = 1 AND a.assigned_by NOT LIKE '%.%' THEN CAST(a.assigned_by AS INT) ELSE NULL END) = u.ID " +
+							   "LEFT JOIN users u ON CAST(u.ID AS VARCHAR(100)) = CAST(a.assigned_by AS VARCHAR(100)) " +
 							   "LEFT JOIN personnel p ON CAST(a.assigned_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR (u.Email IS NOT NULL AND (p.emailCanBo = u.Email OR p.email = u.Email))";
 				assignRows = jdbcTemplate.queryForList(assignSql);
 			} catch (Exception e) {
@@ -910,7 +910,7 @@ public class kpiExtend {
 							   "FROM kpi_data_points dp " +
 							   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
 							   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
-							   "LEFT JOIN users u ON (CASE WHEN ISNUMERIC(dp.approved_by) = 1 AND dp.approved_by NOT LIKE '%.%' THEN CAST(dp.approved_by AS INT) ELSE NULL END) = u.ID " +
+							   "LEFT JOIN users u ON CAST(u.ID AS VARCHAR(100)) = CAST(dp.approved_by AS VARCHAR(100)) " +
 							   "LEFT JOIN personnel p ON CAST(dp.approved_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR (u.Email IS NOT NULL AND (p.emailCanBo = u.Email OR p.email = u.Email)) " +
 							   "ORDER BY dp.data_id DESC";
 				dpRows = jdbcTemplate.queryForList(dpSql);

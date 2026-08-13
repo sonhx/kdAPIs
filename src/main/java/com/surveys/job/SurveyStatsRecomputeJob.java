@@ -18,8 +18,8 @@ public class SurveyStatsRecomputeJob {
     @Autowired
     private SurveyStatsService surveyStatsService;
 
-    // Run every 15 minutes
-    @Scheduled(cron = "0 */15 * * * *")
+    // Run once a day at 4:00 AM
+    @Scheduled(cron = "0 0 4 * * *")
     public void runIncrementalRecompute() {
         System.out.println("Starting scheduled survey statistics recomputation...");
         try {
