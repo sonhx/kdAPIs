@@ -136,6 +136,48 @@ public class employeesServices {
 		return jout.toString();
 	}
 
+	private static JSONArray cachedDepartments = null;
+	private static long lastDeptCacheTime = 0;
+	private static final long DEPT_CACHE_TTL = 60000; // 60 seconds TTL
+
+	public synchronized JSONArray getCachedDepartments() {
+		long now = System.currentTimeMillis();
+		if (cachedDepartments != null && (now - lastDeptCacheTime) < DEPT_CACHE_TTL) {
+			return cachedDepartments;
+		}
+		try {
+			String sql = 
+				"SELECT o.id AS dept_id, o.maDonVi AS dept_code, o.ten AS dept_name, o.leaderName AS leader_name " +
+				"FROM orgs o WITH (NOLOCK) " +
+				"LEFT JOIN orgs p2 WITH (NOLOCK) ON p2.id = o.donViChaId " +
+				"WHERE (o.level = 3 OR o.id IN (?, ?, ?)) AND ISNULL(o.isDeleted, 0) = 0 " +
+				"  AND ISNULL(p2.donViChaId, '') <> ? " +
+				"ORDER BY o.ten ASC";
+
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, VP_HOC_VIEN_ID, LD_HOC_VIEN_ID, LD_HOC_VIEN_NAM_ID, EXCLUDE_ROOT_ID);
+			JSONArray ja = new JSONArray();
+			for (Map<String, Object> row : rows) {
+				JSONObject obj = new JSONObject();
+				obj.put("id", row.get("dept_id"));
+				obj.put("code", row.get("dept_code") != null ? row.get("dept_code") : "");
+				obj.put("name", row.get("dept_name"));
+				obj.put("leader_name", row.get("leader_name") != null ? row.get("leader_name") : "");
+				ja.put(obj);
+			}
+			cachedDepartments = ja;
+			lastDeptCacheTime = now;
+			return ja;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return cachedDepartments != null ? cachedDepartments : new JSONArray();
+		}
+	}
+
+	public static void invalidateDepartmentsCache() {
+		cachedDepartments = null;
+		lastDeptCacheTime = 0;
+	}
+
 	@PostMapping("/departments")
 	public String getDepartmentsList(@RequestBody String sReq) {
 		System.out.println("-------getDepartmentsList:" + sReq);
@@ -149,27 +191,9 @@ public class employeesServices {
 				return jout.toString();
 			}
 
-			String sql = 
-				"SELECT o.id AS dept_id, o.maDonVi AS dept_code, o.ten AS dept_name " +
-				"FROM orgs o " +
-				"LEFT JOIN orgs p2 ON p2.id = o.donViChaId " +
-				"WHERE (o.level = 3 OR o.id = ? OR o.id = ? OR o.id = ?) AND (o.isDeleted IS NULL OR o.isDeleted = 0) " +
-				"  AND (p2.donViChaId IS NULL OR p2.donViChaId <> ?) " +
-				"ORDER BY o.ten ASC";
-
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, VP_HOC_VIEN_ID, LD_HOC_VIEN_ID, LD_HOC_VIEN_NAM_ID, EXCLUDE_ROOT_ID);
-			JSONArray ja = new JSONArray();
-			for (Map<String, Object> row : rows) {
-				JSONObject obj = new JSONObject();
-				obj.put("id", row.get("dept_id"));
-				obj.put("code", row.get("dept_code") != null ? row.get("dept_code") : "");
-				obj.put("name", row.get("dept_name"));
-				ja.put(obj);
-			}
-
 			jout.put("code", 200);
 			jout.put("description", "Thành công");
-			jout.put("departments", ja);
+			jout.put("departments", getCachedDepartments());
 		} catch (JSONException e) {
 			e.printStackTrace();
 			jout.put("code", 400);
@@ -197,27 +221,9 @@ public class employeesServices {
 				}
 			}
 
-			String sql = 
-				"SELECT o.id AS dept_id, o.maDonVi AS dept_code, o.ten AS dept_name " +
-				"FROM orgs o " +
-				"LEFT JOIN orgs p2 ON p2.id = o.donViChaId " +
-				"WHERE (o.level = 3 OR o.id = ? OR o.id = ? OR o.id = ?) AND (o.isDeleted IS NULL OR o.isDeleted = 0) " +
-				"  AND (p2.donViChaId IS NULL OR p2.donViChaId <> ?) " +
-				"ORDER BY o.ten ASC";
-
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, VP_HOC_VIEN_ID, LD_HOC_VIEN_ID, LD_HOC_VIEN_NAM_ID, EXCLUDE_ROOT_ID);
-			JSONArray ja = new JSONArray();
-			for (Map<String, Object> row : rows) {
-				JSONObject obj = new JSONObject();
-				obj.put("id", row.get("dept_id"));
-				obj.put("code", row.get("dept_code") != null ? row.get("dept_code") : "");
-				obj.put("name", row.get("dept_name"));
-				ja.put(obj);
-			}
-
 			jout.put("code", 200);
 			jout.put("description", "Thành công");
-			jout.put("departments", ja);
+			jout.put("departments", getCachedDepartments());
 		} catch (Exception e) {
 			e.printStackTrace();
 			jout.put("code", 500);

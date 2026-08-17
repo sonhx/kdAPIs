@@ -94,6 +94,7 @@ public class kpiExtend {
 	 */
 	@Transactional
 	public JSONObject saveAssignment(Integer kpiId, String departmentId, String role, String assignedBy) {
+		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
 			if (kpiId == null || kpiId <= 0) {
@@ -842,7 +843,21 @@ public class kpiExtend {
 	 * 
 	 * @return JSONArray of all KPIs with assignments and data points
 	 */
+	private static JSONArray cachedKpisWithAssignments = null;
+	private static long lastKpiAssignmentsCacheTime = 0;
+	private static final long KPI_ASSIGNMENTS_CACHE_TTL = 5000; // 5 seconds TTL
+
+	public synchronized void invalidateKpisWithAssignmentsCache() {
+		cachedKpisWithAssignments = null;
+		lastKpiAssignmentsCacheTime = 0;
+	}
+
 	public JSONArray getKpisWithAssignments() {
+		long now = System.currentTimeMillis();
+		if (cachedKpisWithAssignments != null && (now - lastKpiAssignmentsCacheTime) < KPI_ASSIGNMENTS_CACHE_TTL) {
+			return cachedKpisWithAssignments;
+		}
+
 		JSONArray jsaResult = new JSONArray();
 		try {
 			// 1. Fetch all active KPI definitions
@@ -850,10 +865,10 @@ public class kpiExtend {
 							"k.cycle_id, c.cycle_type, k.target, " +
 							"k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date, " +
 							"c.default_deadline_offset_days, c.default_deadline_offset_weeks, c.deadline_type, v.vertex_name " +
-							"FROM kpi_definitions k " +
-							"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
-							"LEFT JOIN vertices_def v ON m.vertex_id = v.vertex_id " +
-							"LEFT JOIN cycle_definitions c ON k.cycle_id = c.cycle_id " +
+							"FROM kpi_definitions k WITH (NOLOCK) " +
+							"LEFT JOIN vertex_members m WITH (NOLOCK) ON k.kpi_id = m.kpi_id " +
+							"LEFT JOIN vertices_def v WITH (NOLOCK) ON m.vertex_id = v.vertex_id " +
+							"LEFT JOIN cycle_definitions c WITH (NOLOCK) ON k.cycle_id = c.cycle_id " +
 							"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
 							"ORDER BY k.kpi_id ASC";
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql);
@@ -865,20 +880,21 @@ public class kpiExtend {
 			// 2. Fetch all KPI assignments
 			List<Map<String, Object>> assignRows = new ArrayList<>();
 			try {
-				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name, " +
-							   "p.fullname as assigned_by_name, " +
-							   "COALESCE(NULLIF(p.emailCanBo, ''), p.email, u.Email) as assigned_by_email " +
-							   "FROM kpi_assignments a " +
-							   "LEFT JOIN orgs o ON CAST(a.department_id AS VARCHAR(100)) = CAST(o.id AS VARCHAR(100)) AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
-							   "LEFT JOIN users u ON CAST(u.ID AS VARCHAR(100)) = CAST(a.assigned_by AS VARCHAR(100)) " +
-							   "LEFT JOIN personnel p ON CAST(a.assigned_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR (u.Email IS NOT NULL AND (p.emailCanBo = u.Email OR p.email = u.Email))";
+				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
+							   "o.ten as department_name, " +
+							   "COALESCE(p0.fullname, u.Email) as assigned_by_name, " +
+							   "COALESCE(NULLIF(p0.emailCanBo, ''), p0.email, u.Email) as assigned_by_email " +
+							   "FROM kpi_assignments a WITH (NOLOCK) " +
+							   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
+							   "LEFT JOIN users u WITH (NOLOCK) ON u.ID = a.assigned_by " +
+							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = a.assigned_by AND p0.isDeleted = 0";
 				assignRows = jdbcTemplate.queryForList(assignSql);
 			} catch (Exception e) {
 				logger.error("Error executing assignSql: " + e.getMessage());
 				try {
 					String fallbackAssignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name " +
-											   "FROM kpi_assignments a " +
-											   "LEFT JOIN orgs o ON CAST(a.department_id AS VARCHAR(100)) = CAST(o.id AS VARCHAR(100))";
+											   "FROM kpi_assignments a WITH (NOLOCK) " +
+											   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id";
 					assignRows = jdbcTemplate.queryForList(fallbackAssignSql);
 				} catch (Exception ex) {
 					logger.error("Error executing fallbackAssignSql: " + ex.getMessage());
@@ -906,21 +922,24 @@ public class kpiExtend {
 			// 3. Fetch all KPI data points
 			List<Map<String, Object>> dpRows = new ArrayList<>();
 			try {
-				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, p.fullname AS approved_by_name " +
-							   "FROM kpi_data_points dp " +
-							   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
-							   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
-							   "LEFT JOIN users u ON CAST(u.ID AS VARCHAR(100)) = CAST(dp.approved_by AS VARCHAR(100)) " +
-							   "LEFT JOIN personnel p ON CAST(dp.approved_by AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR (u.Email IS NOT NULL AND (p.emailCanBo = u.Email OR p.email = u.Email)) " +
+				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, " +
+							   "dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, " +
+							   "dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, " +
+							   "COALESCE(p0.fullname, u.Email) AS approved_by_name " +
+							   "FROM kpi_data_points dp WITH (NOLOCK) " +
+							   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
+							   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id " +
+							   "LEFT JOIN users u WITH (NOLOCK) ON u.ID = dp.approved_by " +
+							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = dp.approved_by AND p0.isDeleted = 0 " +
 							   "ORDER BY dp.data_id DESC";
 				dpRows = jdbcTemplate.queryForList(dpSql);
 			} catch (Exception e) {
 				logger.error("Error executing dpSql: " + e.getMessage());
 				try {
 					String fallbackDpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code " +
-										   "FROM kpi_data_points dp " +
-										   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
-										   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
+										   "FROM kpi_data_points dp WITH (NOLOCK) " +
+										   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
+										   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id " +
 										   "ORDER BY dp.data_id DESC";
 					dpRows = jdbcTemplate.queryForList(fallbackDpSql);
 				} catch (Exception ex) {
@@ -1002,7 +1021,7 @@ public class kpiExtend {
 					java.sql.Date currEndDate = cycleEndDates.get(cycleId);
 					if (currEndDate == null) {
 						int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, refDate);
-						List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
+						List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WITH (NOLOCK) WHERE period_id = ?", currPeriodId);
 						if (!currPeriodDetail.isEmpty()) {
 							currEndDate = (java.sql.Date) currPeriodDetail.get(0).get("end_date");
 							cycleEndDates.put(cycleId, currEndDate);
@@ -1050,6 +1069,8 @@ public class kpiExtend {
 
 				jsaResult.put(joKpi);
 			}
+			cachedKpisWithAssignments = jsaResult;
+			lastKpiAssignmentsCacheTime = now;
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -1794,6 +1815,7 @@ public class kpiExtend {
 
 	@Transactional
 	public JSONObject approveKpiData(int kpiId, Object deptId, String userId) {
+		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
 			String sDeptId = (deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim())) 
@@ -1849,6 +1871,7 @@ public class kpiExtend {
 
 	@Transactional
 	public JSONObject unapproveKpiData(int kpiId, Object deptId, String userId) {
+		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
 			String sDeptId = (deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim())) 

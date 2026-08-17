@@ -356,17 +356,31 @@ public class CourseTestResultService {
             insertedCount++;
         }
 
+        invalidateSemestersCache();
         log.info("Inserted {} records into course_test_results for semester '{}'", insertedCount, finalSemester);
         return insertedCount;
     }
 
+    private static final Map<String, List<Map<String, Object>>> cachedRiskStatsBySemester = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public synchronized void invalidateRiskStatsCache() {
+        cachedRiskStatsBySemester.clear();
+        cachedSemesters = null;
+    }
+
     public List<Map<String, Object>> getCourseRiskStats(String semester) {
-        String sql = "SELECT * FROM course_test_results";
+        String key = (semester != null && !semester.trim().isEmpty()) ? semester.trim() : "ALL";
+        List<Map<String, Object>> cached = cachedRiskStatsBySemester.get(key);
+        if (cached != null) {
+            return cached;
+        }
+
+        String sql = "SELECT * FROM course_test_results WITH (NOLOCK)";
         List<Object> params = new ArrayList<>();
 
-        if (semester != null && !semester.trim().isEmpty() && !"ALL".equalsIgnoreCase(semester.trim())) {
+        if (!"ALL".equalsIgnoreCase(key)) {
             sql += " WHERE semester = ?";
-            params.add(semester.trim());
+            params.add(key);
         }
 
         sql += " ORDER BY fail_rate DESC, total_students DESC";
@@ -425,12 +439,49 @@ public class CourseTestResultService {
             result.add(map);
         }
 
+        cachedRiskStatsBySemester.put(key, result);
         return result;
     }
 
+    @PostConstruct
+    public void initIndexes() {
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                String sql = 
+                    "IF EXISTS (SELECT * FROM sys.tables WHERE name = 'course_test_results') BEGIN " +
+                    "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_sem' AND object_id = OBJECT_ID('course_test_results')) " +
+                    "    CREATE INDEX IX_course_test_sem ON course_test_results(semester); " +
+                    "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_sem_fail' AND object_id = OBJECT_ID('course_test_results')) " +
+                    "    CREATE INDEX IX_course_test_sem_fail ON course_test_results(semester, fail_rate DESC, total_students DESC); " +
+                    "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_code' AND object_id = OBJECT_ID('course_test_results')) " +
+                    "    CREATE INDEX IX_course_test_code ON course_test_results(course_code); " +
+                    "END";
+                jdbcTemplate.execute(sql);
+            } catch (Exception e) {
+                log.debug("Notice course_test_results index init: {}", e.getMessage());
+            }
+        });
+    }
+
+    private static List<String> cachedSemesters = null;
+
+    public synchronized void invalidateSemestersCache() {
+        cachedRiskStatsBySemester.clear();
+        cachedSemesters = null;
+    }
+
     public List<String> getAvailableSemesters() {
-        String sql = "SELECT DISTINCT semester FROM course_test_results ORDER BY semester DESC";
-        return jdbcTemplate.queryForList(sql, String.class);
+        if (cachedSemesters != null) {
+            return cachedSemesters;
+        }
+        try {
+            String sql = "SELECT DISTINCT semester FROM course_test_results WITH (NOLOCK) ORDER BY semester DESC";
+            cachedSemesters = jdbcTemplate.queryForList(sql, String.class);
+            return cachedSemesters;
+        } catch (Exception e) {
+            log.error("Error getting available semesters: {}", e.getMessage());
+            return cachedSemesters != null ? cachedSemesters : Collections.emptyList();
+        }
     }
 
     private String deriveDepartment(String courseCode) {

@@ -66,8 +66,8 @@ public class SQLServerConnUtils_SQLJDBC {
 	     // Ví dụ:
 	     // jdbc:sqlserver://ServerIp:1433/SQLEXPRESS;databaseName=simplehr
 	     String connectionURL = "jdbc:sqlserver://" + hostName + ":1433"
-	             + ";instance=" + sqlInstanceName 
-	             + ";databaseName=" + database;
+	             + ";databaseName=" + database
+	             + ";encrypt=false;";
        
 	     Connection conn = DriverManager.getConnection(connectionURL, userName,
 	             password);

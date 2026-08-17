@@ -36,25 +36,50 @@ public class CapaController {
     @Autowired
     private SessionService sessionService;
 
+    @Autowired
+    private com.employees.employeesServices employeesServices;
+
+    /**
+     * GET /capa/departments
+     * Returns list of Level 3 departments (with exceptions) for CAPA dropdown.
+     */
+    @GetMapping("/departments")
+    public String getCapaDepartments() {
+        System.out.println("-------getCapaDepartments");
+        JSONObject jout = new JSONObject();
+        try {
+            JSONArray depts = employeesServices.getCachedDepartments();
+            jout.put("code", 200);
+            jout.put("description", "Thành công");
+            jout.put("data", depts);
+            jout.put("departments", depts);
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
     /**
      * GET /capa/init-tables
      * Manually trigger table creation and seeding for CAPA module.
      */
-    @GetMapping("/init-tables")
-    public String initTables() {
-        System.out.println("-------initTables manual trigger");
-        JSONObject jout = new JSONObject();
-        try {
-            capaExtend.init();
-            jout.put("code", 200);
-            jout.put("description", "Đã khởi tạo thành công các bảng dbo.capa, dbo.capa_actions, dbo.capa_history và dữ liệu mẫu.");
-        } catch (Exception e) {
-            e.printStackTrace();
-            jout.put("code", 500);
-            jout.put("description", "Lỗi tạo bảng: " + e.getMessage());
-        }
-        return jout.toString();
-    }
+	/*@GetMapping("/init-tables")
+	public String initTables() {
+	    System.out.println("-------initTables manual trigger");
+	    JSONObject jout = new JSONObject();
+	    try {
+	        capaExtend.init();
+	        jout.put("code", 200);
+	        jout.put("description", "Đã khởi tạo thành công các bảng dbo.capa, dbo.capa_actions, dbo.capa_history và dữ liệu mẫu.");
+	    } catch (Exception e) {
+	        e.printStackTrace();
+	        jout.put("code", 500);
+	        jout.put("description", "Lỗi tạo bảng: " + e.getMessage());
+	    }
+	    return jout.toString();
+	}*/
 
     // =========================================================================
     // 1. LIST / SEARCH CAPAS
@@ -66,11 +91,11 @@ public class CapaController {
      */
     @GetMapping("/list")
     public String listCapas(
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String capaType,
-            @RequestParam(required = false) String departmentName,
-            @RequestParam(required = false) String priority,
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "capaType", required = false) String capaType,
+            @RequestParam(name = "departmentName", required = false) String departmentName,
+            @RequestParam(name = "priority", required = false) String priority,
+            @RequestParam(name = "keyword", required = false) String keyword) {
 
         System.out.println("-------listCapas status=" + status + " type=" + capaType + " dept=" + departmentName);
         JSONObject jout = new JSONObject();
@@ -100,7 +125,7 @@ public class CapaController {
      * GET /capa/stats
      */
     @GetMapping("/stats")
-    public String getStats(@RequestParam(required = false) String departmentName) {
+    public String getStats(@RequestParam(name = "departmentName", required = false) String departmentName) {
         System.out.println("-------getCapaStats departmentName=" + departmentName);
         JSONObject jout = new JSONObject();
         try {
@@ -169,7 +194,7 @@ public class CapaController {
      * GET /capa/{capaId}
      */
     @GetMapping("/{capaId}")
-    public String getCapaById(@PathVariable Integer capaId) {
+    public String getCapaById(@PathVariable("capaId") Integer capaId) {
         System.out.println("-------getCapaById:" + capaId);
         JSONObject jout = new JSONObject();
         try {
@@ -240,13 +265,18 @@ public class CapaController {
                 return jout.toString();
             }
 
+            String openDate = jin.optString("open_date", jin.optString("openDate", null));
             String description = jin.optString("description", "").trim();
-            String capaType = jin.optString("capa_type", "Khắc phục").trim();
+            String capaType = jin.optString("capa_type", jin.optString("type", "Khắc phục")).trim();
             String departmentName = jin.optString("department_name", jin.optString("department", "Khoa Công nghệ thông tin")).trim();
             String departmentId = jin.optString("department_id", null);
             String priority = jin.optString("priority", "Medium");
+            String source = jin.optString("source", null);
+            String rootCause = jin.optString("root_cause", jin.optString("rootCause", null));
+            String actionPlan = jin.optString("action_plan", jin.optString("corrective_action", jin.optString("preventive_action", null)));
+            String assignee = jin.optString("assignee", jin.optString("assigned_to_name", null));
 
-            int newId = capaExtend.createCapa(title, description, capaType, dueDate, departmentName, departmentId, priority, createdBy);
+            int newId = capaExtend.createCapa(title, description, capaType, openDate, dueDate, departmentName, departmentId, priority, source, rootCause, actionPlan, assignee, createdBy);
 
             if (newId <= 0) {
                 jout.put("code", 500);
@@ -284,7 +314,7 @@ public class CapaController {
      * Department reports completion -> moves to pending_closure
      */
     @PutMapping("/{capaId}/pending-closure")
-    public String markPendingClosure(@PathVariable Integer capaId, @RequestBody(required = false) String sReq) {
+    public String markPendingClosure(@PathVariable("capaId") Integer capaId, @RequestBody(required = false) String sReq) {
         System.out.println("-------markPendingClosure:" + capaId);
         JSONObject jout = new JSONObject();
         try {
@@ -311,7 +341,7 @@ public class CapaController {
      * TTKT approves and closes CAPA (Khép vòng) -> status: closed, effectiveness: Đạt
      */
     @PutMapping("/{capaId}/close")
-    public String closeCapa(@PathVariable Integer capaId, @RequestBody(required = false) String sReq) {
+    public String closeCapa(@PathVariable("capaId") Integer capaId, @RequestBody(required = false) String sReq) {
         System.out.println("-------closeCapa:" + capaId);
         JSONObject jout = new JSONObject();
         try {
@@ -342,7 +372,7 @@ public class CapaController {
      * TTKT rejects closure and requests improvement -> status: processing, feedback: feedbackComment
      */
     @PutMapping("/{capaId}/revert")
-    public String revertCapa(@PathVariable Integer capaId, @RequestBody String sReq) {
+    public String revertCapa(@PathVariable("capaId") Integer capaId, @RequestBody String sReq) {
         System.out.println("-------revertCapa:" + capaId);
         JSONObject jout = new JSONObject();
         try {
@@ -376,7 +406,7 @@ public class CapaController {
      * DELETE /capa/{capaId}
      */
     @DeleteMapping("/{capaId}")
-    public String deleteCapa(@PathVariable Integer capaId, @RequestBody(required = false) String sReq) {
+    public String deleteCapa(@PathVariable("capaId") Integer capaId, @RequestBody(required = false) String sReq) {
         System.out.println("-------deleteCapa:" + capaId);
         JSONObject jout = new JSONObject();
         try {
@@ -391,6 +421,214 @@ public class CapaController {
             jout.put("code", ok ? 200 : 404);
             jout.put("description", ok ? "Xóa CAPA thành công" : "Không tìm thấy CAPA với ID: " + capaId);
 
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    // =========================================================================
+    // 7. CAPA SOURCE DEFINITIONS (/capa/sources)
+    // =========================================================================
+
+    /**
+     * GET /capa/sources
+     * Query param: activeOnly (optional, default false)
+     */
+    @GetMapping("/sources")
+    public String listCapaSources(@RequestParam(name = "activeOnly", required = false, defaultValue = "false") Boolean activeOnly) {
+        System.out.println("-------listCapaSources activeOnly=" + activeOnly);
+        JSONObject jout = new JSONObject();
+        try {
+            List<com.capa.dto.CapaSourceDto> sources = capaExtend.listSources(activeOnly);
+            JSONArray arr = new JSONArray();
+            for (com.capa.dto.CapaSourceDto dto : sources) {
+                JSONObject sJson = new JSONObject();
+                sJson.put("source_id", dto.getSourceId());
+                sJson.put("source_code", dto.getSourceCode());
+                sJson.put("source_name", dto.getSourceName());
+                sJson.put("description", dto.getDescription() != null ? dto.getDescription() : "");
+                sJson.put("sort_order", dto.getSortOrder());
+                sJson.put("is_active", dto.getIsActive());
+                sJson.put("created_at", dto.getCreatedAt());
+                sJson.put("updated_at", dto.getUpdatedAt());
+                arr.put(sJson);
+            }
+            jout.put("code", 200);
+            jout.put("description", "Thành công");
+            jout.put("data", arr);
+            jout.put("total", arr.length());
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    /**
+     * GET /capa/sources/{sourceId}
+     */
+    @GetMapping("/sources/{sourceId}")
+    public String getCapaSourceById(@PathVariable("sourceId") Integer sourceId) {
+        System.out.println("-------getCapaSourceById:" + sourceId);
+        JSONObject jout = new JSONObject();
+        try {
+            if (sourceId == null || sourceId <= 0) {
+                jout.put("code", 400);
+                jout.put("description", "sourceId không hợp lệ");
+                return jout.toString();
+            }
+            com.capa.dto.CapaSourceDto dto = capaExtend.getSourceById(sourceId);
+            if (dto == null) {
+                jout.put("code", 404);
+                jout.put("description", "Không tìm thấy định nghĩa nguồn CAPA với ID: " + sourceId);
+                return jout.toString();
+            }
+            JSONObject sJson = new JSONObject();
+            sJson.put("source_id", dto.getSourceId());
+            sJson.put("source_code", dto.getSourceCode());
+            sJson.put("source_name", dto.getSourceName());
+            sJson.put("description", dto.getDescription() != null ? dto.getDescription() : "");
+            sJson.put("sort_order", dto.getSortOrder());
+            sJson.put("is_active", dto.getIsActive());
+            sJson.put("created_at", dto.getCreatedAt());
+            sJson.put("updated_at", dto.getUpdatedAt());
+
+            jout.put("code", 200);
+            jout.put("description", "Thành công");
+            jout.put("data", sJson);
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    /**
+     * POST /capa/sources
+     */
+    @PostMapping("/sources")
+    public String createCapaSource(@RequestBody String sReq) {
+        System.out.println("-------createCapaSource:" + sReq);
+        JSONObject jout = new JSONObject();
+        try {
+            JSONObject jin = new JSONObject(sReq);
+            String sourceName = jin.optString("source_name", jin.optString("name", "")).trim();
+            if (sourceName.isEmpty()) {
+                jout.put("code", 400);
+                jout.put("description", "Tên nguồn CAPA (source_name) không được để trống");
+                return jout.toString();
+            }
+
+            String sourceCode = jin.optString("source_code", jin.optString("code", null));
+            String description = jin.optString("description", null);
+            Integer sortOrder = jin.has("sort_order") ? jin.getInt("sort_order") : (jin.has("sortOrder") ? jin.getInt("sortOrder") : null);
+
+            int newId = capaExtend.createSource(sourceCode, sourceName, description, sortOrder);
+            if (newId <= 0) {
+                jout.put("code", 500);
+                jout.put("description", "Không thể tạo định nghĩa nguồn CAPA");
+                return jout.toString();
+            }
+
+            com.capa.dto.CapaSourceDto created = capaExtend.getSourceById(newId);
+            jout.put("code", 201);
+            jout.put("description", "Tạo định nghĩa nguồn CAPA thành công");
+            jout.put("source_id", newId);
+            if (created != null) {
+                JSONObject sJson = new JSONObject();
+                sJson.put("source_id", created.getSourceId());
+                sJson.put("source_code", created.getSourceCode());
+                sJson.put("source_name", created.getSourceName());
+                sJson.put("description", created.getDescription() != null ? created.getDescription() : "");
+                sJson.put("sort_order", created.getSortOrder());
+                sJson.put("is_active", created.getIsActive());
+                sJson.put("created_at", created.getCreatedAt());
+                sJson.put("updated_at", created.getUpdatedAt());
+                jout.put("data", sJson);
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+            jout.put("code", 800);
+            jout.put("description", "Lỗi định dạng JSON request: " + e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    /**
+     * PUT /capa/sources/{sourceId}
+     */
+    @PutMapping("/sources/{sourceId}")
+    public String updateCapaSource(@PathVariable("sourceId") Integer sourceId, @RequestBody String sReq) {
+        System.out.println("-------updateCapaSource:" + sourceId + " payload=" + sReq);
+        JSONObject jout = new JSONObject();
+        try {
+            if (sourceId == null || sourceId <= 0) {
+                jout.put("code", 400);
+                jout.put("description", "sourceId không hợp lệ");
+                return jout.toString();
+            }
+            JSONObject jin = new JSONObject(sReq);
+            String sourceCode = jin.optString("source_code", jin.optString("code", null));
+            String sourceName = jin.optString("source_name", jin.optString("name", null));
+            String description = jin.has("description") ? jin.getString("description") : null;
+            Integer sortOrder = jin.has("sort_order") ? jin.getInt("sort_order") : (jin.has("sortOrder") ? jin.getInt("sortOrder") : null);
+            Boolean isActive = jin.has("is_active") ? jin.getBoolean("is_active") : (jin.has("isActive") ? jin.getBoolean("isActive") : null);
+
+            boolean ok = capaExtend.updateSource(sourceId, sourceCode, sourceName, description, sortOrder, isActive);
+            if (!ok) {
+                jout.put("code", 404);
+                jout.put("description", "Không tìm thấy hoặc không thể cập nhật nguồn CAPA với ID: " + sourceId);
+                return jout.toString();
+            }
+
+            com.capa.dto.CapaSourceDto updated = capaExtend.getSourceById(sourceId);
+            jout.put("code", 200);
+            jout.put("description", "Cập nhật nguồn CAPA thành công");
+            if (updated != null) {
+                JSONObject sJson = new JSONObject();
+                sJson.put("source_id", updated.getSourceId());
+                sJson.put("source_code", updated.getSourceCode());
+                sJson.put("source_name", updated.getSourceName());
+                sJson.put("description", updated.getDescription() != null ? updated.getDescription() : "");
+                sJson.put("sort_order", updated.getSortOrder());
+                sJson.put("is_active", updated.getIsActive());
+                sJson.put("created_at", updated.getCreatedAt());
+                sJson.put("updated_at", updated.getUpdatedAt());
+                jout.put("data", sJson);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    /**
+     * DELETE /capa/sources/{sourceId}
+     */
+    @DeleteMapping("/sources/{sourceId}")
+    public String deleteCapaSource(@PathVariable("sourceId") Integer sourceId) {
+        System.out.println("-------deleteCapaSource:" + sourceId);
+        JSONObject jout = new JSONObject();
+        try {
+            if (sourceId == null || sourceId <= 0) {
+                jout.put("code", 400);
+                jout.put("description", "sourceId không hợp lệ");
+                return jout.toString();
+            }
+            boolean ok = capaExtend.deleteSource(sourceId);
+            jout.put("code", ok ? 200 : 404);
+            jout.put("description", ok ? "Xóa định nghĩa nguồn CAPA thành công" : "Không tìm thấy nguồn CAPA với ID: " + sourceId);
         } catch (Exception e) {
             e.printStackTrace();
             jout.put("code", 500);

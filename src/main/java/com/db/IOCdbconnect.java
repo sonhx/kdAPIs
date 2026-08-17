@@ -39,7 +39,7 @@ public class IOCdbconnect
 	 */
 	public static synchronized Connection getConnection() throws Exception {
         try {
-            if (conn != null && !conn.isClosed()) {
+            if (conn != null && !conn.isClosed() && conn.isValid(2)) {
                 return conn;
             }
 
@@ -51,7 +51,7 @@ public class IOCdbconnect
 
             if (url == null || url.isEmpty()) {
                 // legacy default
-                url = "jdbc:sqlserver://localhost:1433;DatabaseName=kiemdinh";
+                url = "jdbc:sqlserver://localhost:1433;DatabaseName=kiemdinh;encrypt=false;";
                 user = (user == null) ? "sa1" : user;
                 pass = (pass == null) ? "Cdit@mothai34nam" : pass;
             }

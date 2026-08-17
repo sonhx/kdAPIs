@@ -14,17 +14,17 @@ public class dbconnect {
 	
 	public dbconnect(){
         try{
- 			if(conn==null){
+ 			if(conn==null || conn.isClosed() || !conn.isValid(2)){
 				System.out.println("DB : Connecting to database.....");
 //	            Class.forName("com.microsoft.jdbc.sqlserver.SQLServerDriver"); 
 	            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver"); 
 	            
 	            if(LOCAL){
 	            	conn=DriverManager.getConnection("jdbc:sqlserver://localhost:1433;" + 
-	                       "DatabaseName=kiemdinh;User=sa1;Password=Cdit@mothai34nam;");    
+	                       "DatabaseName=kiemdinh;User=sa1;Password=Cdit@mothai34nam;encrypt=false;");    
 	            }else{
 			           conn=DriverManager.getConnection("jdbc:sqlserver://10.99.3.102:1433;" + 
-			        		   "DatabaseName=kiemdinh;User=sa1;Password=Cdit@mothai34nam;");  
+			        		   "DatabaseName=kiemdinh;User=sa1;Password=Cdit@mothai34nam;encrypt=false;");  
 	            }  
 	
 	            if(conn!=null){

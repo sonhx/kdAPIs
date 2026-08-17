@@ -29,20 +29,22 @@ public class KdExtend {
 
     @jakarta.annotation.PostConstruct
     public void initIndexes() {
-        try {
-            evidenceJdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_TBL_Nganh_daotao_IsDeleted') " +
-                "CREATE INDEX IX_TBL_Nganh_daotao_IsDeleted ON TBL_Nganh_daotao(IsDeleted);"
-            );
-            evidenceJdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_TBL_KIEMDINH_CT_KD_ID') " +
-                "CREATE INDEX IX_TBL_KIEMDINH_CT_KD_ID ON TBL_KIEMDINH_CT(KD_ID, CT_ID, IsDeleted);"
-            );
-            evidenceJdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_TBL_Kiemdinh_IsDeleted_CT_ID') " +
-                "CREATE INDEX IX_TBL_Kiemdinh_IsDeleted_CT_ID ON TBL_Kiemdinh(IsDeleted, CT_ID, standard_id);"
-            );
-        } catch (Exception ignored) {}
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                evidenceJdbcTemplate.execute(
+                    "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_TBL_Nganh_daotao_IsDeleted') " +
+                    "CREATE INDEX IX_TBL_Nganh_daotao_IsDeleted ON TBL_Nganh_daotao(IsDeleted);"
+                );
+                evidenceJdbcTemplate.execute(
+                    "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_TBL_KIEMDINH_CT_KD_ID') " +
+                    "CREATE INDEX IX_TBL_KIEMDINH_CT_KD_ID ON TBL_KIEMDINH_CT(KD_ID, CT_ID, IsDeleted);"
+                );
+                evidenceJdbcTemplate.execute(
+                    "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_TBL_Kiemdinh_IsDeleted_CT_ID') " +
+                    "CREATE INDEX IX_TBL_Kiemdinh_IsDeleted_CT_ID ON TBL_Kiemdinh(IsDeleted, CT_ID, standard_id);"
+                );
+            } catch (Exception ignored) {}
+        });
     }
 
     private Map<String, String> getCreatorNames(Set<String> createdByIds) {

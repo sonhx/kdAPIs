@@ -56,15 +56,11 @@ public class SessionService {
 		if(!userIdStr.isEmpty()){
 			// Invalidate existing sessions
 			try {
-				jdbcTemplate.update("update tbl_session set isdeleted = 1 where CAST(userid AS VARCHAR(100)) = ? and isdeleted = 0", userIdStr);
+				jdbcTemplate.update("update tbl_session set isdeleted = 1 where userid = ? and isdeleted = 0", userIdStr);
 			} catch (Exception e) {
 				// Notice updating sessions
 			}
 		}
-
-		try {
-			jdbcTemplate.execute("ALTER TABLE tbl_session ALTER COLUMN userid VARCHAR(100) NULL");
-		} catch (Exception ex) {}
 
 		jdbcTemplate.update("insert into tbl_session (userid, isdeleted, createtime, sessionid) values (?, 0, GETDATE(), ?)", 
 				userIdStr, uuid);

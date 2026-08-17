@@ -25,6 +25,31 @@ public class employeesExtend {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
+	@jakarta.annotation.PostConstruct
+	public void initIndexes() {
+		java.util.concurrent.CompletableFuture.runAsync(() -> {
+			try {
+				String sqlOrgs = 
+					"IF EXISTS (SELECT * FROM sys.tables WHERE name = 'orgs') BEGIN " +
+					"  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_orgs_level_isDeleted' AND object_id = OBJECT_ID('orgs')) " +
+					"    CREATE INDEX IX_orgs_level_isDeleted ON orgs(level, isDeleted) INCLUDE (id, ten, maDonVi, donViChaId); " +
+					"  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_orgs_donViChaId' AND object_id = OBJECT_ID('orgs')) " +
+					"    CREATE INDEX IX_orgs_donViChaId ON orgs(donViChaId); " +
+					"END";
+				jdbcTemplate.execute(sqlOrgs);
+
+				String sqlPersonnel = 
+					"IF EXISTS (SELECT * FROM sys.tables WHERE name = 'personnel') BEGIN " +
+					"  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_personnel_isDeleted_email' AND object_id = OBJECT_ID('personnel')) " +
+					"    CREATE INDEX IX_personnel_isDeleted_email ON personnel(isDeleted, emailCanBo) INCLUDE (id, fullname, donViL3Id, donViChinhId); " +
+					"END";
+				jdbcTemplate.execute(sqlPersonnel);
+			} catch (Exception e) {
+				System.err.println("Notice: Employee indexes initialization: " + e.getMessage());
+			}
+		});
+	}
+
 	/**
 	 * Save a KPI assignment to the kpi_assignments table
 	 * 

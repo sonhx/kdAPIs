@@ -14,180 +14,19 @@ public class UserExtend {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
-	/*
-		@PostConstruct
-		public void init() {
-			// 0. Rename users → users if the old table name still exists
+
+	@PostConstruct
+	public void init() {
+		java.util.concurrent.CompletableFuture.runAsync(() -> {
 			try {
-				String renameSql =
-					"IF OBJECT_ID('dbo.users', 'U') IS NOT NULL AND OBJECT_ID('dbo.users', 'U') IS NULL " +
-					"    EXEC sp_rename 'dbo.users', 'users';";
-				jdbcTemplate.execute(renameSql);
-				System.out.println("Table rename check: users → users done (if applicable).");
+				jdbcTemplate.update("UPDATE users SET IsAdmin = 1, Type = 1 WHERE Email IN ('sonhx@ptit.edu.vn', 'admin@ptit.edu.vn')");
+				System.out.println("[UserExtend] Verified admin privileges for sonhx@ptit.edu.vn and admin@ptit.edu.vn");
 			} catch (Exception e) {
-				System.err.println("Notice: Table rename users→users: " + e.getMessage());
+				System.err.println("[UserExtend] Admin init notice: " + e.getMessage());
 			}
-	
-			// 1. Ensure Hash column exists
-			try {
-				jdbcTemplate.execute("SELECT Hash FROM users WHERE 1=0");
-			} catch (Exception e) {
-				try {
-					jdbcTemplate.execute("ALTER TABLE users ADD Hash VARCHAR(255)");
-					System.out.println("Added 'Hash' column to users.");
-				} catch (Exception ex) {
-					System.err.println("Failed to add 'Hash' column to users: " + ex.getMessage());
-				}
-			}
-	
-			// 2. Perform one-time migration if Password column still exists
-			boolean passwordColumnExists = false;
-			try {
-				jdbcTemplate.execute("SELECT Password FROM users WHERE 1=0");
-				passwordColumnExists = true;
-			} catch (Exception e) {
-				// Password column already dropped
-			}
-	
-			if (passwordColumnExists) {
-				try {
-					String query = "SELECT ID, Password FROM users WHERE (Hash IS NULL OR Hash = '') AND Password IS NOT NULL AND Password <> ''";
-					List<Map<String, Object>> legacyUsers = jdbcTemplate.queryForList(query);
-					if (!legacyUsers.isEmpty()) {
-						System.out.println("Found " + legacyUsers.size() + " legacy users to migrate to BCrypt hashing.");
-						for (Map<String, Object> user : legacyUsers) {
-							Object idObj = user.get("ID");
-							String rawPassword = (String) user.get("Password");
-							String hashedPassword = BCrypt.hashpw(rawPassword, BCrypt.gensalt());
-							jdbcTemplate.update("UPDATE users SET Hash = ? WHERE ID = ?", hashedPassword, idObj.toString());
-						}
-						System.out.println("Successfully migrated all legacy user passwords to BCrypt hashes.");
-					}
-				} catch (Exception e) {
-					System.err.println("Error migrating legacy passwords: " + e.getMessage());
-				}
-			}
-	
-			// 3. Drop LoginName column from users if exists
-			try {
-				jdbcTemplate.execute("SELECT LoginName FROM users WHERE 1=0");
-				jdbcTemplate.execute("ALTER TABLE users DROP COLUMN LoginName");
-				System.out.println("Dropped 'LoginName' column from users.");
-			} catch (Exception e) {
-				// Column LoginName already dropped or does not exist
-			}
-	
-			// 4. Drop Fullname / FullName column from users if exists
-			try {
-				jdbcTemplate.execute("SELECT Fullname FROM users WHERE 1=0");
-				jdbcTemplate.execute("ALTER TABLE users DROP COLUMN Fullname");
-				System.out.println("Dropped 'Fullname' column from users.");
-			} catch (Exception e) {
-				try {
-					jdbcTemplate.execute("SELECT FullName FROM users WHERE 1=0");
-					jdbcTemplate.execute("ALTER TABLE users DROP COLUMN FullName");
-					System.out.println("Dropped 'FullName' column from users.");
-				} catch (Exception ex) {
-					// Column Fullname already dropped or does not exist
-				}
-			}
-	
-			// 5. Alter ID type from int IDENTITY to varchar(100) and update value from personnel.id matching by email
-			try {
-				String checkIdDataType = "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'ID'";
-				List<String> dataTypes = jdbcTemplate.queryForList(checkIdDataType, String.class);
-				if (!dataTypes.isEmpty() && !dataTypes.get(0).equalsIgnoreCase("varchar") && !dataTypes.get(0).equalsIgnoreCase("nvarchar")) {
-					System.out.println("Migrating users.ID column from " + dataTypes.get(0) + " (IDENTITY) to VARCHAR(100)...");
-					
-					String migrationSql = 
-						"BEGIN TRANSACTION; " +
-						"BEGIN TRY " +
-						"    DECLARE @fkSql NVARCHAR(MAX) = ''; " +
-						"    SELECT @fkSql = @fkSql + 'ALTER TABLE [' + OBJECT_SCHEMA_NAME(parent_object_id) + '].[' + OBJECT_NAME(parent_object_id) + '] DROP CONSTRAINT [' + name + ']; ' " +
-						"    FROM sys.foreign_keys " +
-						"    WHERE referenced_object_id = OBJECT_ID('users'); " +
-						"    IF @fkSql <> '' EXEC(@fkSql); " +
-						" " +
-						"    DECLARE @pkName NVARCHAR(200); " +
-						"    SELECT @pkName = name FROM sys.key_constraints WHERE type = 'PK' AND parent_object_id = OBJECT_ID('users'); " +
-						"    IF @pkName IS NOT NULL " +
-						"        EXEC('ALTER TABLE users DROP CONSTRAINT ' + @pkName); " +
-						" " +
-						"    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'ID_new') " +
-						"        ALTER TABLE users ADD ID_new VARCHAR(100) NULL; " +
-						" " +
-						"    EXEC('UPDATE u SET u.ID_new = COALESCE(p.id, CAST(u.ID AS VARCHAR(100))) FROM users u LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0;'); " +
-						"    EXEC('UPDATE users SET ID_new = CAST(ID AS VARCHAR(100)) WHERE ID_new IS NULL OR ID_new = '''';'); " +
-						" " +
-						"    ALTER TABLE users DROP COLUMN ID; " +
-						"    EXEC sp_rename 'users.ID_new', 'ID', 'COLUMN'; " +
-						"    ALTER TABLE users ALTER COLUMN ID VARCHAR(100) NOT NULL; " +
-						" " +
-						"    COMMIT TRANSACTION; " +
-						"END TRY " +
-						"BEGIN CATCH " +
-						"    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; " +
-						"    THROW; " +
-						"END CATCH;";
-					
-					jdbcTemplate.execute(migrationSql);
-					System.out.println("Successfully migrated users.ID from INT IDENTITY to VARCHAR(100).");
-				} else {
-					// ID is already VARCHAR. Ensure values match personnel.id for any un-synced emails
-					int updatedIds = jdbcTemplate.update(
-						"UPDATE u SET u.ID = p.id " +
-						"FROM users u " +
-						"JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) " +
-						"WHERE p.id IS NOT NULL AND p.id <> '' AND p.isDeleted = 0 AND u.ID <> p.id"
-					);
-					if (updatedIds > 0) {
-						System.out.println("Updated " + updatedIds + " users.ID values from personnel table matching email.");
-					}
-				}
-			} catch (Exception e) {
-				System.err.println("Error migrating users.ID to VARCHAR/personnel.id: " + e.getMessage());
-			}
-	
-			// 6. Drop OrgID, Avatar, Mobile, Token, MaCB columns from users if exist
-			String[] colsToDrop = {"OrgID", "Avatar", "Mobile", "Token", "MaCB"};
-			for (String col : colsToDrop) {
-				try {
-					jdbcTemplate.execute("SELECT " + col + " FROM users WHERE 1=0");
-					jdbcTemplate.execute("ALTER TABLE users DROP COLUMN " + col);
-					System.out.println("Dropped '" + col + "' column from users.");
-				} catch (Exception e) {
-					// Column already dropped or does not exist
-				}
-			}
-	
-			// 7. Alter UpdatedBy column in users and all tables to VARCHAR(100)
-			try {
-				String migrateUpdatedBySql = 
-					"DECLARE @sql NVARCHAR(MAX) = ''; " +
-					"SELECT @sql = @sql + 'ALTER TABLE [' + TABLE_SCHEMA + '].[' + TABLE_NAME + '] ALTER COLUMN [' + COLUMN_NAME + '] VARCHAR(100) NULL; ' " +
-					"FROM INFORMATION_SCHEMA.COLUMNS " +
-					"WHERE COLUMN_NAME = 'UpdatedBy' AND DATA_TYPE NOT IN ('varchar', 'nvarchar'); " +
-					"IF @sql <> '' EXEC sp_executesql @sql;";
-				jdbcTemplate.execute(migrateUpdatedBySql);
-				System.out.println("Verified/Migrated 'UpdatedBy' columns to VARCHAR(100).");
-			} catch (Exception e) {
-				System.err.println("Notice: UpdatedBy migration check: " + e.getMessage());
-			}
-	
-			// 8. Auto-provision org leaders disabled per requirements
-			// provisionOrgLeadersAndLanhDao();
-	
-			// 9. Fix/repair garbled Unicode names in personnel table
-			try {
-				jdbcTemplate.execute(
-					"UPDATE personnel SET fullname = N'Đặng Hoài Bắc', hoDem = N'Đặng Hoài', ten = N'Bắc' " +
-					"WHERE (emailCanBo = 'bacdh@ptit.edu.vn' OR email = 'bacdh@ptit.edu.vn') AND (fullname LIKE '%??%' OR fullname IS NULL);"
-				);
-			} catch (Exception ex) {
-				System.err.println("Notice: Personnel name repair: " + ex.getMessage());
-			}
-		}
-	*/
+		});
+	}
+
 	/**
 	 * Provision personnel who are:
 	 *   (a) leaderId of any org (orgs.leaderId IS NOT NULL → match personnel.id)
@@ -263,8 +102,6 @@ public class UserExtend {
 					System.err.println("[AutoProvision] Error processing row: " + rowEx.getMessage());
 				}
 			}
-
-
 
 			System.out.println("[AutoProvision] Done. Inserted " + inserted + ", updated " + updated + " user account(s).");
 		} catch (Exception e) {
@@ -425,16 +262,18 @@ public class UserExtend {
 		try {
 			String sql = 
 				"SELECT TOP 1 " +
-				"    COALESCE(p.donViL3Id, p.donViChinhId) AS dept_id, " +
+				"    COALESCE(p0.donViL3Id, p0.donViChinhId, p1.donViL3Id, p1.donViChinhId, p2.donViL3Id, p2.donViChinhId) AS dept_id, " +
 				"    COALESCE(o3.ten, oChinh.ten, N'Chưa xếp đơn vị') AS dept_name, " +
 				"    COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
 				"FROM users u " +
-				"JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 " +
-				"LEFT JOIN orgs o3 ON o3.id = p.donViL3Id " +
-				"LEFT JOIN orgs oChinh ON oChinh.id = p.donViChinhId " +
+				"LEFT JOIN personnel p0 ON p0.id = u.ID AND p0.isDeleted = 0 " +
+				"LEFT JOIN personnel p1 ON p0.id IS NULL AND p1.emailCanBo = u.Email AND p1.isDeleted = 0 " +
+				"LEFT JOIN personnel p2 ON p0.id IS NULL AND p1.id IS NULL AND p2.email = u.Email AND p2.isDeleted = 0 " +
+				"LEFT JOIN orgs o3 ON o3.id = COALESCE(p0.donViL3Id, p1.donViL3Id, p2.donViL3Id) " +
+				"LEFT JOIN orgs oChinh ON oChinh.id = COALESCE(p0.donViChinhId, p1.donViChinhId, p2.donViChinhId) " +
 				"WHERE u.ID = ? AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
 
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, userId.toString());
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, userId != null ? userId.toString() : "");
 			if (!rows.isEmpty()) {
 				Map<String, Object> row = rows.get(0);
 				joOrg.put("dept_id", row.get("dept_id") != null ? row.get("dept_id") : "");

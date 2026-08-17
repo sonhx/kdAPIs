@@ -314,14 +314,30 @@ public class OrgManagerService {
      * Get list of orgs flat structure with level, leaderId, leaderName columns.
      */
     public List<Map<String, Object>> getOrgsList(boolean includeDeleted, String search) {
-        StringBuilder sql = new StringBuilder(
-            "SELECT id, ten, maDonVi, donViChaId, tenVietTat, level, leaderId, leaderName, isDeleted, createdAt, updatedAt " +
-            "FROM orgs WHERE 1=1 "
-        );
+        return getOrgsList(includeDeleted, false, search);
+    }
 
+    public List<Map<String, Object>> getOrgsList(boolean includeDeleted, boolean level3Only, String search) {
+        StringBuilder sql = new StringBuilder();
         List<Object> params = new ArrayList<>();
+
+        if (level3Only) {
+            sql.append(
+                "SELECT o.id, o.ten, o.maDonVi, o.donViChaId, o.tenVietTat, o.level, o.leaderId, o.leaderName, o.isDeleted, o.createdAt, o.updatedAt " +
+                "FROM orgs o WITH (NOLOCK) " +
+                "LEFT JOIN orgs p2 WITH (NOLOCK) ON p2.id = o.donViChaId " +
+                "WHERE (o.level = 3 OR o.id IN ('66a308ce8068e53428da2035', '66a308ce8068e53428da202c', '66a308ce8068e53428da202d')) " +
+                "  AND ISNULL(p2.donViChaId, '') <> '66a308ce8068e53428da2033' "
+            );
+        } else {
+            sql.append(
+                "SELECT id, ten, maDonVi, donViChaId, tenVietTat, level, leaderId, leaderName, isDeleted, createdAt, updatedAt " +
+                "FROM orgs WITH (NOLOCK) WHERE 1=1 "
+            );
+        }
+
         if (!includeDeleted) {
-            sql.append("AND isDeleted = 0 ");
+            sql.append("AND (isDeleted = 0 OR isDeleted IS NULL) ");
         }
 
         if (search != null && !search.isBlank()) {

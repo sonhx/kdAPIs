@@ -483,21 +483,25 @@ public class UserService {
 			String filterDeptId = jsonobjReq.has("filter_dept_id") && !jsonobjReq.isNull("filter_dept_id")
 				? jsonobjReq.getString("filter_dept_id") : null;
 
+			String deptIdExpr = "COALESCE(p0.donViL3Id, p0.donViChinhId, p1.donViL3Id, p1.donViChinhId, p2.donViL3Id, p2.donViChinhId)";
 			String sql = 
-				"SELECT u.ID, p.fullname AS Fullname, u.Email, p.sdtCaNhan AS Mobile, u.Type, " +
-				"       COALESCE(p.donViL3Id, p.donViChinhId) AS dept_id, " +
+				"SELECT u.ID, COALESCE(p0.fullname, p1.fullname, p2.fullname) AS Fullname, u.Email, " +
+				"       COALESCE(p0.sdtCaNhan, p1.sdtCaNhan, p2.sdtCaNhan) AS Mobile, u.Type, " +
+				"       " + deptIdExpr + " AS dept_id, " +
 				"       COALESCE(o3.ten, oChinh.ten) AS dept_name, " +
 				"       COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
 				"FROM users u " +
-				"LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 " +
-				"LEFT JOIN orgs o3 ON o3.id = p.donViL3Id " +
-				"LEFT JOIN orgs oChinh ON oChinh.id = p.donViChinhId " +
+				"LEFT JOIN personnel p0 ON p0.id = u.ID AND p0.isDeleted = 0 " +
+				"LEFT JOIN personnel p1 ON p0.id IS NULL AND p1.emailCanBo = u.Email AND p1.isDeleted = 0 " +
+				"LEFT JOIN personnel p2 ON p0.id IS NULL AND p1.id IS NULL AND p2.email = u.Email AND p2.isDeleted = 0 " +
+				"LEFT JOIN orgs o3 ON o3.id = COALESCE(p0.donViL3Id, p1.donViL3Id, p2.donViL3Id) " +
+				"LEFT JOIN orgs oChinh ON oChinh.id = COALESCE(p0.donViChinhId, p1.donViChinhId, p2.donViChinhId) " +
 				"WHERE (u.IsDeleted IS NULL OR u.IsDeleted = '0') " +
-				(filterDeptId != null ? "AND (p.donViL3Id = ? OR p.donViChinhId = ?) " : "") +
-				"ORDER BY p.fullname ASC";
+				(filterDeptId != null ? "AND (" + deptIdExpr + " = ?) " : "") +
+				"ORDER BY COALESCE(p0.fullname, p1.fullname, p2.fullname) ASC";
 
 			List<Map<String, Object>> rows = filterDeptId != null
-				? jdbcTemplate.queryForList(sql, filterDeptId, filterDeptId)
+				? jdbcTemplate.queryForList(sql, filterDeptId)
 				: jdbcTemplate.queryForList(sql);
 
 			for (Map<String, Object> row : rows) {

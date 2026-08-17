@@ -71,14 +71,18 @@ public class OrgManagerController {
     /**
      * Get orgs flat list.
      */
-    @RequestMapping(value = "/list", method = {RequestMethod.GET, RequestMethod.POST}, produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequestMapping(value = {"/list", "/departments"}, method = {RequestMethod.GET, RequestMethod.POST}, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getOrgsList(
             @RequestParam(value = "includeDeleted", defaultValue = "false") boolean includeDeleted,
+            @RequestParam(value = "level3Only", defaultValue = "false") boolean level3Only,
+            @RequestParam(value = "level", required = false) Integer level,
             @RequestParam(value = "search", required = false) String search) {
-        List<Map<String, Object>> list = orgManagerService.getOrgsList(includeDeleted, search);
+        boolean onlyL3 = level3Only || (level != null && level == 3);
+        List<Map<String, Object>> list = orgManagerService.getOrgsList(includeDeleted, onlyL3, search);
         JSONObject result = new JSONObject();
         result.put("status", "SUCCESS");
         result.put("data", list);
+        result.put("departments", list);
         result.put("total", list.size());
         return ResponseEntity.ok(result.toString());
     }
