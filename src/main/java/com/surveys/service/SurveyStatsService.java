@@ -1,9 +1,18 @@
 package com.surveys.service;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+
+import jakarta.annotation.PostConstruct;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StreamUtils;
 
 import com.surveys.dto.OptionStatDto;
 import com.surveys.dto.QuestionNumericStatDto;
@@ -13,12 +22,45 @@ import com.surveys.dto.OverallStatDto;
 @Service
 public class SurveyStatsService {
 
+    private static final Logger log = LoggerFactory.getLogger(SurveyStatsService.class);
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @PostConstruct
+    public void initProcedures() {
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                ClassPathResource resource = new ClassPathResource("surveys_stats_schema.sql");
+                if (resource.exists()) {
+                    InputStream is = resource.getInputStream();
+                    String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
+                    String[] batches = content.split("(?i)\\r?\\nGO\\r?\\n");
+                    for (String batch : batches) {
+                        String trimmed = batch.trim();
+                        if (!trimmed.isEmpty()) {
+                            try {
+                                jdbcTemplate.execute(trimmed);
+                            } catch (Exception e) {
+                                log.warn("Notice executing SQL batch during startup: {}", e.getMessage());
+                            }
+                        }
+                    }
+                    log.info("Successfully refreshed survey stats schema and stored procedures.");
+                }
+            } catch (Exception e) {
+                log.warn("Notice refreshing survey stats schema: {}", e.getMessage());
+            }
+        });
+    }
+
     public void recomputeCampaign(String surveyId, String campaignId) {
-        String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
-        jdbcTemplate.update("EXEC dbo.sp_recompute_campaign ?, ?", surveyId, actualCampaignId);
+        try {
+            String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
+            jdbcTemplate.update("EXEC dbo.sp_recompute_campaign ?, ?", surveyId, actualCampaignId);
+        } catch (Exception e) {
+            log.warn("Exception in recomputeCampaign for surveyId={}, campaignId={}: {}", surveyId, campaignId, e.getMessage());
+        }
     }
 
     private boolean hasSurveyResponses(String surveyId) {
@@ -44,6 +86,7 @@ public class SurveyStatsService {
             sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id = ? AND question_id = ?";
             params = new Object[] { surveyId, campaignId, questionId };
         }
+
         List<OptionStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
             rs.getString("option_id"),
             rs.getString("option_text"),

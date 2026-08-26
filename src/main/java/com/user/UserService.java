@@ -54,19 +54,23 @@ public class UserService {
 			loginname = jsologin.getString("user_name");
 			userpass = jsologin.getString("user_password");
 			
-			// check user's existence by Email or maCanBo
-			String sql = "SELECT u.*, p.fullname AS FullName, p.sdtCaNhan AS Mobile, p.maCanBo AS MaCanBo FROM dbo.users u "
-					+ "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email OR p.id = u.ID) AND p.isDeleted = 0 "
-					+ "WHERE (u.Email = ? OR p.maCanBo = ? OR p.emailCanBo = ? OR p.email = ?) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
-			List<Map<String, Object>> users;
-			try {
-				users = jdbcTemplate.queryForList(sql, loginname, loginname, loginname, loginname);
-			} catch (Exception dbEx) {
-				System.err.println("Notice: Database connection retry during login query: " + dbEx.getMessage());
-				users = jdbcTemplate.queryForList(sql, loginname, loginname, loginname, loginname);
-			}
+			// check user's existence by Email, ID, or maCanBo
+			String sqlByEmail = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, "
+					+ "COALESCE(p.fullname, '') AS FullName, COALESCE(p.sdtCaNhan, '') AS Mobile, COALESCE(p.maCanBo, '') AS MaCanBo "
+					+ "FROM dbo.users u "
+					+ "LEFT JOIN dbo.personnel p ON (p.id = u.ID OR p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
+					+ "WHERE (u.Email = ? OR u.ID = ?) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
 			
-			System.out.println("Found " + users.size() + " user(s) with login identifier: " + loginname);
+			List<Map<String, Object>> users = jdbcTemplate.queryForList(sqlByEmail, loginname, loginname);
+
+			if (users.isEmpty()) {
+				String sqlByPersonnel = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, "
+						+ "p.fullname AS FullName, p.sdtCaNhan AS Mobile, p.maCanBo AS MaCanBo "
+						+ "FROM dbo.personnel p "
+						+ "INNER JOIN dbo.users u ON (u.ID = p.id OR u.Email = p.emailCanBo OR u.Email = p.email) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0') "
+						+ "WHERE (p.maCanBo = ? OR p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
+				users = jdbcTemplate.queryForList(sqlByPersonnel, loginname, loginname, loginname);
+			}
 
 			if (users.isEmpty()) {
 				jout.put("code", 710);

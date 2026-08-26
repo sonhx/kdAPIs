@@ -657,6 +657,7 @@ public class kpiExtend {
 	 */
 	@Transactional
 	public JSONObject deleteKpiDefinition(Integer kpiId) {
+		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
 			// Validate input
@@ -845,7 +846,7 @@ public class kpiExtend {
 	 */
 	private static JSONArray cachedKpisWithAssignments = null;
 	private static long lastKpiAssignmentsCacheTime = 0;
-	private static final long KPI_ASSIGNMENTS_CACHE_TTL = 5000; // 5 seconds TTL
+	private static final long KPI_ASSIGNMENTS_CACHE_TTL = 300000; // 5 minutes TTL (invalidated on updates)
 
 	public synchronized void invalidateKpisWithAssignmentsCache() {
 		cachedKpisWithAssignments = null;
@@ -887,7 +888,7 @@ public class kpiExtend {
 							   "FROM kpi_assignments a WITH (NOLOCK) " +
 							   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
 							   "LEFT JOIN users u WITH (NOLOCK) ON u.ID = a.assigned_by " +
-							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = a.assigned_by AND p0.isDeleted = 0";
+							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = u.ID AND p0.isDeleted = 0";
 				assignRows = jdbcTemplate.queryForList(assignSql);
 			} catch (Exception e) {
 				logger.error("Error executing assignSql: " + e.getMessage());
@@ -930,7 +931,7 @@ public class kpiExtend {
 							   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
 							   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id " +
 							   "LEFT JOIN users u WITH (NOLOCK) ON u.ID = dp.approved_by " +
-							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = dp.approved_by AND p0.isDeleted = 0 " +
+							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = u.ID AND p0.isDeleted = 0 " +
 							   "ORDER BY dp.data_id DESC";
 				dpRows = jdbcTemplate.queryForList(dpSql);
 			} catch (Exception e) {
@@ -1227,6 +1228,7 @@ public class kpiExtend {
 
 	@Transactional
 	public JSONObject updateKpiWeights(JSONArray weightsArray) {
+		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
 			String getKpiInfo = "SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?";
@@ -1617,6 +1619,7 @@ public class kpiExtend {
 
 	@Transactional
 	public JSONObject saveKpiValue(int kpiId, Object deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
+		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
 			String kpiQuery = "SELECT k.cycle_id, c.cycle_type FROM kpi_definitions k JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";

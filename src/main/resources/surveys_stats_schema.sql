@@ -81,6 +81,8 @@ IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_overall_stats_survey_c
 GO
 
 -- 6. CREATE VIEWS
+IF OBJECT_ID('dbo.vw_responses_with_campaign', 'V') IS NOT NULL DROP VIEW dbo.vw_responses_with_campaign;
+GO
 CREATE VIEW dbo.vw_responses_with_campaign AS
 SELECT r.id AS response_id, r.survey_id, r.created_at, c.id AS campaign_id, c.start_time, c.end_time
 FROM dbo.survey_responses r
@@ -88,14 +90,16 @@ LEFT JOIN dbo.survey_campaigns c ON r.survey_id = c.survey_id
   AND (r.created_at BETWEEN c.start_time AND c.end_time);
 GO
 
+IF OBJECT_ID('dbo.vw_question_option_map', 'V') IS NOT NULL DROP VIEW dbo.vw_question_option_map;
+GO
 CREATE VIEW dbo.vw_question_option_map AS
 SELECT qo.question_id, qo.id AS option_id, qo.content AS option_text,
        TRY_CAST(qo.content AS decimal(9,4)) AS scale_value
 FROM dbo.question_options qo;
 GO
 
--- 7. CREATE STORED PROCEDURES
-CREATE PROCEDURE dbo.sp_compute_question_option_stats 
+-- 7. CREATE / ALTER STORED PROCEDURES WITH DEDUPLICATION
+CREATE OR ALTER PROCEDURE dbo.sp_compute_question_option_stats 
   @survey_id varchar(24), 
   @campaign_id varchar(24) = NULL, 
   @campaign_start datetime2 = NULL, 
@@ -124,7 +128,7 @@ BEGIN
 
   CREATE CLUSTERED INDEX IX_temp_responses ON #temp_responses(response_id);
 
-  -- Pull active answers into local memory-resident temp table (guarantees zero full scans on 4.9M table)
+  -- Pull active answers into local memory-resident temp table
   IF OBJECT_ID('tempdb..#temp_active_answers') IS NOT NULL DROP TABLE #temp_active_answers;
 
   SELECT a.question_id, a.choices, a.response_id
@@ -183,7 +187,7 @@ BEGIN
     AND opt.idCot IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idCot);
 
-  -- Temporary table to hold parsed and hashed choices (runs once, then indexed)
+  -- Temporary table to hold parsed and hashed choices
   IF OBJECT_ID('tempdb..#temp_exploded') IS NOT NULL DROP TABLE #temp_exploded;
   
   CREATE TABLE #temp_exploded (
@@ -192,7 +196,7 @@ BEGIN
     response_id varchar(24) NOT NULL
   );
 
-  -- standard choice answers (join with tiny #id_map)
+  -- standard choice answers
   INSERT INTO #temp_exploded (target_question_id, option_id, response_id)
   SELECT 
     q.id AS target_question_id,
@@ -205,7 +209,7 @@ BEGIN
   WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
 
-  -- grid choice answers (join with tiny #id_map)
+  -- grid choice answers
   INSERT INTO #temp_exploded (target_question_id, option_id, response_id)
   SELECT 
     mHang.hashed_id AS target_question_id,
@@ -224,7 +228,7 @@ BEGIN
 
   CREATE CLUSTERED INDEX IX_temp_exploded ON #temp_exploded(target_question_id, option_id);
 
-  -- Perform fast aggregations and joins using #temp_exploded
+  -- Aggregations with strict ROW_NUMBER() deduplication to prevent PK constraint violations
   WITH option_counts AS (
     SELECT 
       target_question_id,
@@ -242,7 +246,7 @@ BEGIN
   ),
   all_question_options AS (
     -- Standard Options
-    SELECT 
+    SELECT DISTINCT
       q.id AS target_question_id,
       q.block_id,
       qo.id AS option_id,
@@ -251,10 +255,10 @@ BEGIN
     JOIN dbo.question_options qo ON q.id = qo.question_id
     WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
 
-    UNION ALL
+    UNION
 
     -- Grid Options (Row ID x Column ID)
-    SELECT 
+    SELECT DISTINCT
       qmr.id AS target_question_id,
       q.block_id,
       qmc.id AS option_id,
@@ -263,25 +267,34 @@ BEGIN
     JOIN dbo.question_matrix_rows qmr ON q.id = qmr.question_id
     JOIN dbo.question_matrix_cols qmc ON q.id = qmc.question_id
     WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
+  ),
+  raw_option_stats AS (
+    SELECT 
+      LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', aqo.target_question_id, '_', COALESCE(aqo.option_id, ''))), 2), 1, 24)) AS id,
+      @survey_id AS survey_id,
+      @campaign_id AS campaign_id,
+      aqo.block_id,
+      aqo.target_question_id AS question_id,
+      aqo.option_id,
+      aqo.option_text,
+      COALESCE(oc.opt_count, 0) AS count,
+      CAST(COALESCE(oc.opt_count, 0) * 100.0 / NULLIF(qt.total_responses, 0) AS decimal(6,2)) AS percentage,
+      COALESCE(qt.total_responses, 0) AS total_responses,
+      ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', aqo.target_question_id, '_', COALESCE(aqo.option_id, ''))), 2), 1, 24))
+        ORDER BY aqo.target_question_id
+      ) AS rn
+    FROM all_question_options aqo
+    LEFT JOIN option_counts oc ON aqo.target_question_id = oc.target_question_id AND aqo.option_id = oc.option_id
+    LEFT JOIN question_totals qt ON aqo.target_question_id = qt.target_question_id
   )
   INSERT INTO dbo.survey_question_option_stats (
     id, survey_id, campaign_id, block_id, question_id, option_id, option_text, count, percentage, total_responses, computed_at
   )
   SELECT 
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', aqo.target_question_id, '_', COALESCE(aqo.option_id, ''))), 2), 1, 24)) AS id,
-    @survey_id AS survey_id,
-    @campaign_id AS campaign_id,
-    aqo.block_id,
-    aqo.target_question_id,
-    aqo.option_id,
-    aqo.option_text,
-    COALESCE(oc.opt_count, 0) AS count,
-    CAST(COALESCE(oc.opt_count, 0) * 100.0 / NULLIF(qt.total_responses, 0) AS decimal(6,2)) AS percentage,
-    COALESCE(qt.total_responses, 0) AS total_responses,
-    SYSUTCDATETIME()
-  FROM all_question_options aqo
-  LEFT JOIN option_counts oc ON aqo.target_question_id = oc.target_question_id AND aqo.option_id = oc.option_id
-  LEFT JOIN question_totals qt ON aqo.target_question_id = qt.target_question_id;
+    id, survey_id, campaign_id, block_id, question_id, option_id, option_text, count, percentage, total_responses, SYSUTCDATETIME()
+  FROM raw_option_stats
+  WHERE rn = 1;
 
   DROP TABLE #temp_exploded;
   DROP TABLE #id_map;
@@ -290,7 +303,7 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE dbo.sp_compute_question_numeric_stats 
+CREATE OR ALTER PROCEDURE dbo.sp_compute_question_numeric_stats 
   @survey_id varchar(24), 
   @campaign_id varchar(24) = NULL, 
   @campaign_start datetime2 = NULL, 
@@ -318,7 +331,7 @@ BEGIN
 
   CREATE CLUSTERED INDEX IX_temp_responses ON #temp_responses(response_id);
 
-  -- Pull active answers into local memory-resident temp table (guarantees zero full scans on 4.9M table)
+  -- Pull active answers into local memory-resident temp table
   IF OBJECT_ID('tempdb..#temp_active_answers') IS NOT NULL DROP TABLE #temp_active_answers;
 
   SELECT a.question_id, a.choices, a.response_id, a.other_answer
@@ -377,7 +390,7 @@ BEGIN
     AND opt.idCot IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idCot);
 
-  -- Temporary table to hold parsed and hashed choices (runs once, then indexed)
+  -- Temporary table to hold parsed and hashed choices
   IF OBJECT_ID('tempdb..#temp_exploded') IS NOT NULL DROP TABLE #temp_exploded;
   
   CREATE TABLE #temp_exploded (
@@ -471,41 +484,50 @@ BEGIN
   ),
   all_target_questions AS (
     -- Standard Questions
-    SELECT 
+    SELECT DISTINCT
       q.id AS target_question_id,
       q.block_id
     FROM dbo.survey_questions q
     WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
       AND q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
 
-    UNION ALL
+    UNION
 
     -- Grid Rows (Separate questions)
-    SELECT 
+    SELECT DISTINCT
       qmr.id AS target_question_id,
       q.block_id
     FROM dbo.survey_questions q
     JOIN dbo.question_matrix_rows qmr ON q.id = qmr.question_id
     WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
+  ),
+  raw_question_stats AS (
+    SELECT 
+      LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', atq.target_question_id)), 2), 1, 24)) AS id,
+      @survey_id AS survey_id,
+      @campaign_id AS campaign_id,
+      atq.block_id,
+      atq.target_question_id AS question_id,
+      COALESCE(qa.total_responses, 0) AS total_responses,
+      qa.mean,
+      qa.std_dev,
+      qa.min_value,
+      qa.max_value,
+      qa.text_count,
+      ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', atq.target_question_id)), 2), 1, 24))
+        ORDER BY atq.target_question_id
+      ) AS rn
+    FROM all_target_questions atq
+    LEFT JOIN question_aggregates qa ON atq.target_question_id = qa.target_question_id
   )
   INSERT INTO dbo.survey_question_stats (
     id, survey_id, campaign_id, block_id, question_id, total_responses, mean, std_dev, min_value, max_value, text_count, computed_at
   )
   SELECT 
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', atq.target_question_id)), 2), 1, 24)) AS id,
-    @survey_id AS survey_id,
-    @campaign_id AS campaign_id,
-    atq.block_id,
-    atq.target_question_id,
-    COALESCE(qa.total_responses, 0) AS total_responses,
-    qa.mean,
-    qa.std_dev,
-    qa.min_value,
-    qa.max_value,
-    qa.text_count,
-    SYSUTCDATETIME()
-  FROM all_target_questions atq
-  LEFT JOIN question_aggregates qa ON atq.target_question_id = qa.target_question_id;
+    id, survey_id, campaign_id, block_id, question_id, total_responses, mean, std_dev, min_value, max_value, text_count, SYSUTCDATETIME()
+  FROM raw_question_stats
+  WHERE rn = 1;
 
   DROP TABLE #temp_exploded;
   DROP TABLE #id_map;
@@ -514,7 +536,7 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE dbo.sp_compute_block_stats 
+CREATE OR ALTER PROCEDURE dbo.sp_compute_block_stats 
   @survey_id varchar(24), 
   @campaign_id varchar(24) = NULL
 AS
@@ -550,7 +572,7 @@ BEGIN
 
   CREATE CLUSTERED INDEX IX_temp_responses ON #temp_responses(response_id);
 
-  -- Pull active answers into local memory-resident temp table (guarantees zero full scans on 4.9M table)
+  -- Pull active answers into local memory-resident temp table
   IF OBJECT_ID('tempdb..#temp_active_answers') IS NOT NULL DROP TABLE #temp_active_answers;
 
   SELECT a.question_id, a.choices, a.response_id
@@ -594,7 +616,7 @@ BEGIN
     AND opt.idCot IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idCot);
 
-  -- Temporary table to hold parsed and hashed choices (runs once, then indexed)
+  -- Temporary table to hold parsed and hashed choices
   IF OBJECT_ID('tempdb..#temp_exploded') IS NOT NULL DROP TABLE #temp_exploded;
   
   CREATE TABLE #temp_exploded (
@@ -668,22 +690,31 @@ BEGIN
       STDEV(score_val) AS std_dev
     FROM answer_scores
     GROUP BY block_id
+  ),
+  raw_block_stats AS (
+    SELECT 
+      LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', sb.id)), 2), 1, 24)) AS id,
+      @survey_id AS survey_id,
+      @campaign_id AS campaign_id,
+      sb.id AS block_id,
+      COALESCE(ba.total_responses, 0) AS total_responses,
+      ba.mean,
+      ba.std_dev,
+      ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', sb.id)), 2), 1, 24))
+        ORDER BY sb.id
+      ) AS rn
+    FROM dbo.survey_blocks sb
+    LEFT JOIN block_aggregates ba ON sb.id = ba.block_id
+    WHERE sb.survey_id = @survey_id
   )
   INSERT INTO dbo.survey_block_stats (
     id, survey_id, campaign_id, block_id, total_responses, mean, std_dev, computed_at
   )
   SELECT 
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', sb.id)), 2), 1, 24)) AS id,
-    @survey_id AS survey_id,
-    @campaign_id AS campaign_id,
-    sb.id AS block_id,
-    COALESCE(ba.total_responses, 0) AS total_responses,
-    ba.mean,
-    ba.std_dev,
-    SYSUTCDATETIME()
-  FROM dbo.survey_blocks sb
-  LEFT JOIN block_aggregates ba ON sb.id = ba.block_id
-  WHERE sb.survey_id = @survey_id;
+    id, survey_id, campaign_id, block_id, total_responses, mean, std_dev, SYSUTCDATETIME()
+  FROM raw_block_stats
+  WHERE rn = 1;
 
   DROP TABLE #temp_exploded;
   DROP TABLE #id_map;
@@ -692,7 +723,7 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE dbo.sp_compute_survey_overall_stats 
+CREATE OR ALTER PROCEDURE dbo.sp_compute_survey_overall_stats 
   @survey_id varchar(24), 
   @campaign_id varchar(24) = NULL
 AS
@@ -717,22 +748,31 @@ BEGIN
     WHERE id = @campaign_id;
   END;
 
+  WITH raw_overall_stats AS (
+    SELECT 
+      LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'))), 2), 1, 24)) AS id,
+      @survey_id AS survey_id,
+      @campaign_id AS campaign_id,
+      COUNT(1) AS total_responses,
+      ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'))), 2), 1, 24))
+        ORDER BY @survey_id
+      ) AS rn
+    FROM dbo.survey_responses r
+    WHERE r.survey_id = @survey_id
+      AND (@campaign_id IS NULL OR r.created_at BETWEEN @campaign_start AND @campaign_end)
+  )
   INSERT INTO dbo.survey_overall_stats (
     id, survey_id, campaign_id, total_responses, computed_at
   )
   SELECT 
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'))), 2), 1, 24)) AS id,
-    @survey_id,
-    @campaign_id,
-    COUNT(1) AS total_responses,
-    SYSUTCDATETIME()
-  FROM dbo.survey_responses r
-  WHERE r.survey_id = @survey_id
-    AND (@campaign_id IS NULL OR r.created_at BETWEEN @campaign_start AND @campaign_end);
+    id, survey_id, campaign_id, total_responses, SYSUTCDATETIME()
+  FROM raw_overall_stats
+  WHERE rn = 1;
 END;
 GO
 
-CREATE PROCEDURE dbo.sp_recompute_campaign 
+CREATE OR ALTER PROCEDURE dbo.sp_recompute_campaign 
   @survey_id varchar(24), 
   @campaign_id varchar(24) = NULL
 AS
