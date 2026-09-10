@@ -28,24 +28,24 @@ public class KpiG201CalculationService {
     @Autowired
     private PersonnelSyncScheduler personnelSyncScheduler;
 
-    @jakarta.annotation.PostConstruct
-    public void initTableSchema() {
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                String notesColType = jdbcTemplate.queryForObject(
-                    "SELECT TYPE_NAME(system_type_id) FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'notes'",
-                    String.class
-                );
-                if ("varchar".equalsIgnoreCase(notesColType)) {
-                    log.info("Altering kpi_data_points.notes column to NVARCHAR(MAX)...");
-                    jdbcTemplate.execute("ALTER TABLE kpi_data_points ALTER COLUMN notes NVARCHAR(MAX);");
-                    log.info("Successfully altered kpi_data_points.notes column to NVARCHAR(MAX).");
-                }
-            } catch (Exception e) {
-                log.warn("Could not check/alter kpi_data_points.notes column: {}", e.getMessage());
-            }
-        });
-    }
+	/*@jakarta.annotation.PostConstruct
+	public void initTableSchema() {
+	    java.util.concurrent.CompletableFuture.runAsync(() -> {
+	        try {
+	            String notesColType = jdbcTemplate.queryForObject(
+	                "SELECT TYPE_NAME(system_type_id) FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'notes'",
+	                String.class
+	            );
+	            if ("varchar".equalsIgnoreCase(notesColType)) {
+	                log.info("Altering kpi_data_points.notes column to NVARCHAR(MAX)...");
+	                jdbcTemplate.execute("ALTER TABLE kpi_data_points ALTER COLUMN notes NVARCHAR(MAX);");
+	                log.info("Successfully altered kpi_data_points.notes column to NVARCHAR(MAX).");
+	            }
+	        } catch (Exception e) {
+	            log.warn("Could not check/alter kpi_data_points.notes column: {}", e.getMessage());
+	        }
+	    });
+	}*/
 
     /**
      * Trigger initial calculation on application startup so live data points are available immediately.

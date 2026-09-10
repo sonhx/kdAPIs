@@ -25,7 +25,7 @@ public class employeesExtend {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
-	@jakarta.annotation.PostConstruct
+	/*@jakarta.annotation.PostConstruct
 	public void initIndexes() {
 		java.util.concurrent.CompletableFuture.runAsync(() -> {
 			try {
@@ -37,7 +37,7 @@ public class employeesExtend {
 					"    CREATE INDEX IX_orgs_donViChaId ON orgs(donViChaId); " +
 					"END";
 				jdbcTemplate.execute(sqlOrgs);
-
+	
 				String sqlPersonnel = 
 					"IF EXISTS (SELECT * FROM sys.tables WHERE name = 'personnel') BEGIN " +
 					"  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_personnel_isDeleted_email' AND object_id = OBJECT_ID('personnel')) " +
@@ -48,7 +48,7 @@ public class employeesExtend {
 				System.err.println("Notice: Employee indexes initialization: " + e.getMessage());
 			}
 		});
-	}
+	}*/
 
 	/**
 	 * Save a KPI assignment to the kpi_assignments table
@@ -597,10 +597,10 @@ public class employeesExtend {
 							"k.cycle_id, c.cycle_type, k.target, " +
 							"k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date, " +
 							"c.default_deadline_offset_days, c.default_deadline_offset_weeks, c.deadline_type, v.vertex_name " +
-							"FROM kpi_definitions k " +
-							"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
-							"LEFT JOIN vertices_def v ON m.vertex_id = v.vertex_id " +
-							"LEFT JOIN cycle_definitions c ON k.cycle_id = c.cycle_id " +
+							"FROM kpi_definitions k WITH (NOLOCK) " +
+							"LEFT JOIN vertex_members m WITH (NOLOCK) ON k.kpi_id = m.kpi_id " +
+							"LEFT JOIN vertices_def v WITH (NOLOCK) ON m.vertex_id = v.vertex_id " +
+							"LEFT JOIN cycle_definitions c WITH (NOLOCK) ON k.cycle_id = c.cycle_id " +
 							"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
 							"ORDER BY k.kpi_id ASC";
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql);
@@ -611,7 +611,7 @@ public class employeesExtend {
 
 			// 2. Fetch all KPI assignments
 			String assignSql = "SELECT assignment_id, kpi_id, department_id, role, assigned_date, assigned_by " +
-							   "FROM kpi_assignments";
+							   "FROM kpi_assignments WITH (NOLOCK)";
 			List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql);
 
 			// Group assignments by kpi_id
@@ -632,9 +632,9 @@ public class employeesExtend {
 
 			// 3. Fetch all KPI data points
 			String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
-						   "FROM kpi_data_points dp " +
-						   "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
-						   "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id";
+						   "FROM kpi_data_points dp WITH (NOLOCK) " +
+						   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
+						   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id";
 			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql);
 
 			// Group data points by kpi_id

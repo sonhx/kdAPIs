@@ -51,15 +51,31 @@ public class UserService {
 
 		try {
 			JSONObject jsologin = new JSONObject(sReq);
-			loginname = jsologin.getString("user_name");
-			userpass = jsologin.getString("user_password");
+			loginname = jsologin.has("user_name") ? String.valueOf(jsologin.get("user_name")) : "";
+			userpass = jsologin.has("user_password") ? String.valueOf(jsologin.get("user_password")) : "";
+			
+			System.out.println("loginname = " + loginname);
+			String server = jdbcTemplate.queryForObject(
+				    "SELECT @@SERVERNAME",
+				    String.class
+				);
+
+				String db = jdbcTemplate.queryForObject(
+				    "SELECT DB_NAME()",
+				    String.class
+				);
+
+				System.out.println("SERVER = " + server);
+				System.out.println("DATABASE = " + db);
+				
+				
 			
 			// check user's existence by Email, ID, or maCanBo
 			String sqlByEmail = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, "
 					+ "COALESCE(p.fullname, '') AS FullName, COALESCE(p.sdtCaNhan, '') AS Mobile, COALESCE(p.maCanBo, '') AS MaCanBo "
 					+ "FROM dbo.users u "
-					+ "LEFT JOIN dbo.personnel p ON (p.id = u.ID OR p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
-					+ "WHERE (u.Email = ? OR u.ID = ?) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
+					+ "LEFT JOIN dbo.personnel p ON (CAST(p.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) OR p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
+					+ "WHERE (u.Email = ? OR CAST(u.ID AS VARCHAR(100)) = ?) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
 			
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sqlByEmail, loginname, loginname);
 
@@ -67,7 +83,7 @@ public class UserService {
 				String sqlByPersonnel = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, "
 						+ "p.fullname AS FullName, p.sdtCaNhan AS Mobile, p.maCanBo AS MaCanBo "
 						+ "FROM dbo.personnel p "
-						+ "INNER JOIN dbo.users u ON (u.ID = p.id OR u.Email = p.emailCanBo OR u.Email = p.email) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0') "
+						+ "INNER JOIN dbo.users u ON (CAST(u.ID AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR u.Email = p.emailCanBo OR u.Email = p.email) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0') "
 						+ "WHERE (p.maCanBo = ? OR p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
 				users = jdbcTemplate.queryForList(sqlByPersonnel, loginname, loginname, loginname);
 			}
@@ -495,7 +511,7 @@ public class UserService {
 				"       COALESCE(o3.ten, oChinh.ten) AS dept_name, " +
 				"       COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
 				"FROM users u " +
-				"LEFT JOIN personnel p0 ON p0.id = u.ID AND p0.isDeleted = 0 " +
+				"LEFT JOIN personnel p0 ON CAST(p0.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) AND p0.isDeleted = 0 " +
 				"LEFT JOIN personnel p1 ON p0.id IS NULL AND p1.emailCanBo = u.Email AND p1.isDeleted = 0 " +
 				"LEFT JOIN personnel p2 ON p0.id IS NULL AND p1.id IS NULL AND p2.email = u.Email AND p2.isDeleted = 0 " +
 				"LEFT JOIN orgs o3 ON o3.id = COALESCE(p0.donViL3Id, p1.donViL3Id, p2.donViL3Id) " +

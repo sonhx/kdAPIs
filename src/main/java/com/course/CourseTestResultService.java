@@ -443,25 +443,25 @@ public class CourseTestResultService {
         return result;
     }
 
-    @PostConstruct
-    public void initIndexes() {
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                String sql = 
-                    "IF EXISTS (SELECT * FROM sys.tables WHERE name = 'course_test_results') BEGIN " +
-                    "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_sem' AND object_id = OBJECT_ID('course_test_results')) " +
-                    "    CREATE INDEX IX_course_test_sem ON course_test_results(semester); " +
-                    "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_sem_fail' AND object_id = OBJECT_ID('course_test_results')) " +
-                    "    CREATE INDEX IX_course_test_sem_fail ON course_test_results(semester, fail_rate DESC, total_students DESC); " +
-                    "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_code' AND object_id = OBJECT_ID('course_test_results')) " +
-                    "    CREATE INDEX IX_course_test_code ON course_test_results(course_code); " +
-                    "END";
-                jdbcTemplate.execute(sql);
-            } catch (Exception e) {
-                log.debug("Notice course_test_results index init: {}", e.getMessage());
-            }
-        });
-    }
+	/*@PostConstruct
+	public void initIndexes() {
+	    java.util.concurrent.CompletableFuture.runAsync(() -> {
+	        try {
+	            String sql = 
+	                "IF EXISTS (SELECT * FROM sys.tables WHERE name = 'course_test_results') BEGIN " +
+	                "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_sem' AND object_id = OBJECT_ID('course_test_results')) " +
+	                "    CREATE INDEX IX_course_test_sem ON course_test_results(semester); " +
+	                "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_sem_fail' AND object_id = OBJECT_ID('course_test_results')) " +
+	                "    CREATE INDEX IX_course_test_sem_fail ON course_test_results(semester, fail_rate DESC, total_students DESC); " +
+	                "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_course_test_code' AND object_id = OBJECT_ID('course_test_results')) " +
+	                "    CREATE INDEX IX_course_test_code ON course_test_results(course_code); " +
+	                "END";
+	            jdbcTemplate.execute(sql);
+	        } catch (Exception e) {
+	            log.debug("Notice course_test_results index init: {}", e.getMessage());
+	        }
+	    });
+	}*/
 
     private static List<String> cachedSemesters = null;
 

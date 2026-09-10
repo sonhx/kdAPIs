@@ -398,6 +398,38 @@ public class CapaController {
         return jout.toString();
     }
 
+    /**
+     * PUT /capa/{capaId}
+     * Update CAPA details
+     */
+    @PutMapping("/{capaId}")
+    public String updateCapa(@PathVariable("capaId") Integer capaId, @RequestBody String sReq) {
+        System.out.println("-------updateCapa:" + capaId + " body=" + sReq);
+        JSONObject jout = new JSONObject();
+        try {
+            if (capaId == null || capaId <= 0) {
+                jout.put("code", 400);
+                jout.put("description", "capaId không hợp lệ");
+                return jout.toString();
+            }
+            JSONObject jin = new JSONObject(sReq);
+            String title = jin.optString("title", null);
+            String description = jin.optString("description", null);
+            String priority = jin.optString("priority", null);
+            String dueDate = jin.optString("due_date", jin.optString("dueDate", null));
+            String departmentName = jin.optString("department_name", jin.optString("department", null));
+
+            boolean ok = capaExtend.updateCapa(capaId, title, description, priority, dueDate, departmentName);
+            jout.put("code", ok ? 200 : 404);
+            jout.put("description", ok ? "Cập nhật CAPA thành công" : "Không tìm thấy CAPA với ID: " + capaId);
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
     // =========================================================================
     // 6. DELETE
     // =========================================================================

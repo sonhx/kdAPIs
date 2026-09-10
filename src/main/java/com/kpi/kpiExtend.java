@@ -137,6 +137,29 @@ public class kpiExtend {
 					response.put("code", 200);
 					response.put("description", "Thành công");
 					response.put("assignment_id", assignmentId);
+
+					try {
+						if (notificationExtend != null && departmentId != null && !departmentId.isBlank()) {
+							String kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
+							String roleLabel = "A".equalsIgnoreCase(role) ? "thực hiện/nhập liệu" : "theo dõi/phê duyệt";
+							notificationExtend.dispatchNotification(
+								"KPI_ASSIGNED",
+								"KPI",
+								"info",
+								"Phân công chỉ số KPI: " + (kpiCode != null ? kpiCode : kpiId),
+								"Đơn vị đã được phân công " + roleLabel + " chỉ số KPI '" + (kpiCode != null ? kpiCode : kpiId) + "'.",
+								"TRUONG_DON_VI",
+								departmentId,
+								"KPI_ASSIGNMENT",
+								String.valueOf(kpiId),
+								"/kpi?code=" + kpiCode,
+								assignedBy != null ? assignedBy : "SYSTEM",
+								null
+							);
+						}
+					} catch (Exception notifEx) {
+						logger.warn("Error dispatching KPI_ASSIGNED notification: " + notifEx.getMessage());
+					}
 				} else {
 					response.put("code", 500);
 					response.put("description", "Failed to update assignment");
@@ -156,6 +179,29 @@ public class kpiExtend {
 					response.put("code", 200);
 					response.put("description", "Thành công");
 					response.put("assignment_id", assignmentId);
+
+					try {
+						if (notificationExtend != null && departmentId != null && !departmentId.isBlank()) {
+							String kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
+							String roleLabel = "A".equalsIgnoreCase(role) ? "thực hiện/nhập liệu" : "theo dõi/phê duyệt";
+							notificationExtend.dispatchNotification(
+								"KPI_ASSIGNED",
+								"KPI",
+								"info",
+								"Phân công chỉ số KPI: " + (kpiCode != null ? kpiCode : kpiId),
+								"Đơn vị đã được phân công " + roleLabel + " chỉ số KPI '" + (kpiCode != null ? kpiCode : kpiId) + "'.",
+								"TRUONG_DON_VI",
+								departmentId,
+								"KPI_ASSIGNMENT",
+								String.valueOf(kpiId),
+								"/kpi?code=" + kpiCode,
+								assignedBy != null ? assignedBy : "SYSTEM",
+								null
+							);
+						}
+					} catch (Exception notifEx) {
+						logger.warn("Error dispatching KPI_ASSIGNED notification: " + notifEx.getMessage());
+					}
 				} else {
 					response.put("code", 500);
 					response.put("description", "Failed to insert assignment");
@@ -358,6 +404,27 @@ public class kpiExtend {
 				response.put("description", "Thành công");
 				response.put("kpi_id", kpiId);
 				response.put("kpi_code", code);
+
+				try {
+					if (notificationExtend != null) {
+						notificationExtend.dispatchNotification(
+							"KPI_CREATED",
+							"KPI",
+							"info",
+							"Khởi tạo chỉ số KPI mới: " + code,
+							"Chỉ số KPI '" + name + "' (Mã: " + code + ", Loại: " + category + ") đã được khởi tạo thành công.",
+							"ALL",
+							null,
+							"KPI_DEFINITION",
+							code,
+							"/kpi?code=" + code,
+							"SYSTEM",
+							null
+						);
+					}
+				} catch (Exception notifEx) {
+					logger.error("Error dispatching KPI_CREATED notification: " + notifEx.getMessage());
+				}
 			} else {
 				response.put("code", 500);
 				response.put("description", "Failed to insert KPI definition");
@@ -593,6 +660,27 @@ public class kpiExtend {
 				response.put("code", 200);
 				response.put("description", "Cập nhật định nghĩa KPI và ghi lịch sử thay đổi thành công.");
 				response.put("changed_fields_count", changeLogs.size());
+
+				try {
+					if (notificationExtend != null) {
+						notificationExtend.dispatchNotification(
+							"KPI_UPDATED",
+							"KPI",
+							"info",
+							"Cập nhật định nghĩa KPI: " + currentKpiCode,
+							"Thông tin chỉ số KPI '" + currentKpiCode + "' vừa được cập nhật (" + changeLogs.size() + " mục thay đổi bởi " + updater + ").",
+							"ALL",
+							null,
+							"KPI_DEFINITION",
+							currentKpiCode,
+							"/kpi?code=" + currentKpiCode,
+							updater,
+							null
+						);
+					}
+				} catch (Exception notifEx) {
+					logger.error("Error dispatching KPI_UPDATED notification: " + notifEx.getMessage());
+				}
 			} else {
 				response.put("code", 500);
 				response.put("description", "Lỗi cập nhật định nghĩa KPI vào cơ sở dữ liệu.");
@@ -684,6 +772,28 @@ public class kpiExtend {
 				response.put("code", 200);
 				response.put("description", "Thành công");
 				response.put("kpi_id", kpiId);
+
+				try {
+					if (notificationExtend != null) {
+						String kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
+						notificationExtend.dispatchNotification(
+							"KPI_DELETED",
+							"KPI",
+							"warning",
+							"Hủy chỉ số KPI: " + (kpiCode != null ? kpiCode : kpiId),
+							"Chỉ số KPI '" + (kpiCode != null ? kpiCode : kpiId) + "' đã được rút/xóa khỏi hệ thống.",
+							"ADMIN",
+							null,
+							"KPI_DEFINITION",
+							String.valueOf(kpiId),
+							"/kpi",
+							"SYSTEM",
+							null
+						);
+					}
+				} catch (Exception notifEx) {
+					logger.error("Error dispatching KPI_DELETED notification: " + notifEx.getMessage());
+				}
 			} else {
 				response.put("code", 500);
 				response.put("description", "Failed to delete KPI");
@@ -882,13 +992,12 @@ public class kpiExtend {
 			List<Map<String, Object>> assignRows = new ArrayList<>();
 			try {
 				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
-							   "o.ten as department_name, " +
-							   "COALESCE(p0.fullname, u.Email) as assigned_by_name, " +
-							   "COALESCE(NULLIF(p0.emailCanBo, ''), p0.email, u.Email) as assigned_by_email " +
+							   "COALESCE(o.ten, o.tenVietTat) as department_name, " +
+							   "u.Email as assigned_by_name, " +
+							   "u.Email as assigned_by_email " +
 							   "FROM kpi_assignments a WITH (NOLOCK) " +
 							   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
-							   "LEFT JOIN users u WITH (NOLOCK) ON u.ID = a.assigned_by " +
-							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = u.ID AND p0.isDeleted = 0";
+							   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID";
 				assignRows = jdbcTemplate.queryForList(assignSql);
 			} catch (Exception e) {
 				logger.error("Error executing assignSql: " + e.getMessage());
@@ -926,12 +1035,11 @@ public class kpiExtend {
 				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, " +
 							   "dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, " +
 							   "dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, " +
-							   "COALESCE(p0.fullname, u.Email) AS approved_by_name " +
+							   "u.Email AS approved_by_name " +
 							   "FROM kpi_data_points dp WITH (NOLOCK) " +
 							   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
 							   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id " +
-							   "LEFT JOIN users u WITH (NOLOCK) ON u.ID = dp.approved_by " +
-							   "LEFT JOIN personnel p0 WITH (NOLOCK) ON p0.id = u.ID AND p0.isDeleted = 0 " +
+							   "LEFT JOIN users u WITH (NOLOCK) ON dp.approved_by = u.ID " +
 							   "ORDER BY dp.data_id DESC";
 				dpRows = jdbcTemplate.queryForList(dpSql);
 			} catch (Exception e) {
@@ -1771,6 +1879,20 @@ public class kpiExtend {
 			int nextVersionNum = jdbcTemplate.queryForObject("SELECT ISNULL(MAX(version_number), 0) + 1 FROM kpi_value_versions WHERE data_id = ?", Integer.class, dataId);
 			String versionSql = "INSERT INTO kpi_value_versions (data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, updated_at, updated_by, change_type, version_number, department_id) VALUES (?, ?, ?, ?, ?, ?, GETDATE(), ?, ?, ?, ?)";
 			jdbcTemplate.update(versionSql, dataId, actualValue, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, userId, changeType, nextVersionNum, deptId);
+
+			try {
+				if (notificationExtend != null) {
+					String kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
+					notificationExtend.dispatchNotification(
+						"KPI_VALUE_UPDATED", "KPI", "info",
+						"Cập nhật số liệu KPI: " + (kpiCode != null ? kpiCode : kpiId),
+						"Số liệu thực tế (" + actualValue + ") cho KPI đã được nhập và ghi vào CSDL thành công.",
+						"ALL", sDeptId, "KPI_DATA", String.valueOf(kpiId), "/dashboard", String.valueOf(userId), null
+					);
+				}
+			} catch (Exception ex) {
+				System.err.println("Notice dispatch error in saveKpiValue: " + ex.getMessage());
+			}
 
 			response.put("code", 200);
 			response.put("description", "Đã cập nhật số liệu KPI và lưu hồ sơ minh chứng thành công!");

@@ -16,7 +16,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/qa-ex/roles")
-@CrossOrigin(origins = "*", maxAge = 3600)
+@CrossOrigin(originPatterns = "*", maxAge = 3600, allowCredentials = "true")
 public class QaExRoleController {
 
     private static final Logger log = LoggerFactory.getLogger(QaExRoleController.class);
@@ -35,74 +35,74 @@ public class QaExRoleController {
     /**
      * Automatically create database tables and seed default roles on application startup.
      */
-    @PostConstruct
-    public void autoInitSchema() {
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                // Wait briefly for DataSource initialization if needed
-                Thread.sleep(2000);
-                JdbcTemplate jdbc = getJdbc();
-                if (jdbc == null) {
-                    log.warn("[QA-EX Roles] JdbcTemplate not ready yet.");
-                    return;
-                }
-
-                // 1. Create dbo.qa_ex_roles
-                String sqlRoles =
-                    "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.qa_ex_roles') AND type = 'U') " +
-                    "BEGIN " +
-                    "    CREATE TABLE dbo.qa_ex_roles ( " +
-                    "        role_id             INT IDENTITY(1,1) PRIMARY KEY, " +
-                    "        role_code           VARCHAR(50)   NOT NULL, " +
-                    "        role_name           NVARCHAR(150) NOT NULL, " +
-                    "        description         NVARCHAR(500) NULL, " +
-                    "        is_active           BIT           NOT NULL DEFAULT 1, " +
-                    "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
-                    "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE() " +
-                    "    ); " +
-                    "    CREATE UNIQUE NONCLUSTERED INDEX UQ_qa_ex_roles_code ON dbo.qa_ex_roles (role_code); " +
-                    "END";
-                jdbc.execute(sqlRoles);
-
-                // 2. Create dbo.qa_ex_user_roles (linking to personnel.id)
-                String sqlUserRoles =
-                    "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.qa_ex_user_roles') AND type = 'U') " +
-                    "BEGIN " +
-                    "    CREATE TABLE dbo.qa_ex_user_roles ( " +
-                    "        user_role_id        INT IDENTITY(1,1) PRIMARY KEY, " +
-                    "        user_id             VARCHAR(100)  NOT NULL, " +
-                    "        role_id             INT           NOT NULL, " +
-                    "        is_active           BIT           NOT NULL DEFAULT 1, " +
-                    "        assigned_at         DATETIME2     NOT NULL DEFAULT GETDATE(), " +
-                    "        assigned_by         VARCHAR(100)  NULL, " +
-                    "        CONSTRAINT UQ_qa_ex_user_roles_user_role UNIQUE (user_id, role_id), " +
-                    "        CONSTRAINT FK_qa_ex_user_roles_role FOREIGN KEY (role_id) REFERENCES dbo.qa_ex_roles (role_id) ON DELETE CASCADE " +
-                    "    ); " +
-                    "    CREATE NONCLUSTERED INDEX IX_qa_ex_user_roles_user_id ON dbo.qa_ex_user_roles (user_id) WHERE is_active = 1; " +
-                    "    CREATE NONCLUSTERED INDEX IX_qa_ex_user_roles_role_id ON dbo.qa_ex_user_roles (role_id); " +
-                    "END";
-                jdbc.execute(sqlUserRoles);
-
-                // 3. Seed default role definitions
-                String seedRolesSql =
-                    "IF NOT EXISTS (SELECT 1 FROM dbo.qa_ex_roles WHERE role_code = 'EX_ADMIN') " +
-                    "BEGIN " +
-                    "    INSERT INTO dbo.qa_ex_roles (role_code, role_name, description) VALUES " +
-                    "    ('EX_ADMIN',     N'Quản trị viên QA-EX',        N'Toàn quyền quản trị hệ thống Đánh giá ngoài, phân quyền và cấu hình tiêu chuẩn.'), " +
-                    "    ('EX_LEADER',    N'Trưởng đoàn ĐGN',           N'Phụ trách chỉ đạo đoàn Đánh giá ngoài, phê duyệt báo cáo và quyết định cổng sẵn sàng.'), " +
-                    "    ('EX_EVALUATOR', N'Thành viên Đoàn ĐGN',       N'Thực hiện thẩm định minh chứng, chấm điểm tiêu chuẩn và tham gia phỏng vấn.'), " +
-                    "    ('EX_SECRETARY', N'Thư ký Đoàn ĐGN',           N'Ghi nhận nhật ký vận hành, tổng hợp báo cáo DSR và theo dõi yêu cầu bằng chứng.'), " +
-                    "    ('EX_MONITOR',   N'Cán bộ Giám sát E-IQA',     N'Theo dõi tiến độ vận hành Onsite, bảng điều hành OT-02 và cảnh báo leo thang.'); " +
-                    "END";
-                jdbc.execute(seedRolesSql);
-
-                log.info("[QA-EX Roles] Database tables dbo.qa_ex_roles and dbo.qa_ex_user_roles initialized and verified successfully.");
-            } catch (Exception e) {
-                log.error("[QA-EX Roles] Notice initializing tables: ", e);
-            }
-        });
-    }
-
+	/*    @PostConstruct
+	public void autoInitSchema() {
+	    java.util.concurrent.CompletableFuture.runAsync(() -> {
+	        try {
+	            // Wait briefly for DataSource initialization if needed
+	            Thread.sleep(2000);
+	            JdbcTemplate jdbc = getJdbc();
+	            if (jdbc == null) {
+	                log.warn("[QA-EX Roles] JdbcTemplate not ready yet.");
+	                return;
+	            }
+	
+	            // 1. Create dbo.qa_ex_roles
+	            String sqlRoles =
+	                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.qa_ex_roles') AND type = 'U') " +
+	                "BEGIN " +
+	                "    CREATE TABLE dbo.qa_ex_roles ( " +
+	                "        role_id             INT IDENTITY(1,1) PRIMARY KEY, " +
+	                "        role_code           VARCHAR(50)   NOT NULL, " +
+	                "        role_name           NVARCHAR(150) NOT NULL, " +
+	                "        description         NVARCHAR(500) NULL, " +
+	                "        is_active           BIT           NOT NULL DEFAULT 1, " +
+	                "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
+	                "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE() " +
+	                "    ); " +
+	                "    CREATE UNIQUE NONCLUSTERED INDEX UQ_qa_ex_roles_code ON dbo.qa_ex_roles (role_code); " +
+	                "END";
+	            jdbc.execute(sqlRoles);
+	
+	            // 2. Create dbo.qa_ex_user_roles (linking to personnel.id)
+	            String sqlUserRoles =
+	                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.qa_ex_user_roles') AND type = 'U') " +
+	                "BEGIN " +
+	                "    CREATE TABLE dbo.qa_ex_user_roles ( " +
+	                "        user_role_id        INT IDENTITY(1,1) PRIMARY KEY, " +
+	                "        user_id             VARCHAR(100)  NOT NULL, " +
+	                "        role_id             INT           NOT NULL, " +
+	                "        is_active           BIT           NOT NULL DEFAULT 1, " +
+	                "        assigned_at         DATETIME2     NOT NULL DEFAULT GETDATE(), " +
+	                "        assigned_by         VARCHAR(100)  NULL, " +
+	                "        CONSTRAINT UQ_qa_ex_user_roles_user_role UNIQUE (user_id, role_id), " +
+	                "        CONSTRAINT FK_qa_ex_user_roles_role FOREIGN KEY (role_id) REFERENCES dbo.qa_ex_roles (role_id) ON DELETE CASCADE " +
+	                "    ); " +
+	                "    CREATE NONCLUSTERED INDEX IX_qa_ex_user_roles_user_id ON dbo.qa_ex_user_roles (user_id) WHERE is_active = 1; " +
+	                "    CREATE NONCLUSTERED INDEX IX_qa_ex_user_roles_role_id ON dbo.qa_ex_user_roles (role_id); " +
+	                "END";
+	            jdbc.execute(sqlUserRoles);
+	
+	            // 3. Seed default role definitions
+	            String seedRolesSql =
+	                "IF NOT EXISTS (SELECT 1 FROM dbo.qa_ex_roles WHERE role_code = 'EX_ADMIN') " +
+	                "BEGIN " +
+	                "    INSERT INTO dbo.qa_ex_roles (role_code, role_name, description) VALUES " +
+	                "    ('EX_ADMIN',     N'Quản trị viên QA-EX',        N'Toàn quyền quản trị hệ thống Đánh giá ngoài, phân quyền và cấu hình tiêu chuẩn.'), " +
+	                "    ('EX_LEADER',    N'Trưởng đoàn ĐGN',           N'Phụ trách chỉ đạo đoàn Đánh giá ngoài, phê duyệt báo cáo và quyết định cổng sẵn sàng.'), " +
+	                "    ('EX_EVALUATOR', N'Thành viên Đoàn ĐGN',       N'Thực hiện thẩm định minh chứng, chấm điểm tiêu chuẩn và tham gia phỏng vấn.'), " +
+	                "    ('EX_SECRETARY', N'Thư ký Đoàn ĐGN',           N'Ghi nhận nhật ký vận hành, tổng hợp báo cáo DSR và theo dõi yêu cầu bằng chứng.'), " +
+	                "    ('EX_MONITOR',   N'Cán bộ Giám sát E-IQA',     N'Theo dõi tiến độ vận hành Onsite, bảng điều hành OT-02 và cảnh báo leo thang.'); " +
+	                "END";
+	            jdbc.execute(seedRolesSql);
+	
+	            log.info("[QA-EX Roles] Database tables dbo.qa_ex_roles and dbo.qa_ex_user_roles initialized and verified successfully.");
+	        } catch (Exception e) {
+	            log.error("[QA-EX Roles] Notice initializing tables: ", e);
+	        }
+	    });
+	}
+	*/
     /**
      * GET /api/qa-ex/roles/definitions
      * Retrieve all active role definitions for QA-EX.

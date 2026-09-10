@@ -15,6 +15,7 @@ import jakarta.annotation.PostConstruct;
 import com.capa.dto.CapaDto;
 import com.capa.dto.CapaActionDto;
 import com.capa.dto.CapaStatsDto;
+import com.notification.NotificationExtend;
 
 /**
  * CapaExtend — Data Access Layer for the CAPA Module.
@@ -26,203 +27,206 @@ public class CapaExtend {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @PostConstruct
-    public void init() {
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            initOnTemplate(jdbcTemplate, "IQA Database");
-        });
-    }
+    @Autowired
+    private NotificationExtend notificationExtend;
 
-    private void initOnTemplate(JdbcTemplate template, String dbName) {
-        if (template == null) return;
-        try {
-            // 1. dbo.capa
-            String sqlCapa =
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa') AND type = 'U') " +
-                "BEGIN " +
-                "    CREATE TABLE dbo.capa ( " +
-                "        capa_id             INT IDENTITY(1,1) PRIMARY KEY, " +
-                "        capa_code           NVARCHAR(30)  NOT NULL, " +
-                "        title               NVARCHAR(500) NOT NULL, " +
-                "        description         NVARCHAR(MAX) NULL, " +
-                "        capa_type           NVARCHAR(30)  NOT NULL DEFAULT N'Khắc phục', " +
-                "        status              NVARCHAR(30)  NOT NULL DEFAULT 'processing', " +
-                "        department_id       NVARCHAR(50)  NULL, " +
-                "        open_date           DATE          NOT NULL DEFAULT CAST(GETDATE() AS DATE), " +
-                "        due_date            DATE          NOT NULL, " +
-                "        completed_date      DATE          NULL, " +
-                "        effectiveness       NVARCHAR(50)  NOT NULL DEFAULT N'Đang đánh giá', " +
-                "        feedback            NVARCHAR(MAX) NULL, " +
-                "        priority            NVARCHAR(20)  NOT NULL DEFAULT 'Medium', " +
-                "        source              NVARCHAR(100) NULL, " +
-                "        source_ref          NVARCHAR(200) NULL, " +
-                "        root_cause          NVARCHAR(MAX) NULL, " +
-                "        action_plan         NVARCHAR(MAX) NULL, " +
-                "        assigned_to         NVARCHAR(50)  NULL, " +
-                "        assigned_to_name    NVARCHAR(200) NULL, " +
-                "        created_by          NVARCHAR(50)  NULL, " +
-                "        verified_by         NVARCHAR(50)  NULL, " +
-                "        verified_date       DATE          NULL, " +
-                "        is_deleted          BIT           NOT NULL DEFAULT 0, " +
-                "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
-                "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE() " +
-                "    ); " +
-                "END";
-            template.execute(sqlCapa);
+	/*@PostConstruct
+	public void init() {
+	    java.util.concurrent.CompletableFuture.runAsync(() -> {
+	        initOnTemplate(jdbcTemplate, "IQA Database");
+	    });
+	}*/
 
-            // 2. dbo.capa_actions
-            String sqlActions =
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa_actions') AND type = 'U') " +
-                "BEGIN " +
-                "    CREATE TABLE dbo.capa_actions ( " +
-                "        action_id           INT IDENTITY(1,1) PRIMARY KEY, " +
-                "        capa_id             INT           NOT NULL, " +
-                "        action_description  NVARCHAR(MAX) NOT NULL, " +
-                "        assigned_to         NVARCHAR(50)  NULL, " +
-                "        assigned_to_name    NVARCHAR(200) NULL, " +
-                "        due_date            DATE          NULL, " +
-                "        completed_date      DATE          NULL, " +
-                "        status              NVARCHAR(20)  NOT NULL DEFAULT 'Pending', " +
-                "        sort_order          INT           NOT NULL DEFAULT 99, " +
-                "        notes               NVARCHAR(MAX) NULL, " +
-                "        is_deleted          BIT           NOT NULL DEFAULT 0, " +
-                "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
-                "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
-                "        CONSTRAINT FK_capa_actions_capa FOREIGN KEY (capa_id) REFERENCES dbo.capa (capa_id) ON DELETE CASCADE " +
-                "    ); " +
-                "END";
-            template.execute(sqlActions);
-
-            // 3. dbo.capa_history
-            String sqlHistory =
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa_history') AND type = 'U') " +
-                "BEGIN " +
-                "    CREATE TABLE dbo.capa_history ( " +
-                "        history_id          INT IDENTITY(1,1) PRIMARY KEY, " +
-                "        capa_id             INT           NOT NULL, " +
-                "        previous_status     NVARCHAR(30)  NULL, " +
-                "        new_status          NVARCHAR(30)  NOT NULL, " +
-                "        changed_by          NVARCHAR(50)  NULL, " +
-                "        feedback_comment    NVARCHAR(MAX) NULL, " +
-                "        changed_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
-                "        CONSTRAINT FK_capa_history_capa FOREIGN KEY (capa_id) REFERENCES dbo.capa (capa_id) ON DELETE CASCADE " +
-                "    ); " +
-                "END";
-            template.execute(sqlHistory);
-
-            // 4. dbo.capa_sources_def
-            String sqlSourcesDef =
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa_sources_def') AND type = 'U') " +
-                "BEGIN " +
-                "    CREATE TABLE dbo.capa_sources_def ( " +
-                "        source_id           INT IDENTITY(1,1) PRIMARY KEY, " +
-                "        source_code         NVARCHAR(50)  NOT NULL UNIQUE, " +
-                "        source_name         NVARCHAR(255) NOT NULL, " +
-                "        description         NVARCHAR(500) NULL, " +
-                "        sort_order          INT           NOT NULL DEFAULT 0, " +
-                "        is_active           BIT           NOT NULL DEFAULT 1, " +
-                "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
-                "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE() " +
-                "    ); " +
-                "END";
-            template.execute(sqlSourcesDef);
-
-            String seedSourcesSql =
-                "IF NOT EXISTS (SELECT 1 FROM dbo.capa_sources_def) " +
-                "BEGIN " +
-                "    INSERT INTO dbo.capa_sources_def (source_code, source_name, description, sort_order, is_active) VALUES " +
-                "    ('INTERNAL_AUDIT', N'Đánh giá nội bộ', N'Đánh giá nội bộ theo kế hoạch hoặc đột xuất', 1, 1), " +
-                "    ('EXTERNAL_ACCREDITATION', N'Kiểm định ngoài', N'Kiểm định chất lượng từ các tổ chức kiểm định độc lập', 2, 1), " +
-                "    ('STUDENT_FEEDBACK', N'Phản hồi SV', N'Ý kiến phản hồi từ sinh viên, học viên', 3, 1), " +
-                "    ('TEACHER_FEEDBACK', N'Phản hồi GV', N'Ý kiến phản hồi từ giảng viên, cán bộ', 4, 1), " +
-                "    ('OTHER', N'Khác', N'Các nguồn phát sinh CAPA khác', 5, 1); " +
-                "END";
-            template.execute(seedSourcesSql);
-
-            // 5. Initial Seed Data & Migration
-            fillCapaDepartmentIds(template);
-            try {
-                String dropColSql = 
-                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.capa') AND name = 'department_name') " +
-                    "BEGIN " +
-                    "    ALTER TABLE dbo.capa DROP COLUMN department_name; " +
-                    "END";
-                template.execute(dropColSql);
-            } catch (Exception ignored) {}
-
-            String seedSql =
-                "IF NOT EXISTS (SELECT 1 FROM dbo.capa WHERE capa_code = 'CAPA-26-001') " +
-                "BEGIN " +
-                "    INSERT INTO dbo.capa (capa_code, title, department_id, capa_type, status, open_date, due_date, completed_date, effectiveness, description, feedback) VALUES " +
-                "    (N'CAPA-26-001', N'Khắc phục lỗi nghẽn cổng đăng ký học phần', N'66a308ce8068e53428da202e', N'Khắc phục', 'processing', '2026-02-15', '2026-03-15', NULL, N'Đang đánh giá', N'Nâng cấp băng thông máy chủ và tối ưu hóa các chỉ mục cơ sở dữ liệu đăng ký môn học trực tuyến.', NULL), " +
-                "    (N'CAPA-26-002', N'Cập nhật tài liệu thực hành mạng viễn thông thế hệ mới', N'66a308ce8068e53428da2032', N'Phòng ngừa', 'closed', '2026-01-10', '2026-02-28', '2026-02-25', N'Đạt', N'Bổ sung các bài Lab mô phỏng mạng SDN/NFV vào chương trình đào tạo để chuẩn bị cho đợt kiểm định.', NULL), " +
-                "    (N'CAPA-26-003', N'Rà soát quy trình in sao đề thi hết môn học kỳ 1', N'66a308ce8068e53428da203a', N'Khắc phục', 'pending_closure', '2026-05-12', '2026-06-15', NULL, N'Đang đánh giá', N'Điều chỉnh quy trình giám sát chéo giữa các cán bộ in sao đề thi để tránh sai sót nội dung.', NULL), " +
-                "    (N'CAPA-26-004', N'Sửa chữa thiết bị đo dao động phòng thí nghiệm tầng 4', N'66a308ce8068e53428da2030', N'Khắc phục', 'processing', '2026-03-01', '2026-04-15', NULL, N'Đang đánh giá', N'Hiệu chuẩn lại 5 thiết bị đo dao động ký bị lệch tín hiệu chuẩn sau học kỳ thực hành.', NULL), " +
-                "    (N'CAPA-26-005', N'Tổ chức khảo sát doanh nghiệp về nhu cầu nhân lực logistics', N'66a308ce8068e53428da203b', N'Phòng ngừa', 'closed', '2026-01-05', '2026-03-01', '2026-02-28', N'Đạt', N'Thu thập ý kiến đóng góp từ 30 doanh nghiệp đối tác để hiệu chỉnh chương trình đào tạo logistics.', NULL), " +
-                "    (N'CAPA-26-006', N'Bổ sung giáo trình tiếng Anh chuyên ngành cho thư viện số', N'66a308ce8068e53428da203e', N'Khắc phục', 'processing', '2026-05-20', '2026-06-30', NULL, N'Đang đánh giá', N'Mua bản quyền số cho 15 đầu sách giáo trình chuyên ngành Công nghệ thông tin phiên bản mới nhất.', NULL), " +
-                "    (N'CAPA-26-007', N'Nâng cấp phần mềm đồ họa phòng máy thực hành đa phương tiện', N'66a308ce8068e53428da2041', N'Khắc phục', 'processing', '2026-04-10', '2026-05-30', NULL, N'Đang đánh giá', N'Cài đặt và cấu hình bộ công cụ Adobe Creative Cloud bản quyền cho 45 máy tính phòng máy số 3.', N'Thiếu minh chứng bản quyền PDF được Học viện phê duyệt.'), " +
-                "    (N'CAPA-26-008', N'Hoàn thiện quy trình giải quyết phản hồi trực tuyến của sinh viên', N'66a308ce8068e53428da2039', N'Phòng ngừa', 'closed', '2026-02-01', '2026-03-15', '2026-03-10', N'Chưa đạt', N'Xây dựng biểu mẫu số tự động hóa việc tiếp nhận phản hồi từ app sinh viên, tuy nhiên thời gian phản hồi thực tế vẫn trễ.', NULL), " +
-                "    (N'CAPA-26-009', N'Cập nhật vá lỗ hổng bảo mật trên cổng thông tin sinh viên', N'66a308ce8068e53428da202f', N'Khắc phục', 'processing', '2026-05-25', '2026-06-25', NULL, N'Đang đánh giá', N'Sửa lỗi SQL Injection được phát hiện trong đợt đánh giá an ninh mạng nội bộ tháng 5.', NULL), " +
-                "    (N'CAPA-26-010', N'Tối ưu hóa thời khóa biểu học kỳ hè giảm xung đột phòng học', N'66a308ce8068e53428da2038', N'Phòng ngừa', 'processing', '2026-05-01', '2026-06-15', NULL, N'Đang đánh giá', N'Áp dụng thuật toán phân chia phòng học động để tránh trùng lặp khung giờ thực hành của các khóa.', NULL); " +
-                "END";
-            template.execute(seedSql);
-            System.out.println("[CapaExtend] CAPA tables and seed data created/verified on " + dbName);
-        } catch (Exception e) {
-            System.err.println("[CapaExtend] Init notice for " + dbName + ": " + e.getMessage());
-        }
-    }
-
-    public void fillCapaDepartmentIds(JdbcTemplate template) {
-        if (template == null) return;
-        try {
-            String checkCol = "SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.capa') AND name = 'department_name'";
-            List<Integer> hasCol = template.queryForList(checkCol, Integer.class);
-            if (hasCol.isEmpty()) return;
-
-            // Step 1: Match exact department_name with orgs.ten for L3 orgs and Level 2 exceptions
-            String updateExactSql = 
-                "UPDATE c " +
-                "SET c.department_id = CAST(o.id AS VARCHAR(50)) " +
-                "FROM dbo.capa c " +
-                "INNER JOIN orgs o ON c.department_name = o.ten " +
-                "LEFT JOIN orgs p2 ON p2.id = o.donViChaId " +
-                "WHERE (c.department_id IS NULL OR c.department_id = '' OR ISNUMERIC(c.department_id) = 1) " +
-                "  AND (o.level = 3 OR o.id IN ('66a308ce8068e53428da2035', '66a308ce8068e53428da202c', '66a308ce8068e53428da202d')) " +
-                "  AND (o.isDeleted IS NULL OR o.isDeleted = 0) " +
-                "  AND (p2.donViChaId IS NULL OR p2.donViChaId <> '66a308ce8068e53428da2033')";
-            int count1 = template.update(updateExactSql);
-
-            // Step 2: Match fuzzy department_name for remaining null/empty department_ids
-            String updateFuzzySql = 
-                "UPDATE c " +
-                "SET c.department_id = CAST(o.id AS VARCHAR(50)) " +
-                "FROM dbo.capa c " +
-                "INNER JOIN orgs o ON (" +
-                "   o.ten LIKE c.department_name + '%' OR c.department_name LIKE o.ten + '%' " +
-                "   OR (c.department_name LIKE N'%CNTT%' AND o.ten LIKE N'%Công nghệ thông tin%') " +
-                "   OR (c.department_name LIKE N'%Khảo thí%' AND o.ten LIKE N'%Khảo thí%') " +
-                "   OR (c.department_name LIKE N'%Điện tử%' AND o.ten LIKE N'%Điện tử%') " +
-                "   OR (c.department_name LIKE N'%Quản trị kinh doanh%' AND o.ten LIKE N'%Quản trị kinh doanh%') " +
-                "   OR (c.department_name LIKE N'%Quốc tế%' AND o.ten LIKE N'%Quốc tế%') " +
-                "   OR (c.department_name LIKE N'%Đa phương tiện%' AND o.ten LIKE N'%Đa phương tiện%') " +
-                "   OR (c.department_name LIKE N'%Công tác%' AND o.ten LIKE N'%Công tác%') " +
-                "   OR (c.department_name LIKE N'%An toàn thông tin%' AND o.ten LIKE N'%An toàn thông tin%') " +
-                "   OR (c.department_name LIKE N'%Đào tạo%' AND o.ten LIKE N'%Đào tạo%') " +
-                "   OR (c.department_name LIKE N'%Viễn thông%' AND o.ten LIKE N'%Viễn thông%') " +
-                ") " +
-                "LEFT JOIN orgs p2 ON p2.id = o.donViChaId " +
-                "WHERE (c.department_id IS NULL OR c.department_id = '' OR ISNUMERIC(c.department_id) = 1) " +
-                "  AND (o.level = 3 OR o.id IN ('66a308ce8068e53428da2035', '66a308ce8068e53428da202c', '66a308ce8068e53428da202d')) " +
-                "  AND (o.isDeleted IS NULL OR o.isDeleted = 0) " +
-                "  AND (p2.donViChaId IS NULL OR p2.donViChaId <> '66a308ce8068e53428da2033')";
-            int count2 = template.update(updateFuzzySql);
-
-            System.out.println("[CapaExtend] Filled department_id in dbo.capa: exact=" + count1 + ", fuzzy=" + count2);
-        } catch (Exception e) {
-            System.err.println("[CapaExtend] Notice filling department_id in dbo.capa: " + e.getMessage());
-        }
-    }
-
+	/*private void initOnTemplate(JdbcTemplate template, String dbName) {
+	    if (template == null) return;
+	    try {
+	        // 1. dbo.capa
+	        String sqlCapa =
+	            "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa') AND type = 'U') " +
+	            "BEGIN " +
+	            "    CREATE TABLE dbo.capa ( " +
+	            "        capa_id             INT IDENTITY(1,1) PRIMARY KEY, " +
+	            "        capa_code           NVARCHAR(30)  NOT NULL, " +
+	            "        title               NVARCHAR(500) NOT NULL, " +
+	            "        description         NVARCHAR(MAX) NULL, " +
+	            "        capa_type           NVARCHAR(30)  NOT NULL DEFAULT N'Khắc phục', " +
+	            "        status              NVARCHAR(30)  NOT NULL DEFAULT 'processing', " +
+	            "        department_id       NVARCHAR(50)  NULL, " +
+	            "        open_date           DATE          NOT NULL DEFAULT CAST(GETDATE() AS DATE), " +
+	            "        due_date            DATE          NOT NULL, " +
+	            "        completed_date      DATE          NULL, " +
+	            "        effectiveness       NVARCHAR(50)  NOT NULL DEFAULT N'Đang đánh giá', " +
+	            "        feedback            NVARCHAR(MAX) NULL, " +
+	            "        priority            NVARCHAR(20)  NOT NULL DEFAULT 'Medium', " +
+	            "        source              NVARCHAR(100) NULL, " +
+	            "        source_ref          NVARCHAR(200) NULL, " +
+	            "        root_cause          NVARCHAR(MAX) NULL, " +
+	            "        action_plan         NVARCHAR(MAX) NULL, " +
+	            "        assigned_to         NVARCHAR(50)  NULL, " +
+	            "        assigned_to_name    NVARCHAR(200) NULL, " +
+	            "        created_by          NVARCHAR(50)  NULL, " +
+	            "        verified_by         NVARCHAR(50)  NULL, " +
+	            "        verified_date       DATE          NULL, " +
+	            "        is_deleted          BIT           NOT NULL DEFAULT 0, " +
+	            "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
+	            "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE() " +
+	            "    ); " +
+	            "END";
+	        template.execute(sqlCapa);
+	
+	        // 2. dbo.capa_actions
+	        String sqlActions =
+	            "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa_actions') AND type = 'U') " +
+	            "BEGIN " +
+	            "    CREATE TABLE dbo.capa_actions ( " +
+	            "        action_id           INT IDENTITY(1,1) PRIMARY KEY, " +
+	            "        capa_id             INT           NOT NULL, " +
+	            "        action_description  NVARCHAR(MAX) NOT NULL, " +
+	            "        assigned_to         NVARCHAR(50)  NULL, " +
+	            "        assigned_to_name    NVARCHAR(200) NULL, " +
+	            "        due_date            DATE          NULL, " +
+	            "        completed_date      DATE          NULL, " +
+	            "        status              NVARCHAR(20)  NOT NULL DEFAULT 'Pending', " +
+	            "        sort_order          INT           NOT NULL DEFAULT 99, " +
+	            "        notes               NVARCHAR(MAX) NULL, " +
+	            "        is_deleted          BIT           NOT NULL DEFAULT 0, " +
+	            "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
+	            "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
+	            "        CONSTRAINT FK_capa_actions_capa FOREIGN KEY (capa_id) REFERENCES dbo.capa (capa_id) ON DELETE CASCADE " +
+	            "    ); " +
+	            "END";
+	        template.execute(sqlActions);
+	
+	        // 3. dbo.capa_history
+	        String sqlHistory =
+	            "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa_history') AND type = 'U') " +
+	            "BEGIN " +
+	            "    CREATE TABLE dbo.capa_history ( " +
+	            "        history_id          INT IDENTITY(1,1) PRIMARY KEY, " +
+	            "        capa_id             INT           NOT NULL, " +
+	            "        previous_status     NVARCHAR(30)  NULL, " +
+	            "        new_status          NVARCHAR(30)  NOT NULL, " +
+	            "        changed_by          NVARCHAR(50)  NULL, " +
+	            "        feedback_comment    NVARCHAR(MAX) NULL, " +
+	            "        changed_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
+	            "        CONSTRAINT FK_capa_history_capa FOREIGN KEY (capa_id) REFERENCES dbo.capa (capa_id) ON DELETE CASCADE " +
+	            "    ); " +
+	            "END";
+	        template.execute(sqlHistory);
+	
+	        // 4. dbo.capa_sources_def
+	        String sqlSourcesDef =
+	            "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.capa_sources_def') AND type = 'U') " +
+	            "BEGIN " +
+	            "    CREATE TABLE dbo.capa_sources_def ( " +
+	            "        source_id           INT IDENTITY(1,1) PRIMARY KEY, " +
+	            "        source_code         NVARCHAR(50)  NOT NULL UNIQUE, " +
+	            "        source_name         NVARCHAR(255) NOT NULL, " +
+	            "        description         NVARCHAR(500) NULL, " +
+	            "        sort_order          INT           NOT NULL DEFAULT 0, " +
+	            "        is_active           BIT           NOT NULL DEFAULT 1, " +
+	            "        created_at          DATETIME2     NOT NULL DEFAULT GETDATE(), " +
+	            "        updated_at          DATETIME2     NOT NULL DEFAULT GETDATE() " +
+	            "    ); " +
+	            "END";
+	        template.execute(sqlSourcesDef);
+	
+	        String seedSourcesSql =
+	            "IF NOT EXISTS (SELECT 1 FROM dbo.capa_sources_def) " +
+	            "BEGIN " +
+	            "    INSERT INTO dbo.capa_sources_def (source_code, source_name, description, sort_order, is_active) VALUES " +
+	            "    ('INTERNAL_AUDIT', N'Đánh giá nội bộ', N'Đánh giá nội bộ theo kế hoạch hoặc đột xuất', 1, 1), " +
+	            "    ('EXTERNAL_ACCREDITATION', N'Kiểm định ngoài', N'Kiểm định chất lượng từ các tổ chức kiểm định độc lập', 2, 1), " +
+	            "    ('STUDENT_FEEDBACK', N'Phản hồi SV', N'Ý kiến phản hồi từ sinh viên, học viên', 3, 1), " +
+	            "    ('TEACHER_FEEDBACK', N'Phản hồi GV', N'Ý kiến phản hồi từ giảng viên, cán bộ', 4, 1), " +
+	            "    ('OTHER', N'Khác', N'Các nguồn phát sinh CAPA khác', 5, 1); " +
+	            "END";
+	        template.execute(seedSourcesSql);
+	
+	        // 5. Initial Seed Data & Migration
+	        fillCapaDepartmentIds(template);
+	        try {
+	            String dropColSql = 
+	                "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.capa') AND name = 'department_name') " +
+	                "BEGIN " +
+	                "    ALTER TABLE dbo.capa DROP COLUMN department_name; " +
+	                "END";
+	            template.execute(dropColSql);
+	        } catch (Exception ignored) {}
+	
+	        String seedSql =
+	            "IF NOT EXISTS (SELECT 1 FROM dbo.capa WHERE capa_code = 'CAPA-26-001') " +
+	            "BEGIN " +
+	            "    INSERT INTO dbo.capa (capa_code, title, department_id, capa_type, status, open_date, due_date, completed_date, effectiveness, description, feedback) VALUES " +
+	            "    (N'CAPA-26-001', N'Khắc phục lỗi nghẽn cổng đăng ký học phần', N'66a308ce8068e53428da202e', N'Khắc phục', 'processing', '2026-02-15', '2026-03-15', NULL, N'Đang đánh giá', N'Nâng cấp băng thông máy chủ và tối ưu hóa các chỉ mục cơ sở dữ liệu đăng ký môn học trực tuyến.', NULL), " +
+	            "    (N'CAPA-26-002', N'Cập nhật tài liệu thực hành mạng viễn thông thế hệ mới', N'66a308ce8068e53428da2032', N'Phòng ngừa', 'closed', '2026-01-10', '2026-02-28', '2026-02-25', N'Đạt', N'Bổ sung các bài Lab mô phỏng mạng SDN/NFV vào chương trình đào tạo để chuẩn bị cho đợt kiểm định.', NULL), " +
+	            "    (N'CAPA-26-003', N'Rà soát quy trình in sao đề thi hết môn học kỳ 1', N'66a308ce8068e53428da203a', N'Khắc phục', 'pending_closure', '2026-05-12', '2026-06-15', NULL, N'Đang đánh giá', N'Điều chỉnh quy trình giám sát chéo giữa các cán bộ in sao đề thi để tránh sai sót nội dung.', NULL), " +
+	            "    (N'CAPA-26-004', N'Sửa chữa thiết bị đo dao động phòng thí nghiệm tầng 4', N'66a308ce8068e53428da2030', N'Khắc phục', 'processing', '2026-03-01', '2026-04-15', NULL, N'Đang đánh giá', N'Hiệu chuẩn lại 5 thiết bị đo dao động ký bị lệch tín hiệu chuẩn sau học kỳ thực hành.', NULL), " +
+	            "    (N'CAPA-26-005', N'Tổ chức khảo sát doanh nghiệp về nhu cầu nhân lực logistics', N'66a308ce8068e53428da203b', N'Phòng ngừa', 'closed', '2026-01-05', '2026-03-01', '2026-02-28', N'Đạt', N'Thu thập ý kiến đóng góp từ 30 doanh nghiệp đối tác để hiệu chỉnh chương trình đào tạo logistics.', NULL), " +
+	            "    (N'CAPA-26-006', N'Bổ sung giáo trình tiếng Anh chuyên ngành cho thư viện số', N'66a308ce8068e53428da203e', N'Khắc phục', 'processing', '2026-05-20', '2026-06-30', NULL, N'Đang đánh giá', N'Mua bản quyền số cho 15 đầu sách giáo trình chuyên ngành Công nghệ thông tin phiên bản mới nhất.', NULL), " +
+	            "    (N'CAPA-26-007', N'Nâng cấp phần mềm đồ họa phòng máy thực hành đa phương tiện', N'66a308ce8068e53428da2041', N'Khắc phục', 'processing', '2026-04-10', '2026-05-30', NULL, N'Đang đánh giá', N'Cài đặt và cấu hình bộ công cụ Adobe Creative Cloud bản quyền cho 45 máy tính phòng máy số 3.', N'Thiếu minh chứng bản quyền PDF được Học viện phê duyệt.'), " +
+	            "    (N'CAPA-26-008', N'Hoàn thiện quy trình giải quyết phản hồi trực tuyến của sinh viên', N'66a308ce8068e53428da2039', N'Phòng ngừa', 'closed', '2026-02-01', '2026-03-15', '2026-03-10', N'Chưa đạt', N'Xây dựng biểu mẫu số tự động hóa việc tiếp nhận phản hồi từ app sinh viên, tuy nhiên thời gian phản hồi thực tế vẫn trễ.', NULL), " +
+	            "    (N'CAPA-26-009', N'Cập nhật vá lỗ hổng bảo mật trên cổng thông tin sinh viên', N'66a308ce8068e53428da202f', N'Khắc phục', 'processing', '2026-05-25', '2026-06-25', NULL, N'Đang đánh giá', N'Sửa lỗi SQL Injection được phát hiện trong đợt đánh giá an ninh mạng nội bộ tháng 5.', NULL), " +
+	            "    (N'CAPA-26-010', N'Tối ưu hóa thời khóa biểu học kỳ hè giảm xung đột phòng học', N'66a308ce8068e53428da2038', N'Phòng ngừa', 'processing', '2026-05-01', '2026-06-15', NULL, N'Đang đánh giá', N'Áp dụng thuật toán phân chia phòng học động để tránh trùng lặp khung giờ thực hành của các khóa.', NULL); " +
+	            "END";
+	        template.execute(seedSql);
+	        System.out.println("[CapaExtend] CAPA tables and seed data created/verified on " + dbName);
+	    } catch (Exception e) {
+	        System.err.println("[CapaExtend] Init notice for " + dbName + ": " + e.getMessage());
+	    }
+	}
+	*/
+	/*public void fillCapaDepartmentIds(JdbcTemplate template) {
+	    if (template == null) return;
+	    try {
+	        String checkCol = "SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.capa') AND name = 'department_name'";
+	        List<Integer> hasCol = template.queryForList(checkCol, Integer.class);
+	        if (hasCol.isEmpty()) return;
+	
+	        // Step 1: Match exact department_name with orgs.ten for L3 orgs and Level 2 exceptions
+	        String updateExactSql = 
+	            "UPDATE c " +
+	            "SET c.department_id = CAST(o.id AS VARCHAR(50)) " +
+	            "FROM dbo.capa c " +
+	            "INNER JOIN orgs o ON c.department_name = o.ten " +
+	            "LEFT JOIN orgs p2 ON p2.id = o.donViChaId " +
+	            "WHERE (c.department_id IS NULL OR c.department_id = '' OR ISNUMERIC(c.department_id) = 1) " +
+	            "  AND (o.level = 3 OR o.id IN ('66a308ce8068e53428da2035', '66a308ce8068e53428da202c', '66a308ce8068e53428da202d')) " +
+	            "  AND (o.isDeleted IS NULL OR o.isDeleted = 0) " +
+	            "  AND (p2.donViChaId IS NULL OR p2.donViChaId <> '66a308ce8068e53428da2033')";
+	        int count1 = template.update(updateExactSql);
+	
+	        // Step 2: Match fuzzy department_name for remaining null/empty department_ids
+	        String updateFuzzySql = 
+	            "UPDATE c " +
+	            "SET c.department_id = CAST(o.id AS VARCHAR(50)) " +
+	            "FROM dbo.capa c " +
+	            "INNER JOIN orgs o ON (" +
+	            "   o.ten LIKE c.department_name + '%' OR c.department_name LIKE o.ten + '%' " +
+	            "   OR (c.department_name LIKE N'%CNTT%' AND o.ten LIKE N'%Công nghệ thông tin%') " +
+	            "   OR (c.department_name LIKE N'%Khảo thí%' AND o.ten LIKE N'%Khảo thí%') " +
+	            "   OR (c.department_name LIKE N'%Điện tử%' AND o.ten LIKE N'%Điện tử%') " +
+	            "   OR (c.department_name LIKE N'%Quản trị kinh doanh%' AND o.ten LIKE N'%Quản trị kinh doanh%') " +
+	            "   OR (c.department_name LIKE N'%Quốc tế%' AND o.ten LIKE N'%Quốc tế%') " +
+	            "   OR (c.department_name LIKE N'%Đa phương tiện%' AND o.ten LIKE N'%Đa phương tiện%') " +
+	            "   OR (c.department_name LIKE N'%Công tác%' AND o.ten LIKE N'%Công tác%') " +
+	            "   OR (c.department_name LIKE N'%An toàn thông tin%' AND o.ten LIKE N'%An toàn thông tin%') " +
+	            "   OR (c.department_name LIKE N'%Đào tạo%' AND o.ten LIKE N'%Đào tạo%') " +
+	            "   OR (c.department_name LIKE N'%Viễn thông%' AND o.ten LIKE N'%Viễn thông%') " +
+	            ") " +
+	            "LEFT JOIN orgs p2 ON p2.id = o.donViChaId " +
+	            "WHERE (c.department_id IS NULL OR c.department_id = '' OR ISNUMERIC(c.department_id) = 1) " +
+	            "  AND (o.level = 3 OR o.id IN ('66a308ce8068e53428da2035', '66a308ce8068e53428da202c', '66a308ce8068e53428da202d')) " +
+	            "  AND (o.isDeleted IS NULL OR o.isDeleted = 0) " +
+	            "  AND (p2.donViChaId IS NULL OR p2.donViChaId <> '66a308ce8068e53428da2033')";
+	        int count2 = template.update(updateFuzzySql);
+	
+	        System.out.println("[CapaExtend] Filled department_id in dbo.capa: exact=" + count1 + ", fuzzy=" + count2);
+	    } catch (Exception e) {
+	        System.err.println("[CapaExtend] Notice filling department_id in dbo.capa: " + e.getMessage());
+	    }
+	}
+	*/
     public String[] resolveDepartmentInfo(String departmentId, String departmentName) {
         String resolvedId = departmentId;
         String resolvedName = departmentName;
@@ -385,7 +389,51 @@ public class CapaExtend {
         };
 
         Integer newId = jdbcTemplate.queryForObject(sql, Integer.class, params);
-        return newId != null ? newId : -1;
+        if (newId != null && newId > 0) {
+            try {
+                if (notificationExtend != null) {
+                    String titleMsg = "Hồ sơ CAPA mới: " + capaCode;
+                    String deptName = (deptInfo != null && deptInfo.length > 1 && deptInfo[1] != null) ? deptInfo[1] : (departmentName != null ? departmentName : "Đơn vị");
+                    String descMsg = "Hồ sơ CAPA '" + title + "' (" + deptName + ") đã được tạo thành công.";
+
+                    // Dispatch notification to Department Leader
+                    notificationExtend.dispatchNotification(
+                        "CAPA_CREATED",
+                        "CAPA",
+                        "info",
+                        titleMsg,
+                        descMsg,
+                        "TRUONG_DON_VI",
+                        finalDeptId,
+                        "CAPA_TICKET",
+                        capaCode,
+                        "/capa?id=" + capaCode,
+                        createdBy != null ? createdBy : "SYSTEM",
+                        null
+                    );
+
+                    // Dispatch notification to Admins
+                    notificationExtend.dispatchNotification(
+                        "CAPA_CREATED",
+                        "CAPA",
+                        "info",
+                        titleMsg,
+                        descMsg,
+                        "ADMIN",
+                        null,
+                        "CAPA_TICKET",
+                        capaCode,
+                        "/capa?id=" + capaCode,
+                        createdBy != null ? createdBy : "SYSTEM",
+                        null
+                    );
+                }
+            } catch (Exception notifEx) {
+                System.err.println("[CapaExtend] Error dispatching CAPA_CREATED notification: " + notifEx.getMessage());
+            }
+            return newId;
+        }
+        return -1;
     }
 
     // ---------------------------------------------------------------------------
@@ -406,6 +454,31 @@ public class CapaExtend {
         int rows = jdbcTemplate.update(sql, capaId);
         if (rows > 0) {
             logHistory(capaId, "processing", "pending_closure", user, "Báo cáo hoàn thành - Chờ TTKT thẩm định");
+            try {
+                if (notificationExtend != null) {
+                    CapaDto capa = getCapaById(capaId);
+                    String code = (capa != null && capa.getCapaCode() != null) ? capa.getCapaCode() : String.valueOf(capaId);
+                    String titleStr = (capa != null && capa.getTitle() != null) ? capa.getTitle() : "";
+                    String deptName = (capa != null && capa.getDepartmentName() != null) ? capa.getDepartmentName() : "Đơn vị";
+
+                    notificationExtend.dispatchNotification(
+                        "CAPA_PENDING_CLOSURE",
+                        "CAPA",
+                        "warning",
+                        "Báo cáo hoàn thành CAPA: " + code,
+                        "Đơn vị " + deptName + " đã báo cáo hoàn thành hồ sơ CAPA '" + titleStr + "'. Đang chờ TTKT thẩm định.",
+                        "ADMIN",
+                        null,
+                        "CAPA_TICKET",
+                        code,
+                        "/capa?id=" + code,
+                        user != null ? user : "SYSTEM",
+                        null
+                    );
+                }
+            } catch (Exception notifEx) {
+                System.err.println("[CapaExtend] Error dispatching CAPA_PENDING_CLOSURE notification: " + notifEx.getMessage());
+            }
         }
         return rows > 0;
     }
@@ -430,6 +503,31 @@ public class CapaExtend {
         int rows = jdbcTemplate.update(sql, user, effVal, capaId);
         if (rows > 0) {
             logHistory(capaId, "pending_closure", "closed", user, "Duyệt đóng (Khép vòng) hồ sơ CAPA - Hiệu lực: " + effVal);
+            try {
+                if (notificationExtend != null) {
+                    CapaDto capa = getCapaById(capaId);
+                    String code = (capa != null && capa.getCapaCode() != null) ? capa.getCapaCode() : String.valueOf(capaId);
+                    String titleStr = (capa != null && capa.getTitle() != null) ? capa.getTitle() : "";
+                    String dId = (capa != null) ? capa.getDepartmentId() : null;
+
+                    notificationExtend.dispatchNotification(
+                        "CAPA_CLOSED",
+                        "CAPA",
+                        "success",
+                        "Duyệt đóng (Khép vòng) CAPA: " + code,
+                        "Hồ sơ CAPA '" + titleStr + "' đã được TTKT duyệt đóng thành công (Hiệu lực: " + effVal + ").",
+                        "TRUONG_DON_VI",
+                        dId,
+                        "CAPA_TICKET",
+                        code,
+                        "/capa?id=" + code,
+                        user != null ? user : "SYSTEM",
+                        null
+                    );
+                }
+            } catch (Exception notifEx) {
+                System.err.println("[CapaExtend] Error dispatching CAPA_CLOSED notification: " + notifEx.getMessage());
+            }
         }
         return rows > 0;
     }
@@ -450,6 +548,31 @@ public class CapaExtend {
         int rows = jdbcTemplate.update(sql, feedbackComment, capaId);
         if (rows > 0) {
             logHistory(capaId, "pending_closure", "processing", user, "Yêu cầu cải tiến thêm: " + feedbackComment);
+            try {
+                if (notificationExtend != null) {
+                    CapaDto capa = getCapaById(capaId);
+                    String code = (capa != null && capa.getCapaCode() != null) ? capa.getCapaCode() : String.valueOf(capaId);
+                    String titleStr = (capa != null && capa.getTitle() != null) ? capa.getTitle() : "";
+                    String dId = (capa != null) ? capa.getDepartmentId() : null;
+
+                    notificationExtend.dispatchNotification(
+                        "CAPA_REVERTED",
+                        "CAPA",
+                        "danger",
+                        "Yêu cầu cải tiến thêm CAPA: " + code,
+                        "Hồ sơ CAPA '" + titleStr + "' bị từ chối đóng. Ý kiến yêu cầu: " + feedbackComment,
+                        "TRUONG_DON_VI",
+                        dId,
+                        "CAPA_TICKET",
+                        code,
+                        "/capa?id=" + code,
+                        user != null ? user : "SYSTEM",
+                        null
+                    );
+                }
+            } catch (Exception notifEx) {
+                System.err.println("[CapaExtend] Error dispatching CAPA_REVERTED notification: " + notifEx.getMessage());
+            }
         }
         return rows > 0;
     }
@@ -460,6 +583,7 @@ public class CapaExtend {
 
     public boolean updateCapa(int capaId, String title, String description,
                               String priority, String dueDate, String departmentName) {
+        CapaDto capaBefore = getCapaById(capaId);
         String[] deptInfo = resolveDepartmentInfo(null, departmentName);
         String deptId = deptInfo[0];
 
@@ -473,12 +597,69 @@ public class CapaExtend {
             "  updated_at = GETDATE() " +
             "WHERE capa_id = ? AND (is_deleted = 0 OR is_deleted IS NULL)";
 
-        return jdbcTemplate.update(sql, title, description, priority, dueDate, deptId, capaId) > 0;
+        boolean updated = jdbcTemplate.update(sql, title, description, priority, dueDate, deptId, capaId) > 0;
+        if (updated) {
+            try {
+                if (notificationExtend != null) {
+                    CapaDto capaAfter = getCapaById(capaId);
+                    CapaDto capa = capaAfter != null ? capaAfter : capaBefore;
+                    String code = (capa != null && capa.getCapaCode() != null) ? capa.getCapaCode() : String.valueOf(capaId);
+                    String titleStr = (capa != null && capa.getTitle() != null) ? capa.getTitle() : (title != null ? title : "");
+                    String dId = (capa != null) ? capa.getDepartmentId() : deptId;
+
+                    notificationExtend.dispatchNotification(
+                        "CAPA_UPDATED",
+                        "CAPA",
+                        "info",
+                        "Cập nhật thông tin CAPA: " + code,
+                        "Thông tin hồ sơ CAPA '" + titleStr + "' đã được cập nhật.",
+                        "TRUONG_DON_VI",
+                        dId,
+                        "CAPA_TICKET",
+                        code,
+                        "/capa?id=" + code,
+                        "SYSTEM",
+                        null
+                    );
+                }
+            } catch (Exception notifEx) {
+                System.err.println("[CapaExtend] Error dispatching CAPA_UPDATED notification: " + notifEx.getMessage());
+            }
+        }
+        return updated;
     }
 
     public boolean deleteCapa(int capaId, String user) {
+        CapaDto capaBeforeDelete = getCapaById(capaId);
         String sql = "UPDATE dbo.capa SET is_deleted = 1, updated_at = GETDATE() WHERE capa_id = ?";
-        return jdbcTemplate.update(sql, capaId) > 0;
+        boolean deleted = jdbcTemplate.update(sql, capaId) > 0;
+        if (deleted) {
+            try {
+                if (notificationExtend != null) {
+                    String code = (capaBeforeDelete != null && capaBeforeDelete.getCapaCode() != null) ? capaBeforeDelete.getCapaCode() : String.valueOf(capaId);
+                    String titleStr = (capaBeforeDelete != null && capaBeforeDelete.getTitle() != null) ? capaBeforeDelete.getTitle() : "";
+                    String dId = (capaBeforeDelete != null) ? capaBeforeDelete.getDepartmentId() : null;
+
+                    notificationExtend.dispatchNotification(
+                        "CAPA_DELETED",
+                        "CAPA",
+                        "warning",
+                        "Rút / Xóa hồ sơ CAPA: " + code,
+                        "Hồ sơ CAPA '" + titleStr + "' đã được xóa/rút khỏi hệ thống bởi " + (user != null ? user : "người dùng") + ".",
+                        "ADMIN",
+                        dId,
+                        "CAPA_TICKET",
+                        code,
+                        "/capa",
+                        user != null ? user : "SYSTEM",
+                        null
+                    );
+                }
+            } catch (Exception notifEx) {
+                System.err.println("[CapaExtend] Error dispatching CAPA_DELETED notification: " + notifEx.getMessage());
+            }
+        }
+        return deleted;
     }
 
     // ---------------------------------------------------------------------------

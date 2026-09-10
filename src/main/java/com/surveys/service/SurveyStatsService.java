@@ -27,32 +27,32 @@ public class SurveyStatsService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @PostConstruct
-    public void initProcedures() {
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                ClassPathResource resource = new ClassPathResource("surveys_stats_schema.sql");
-                if (resource.exists()) {
-                    InputStream is = resource.getInputStream();
-                    String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
-                    String[] batches = content.split("(?i)\\r?\\nGO\\r?\\n");
-                    for (String batch : batches) {
-                        String trimmed = batch.trim();
-                        if (!trimmed.isEmpty()) {
-                            try {
-                                jdbcTemplate.execute(trimmed);
-                            } catch (Exception e) {
-                                log.warn("Notice executing SQL batch during startup: {}", e.getMessage());
-                            }
-                        }
-                    }
-                    log.info("Successfully refreshed survey stats schema and stored procedures.");
-                }
-            } catch (Exception e) {
-                log.warn("Notice refreshing survey stats schema: {}", e.getMessage());
-            }
-        });
-    }
+	/*@PostConstruct
+	public void initProcedures() {
+	    java.util.concurrent.CompletableFuture.runAsync(() -> {
+	        try {
+	            ClassPathResource resource = new ClassPathResource("surveys_stats_schema.sql");
+	            if (resource.exists()) {
+	                InputStream is = resource.getInputStream();
+	                String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
+	                String[] batches = content.split("(?i)\\r?\\nGO\\r?\\n");
+	                for (String batch : batches) {
+	                    String trimmed = batch.trim();
+	                    if (!trimmed.isEmpty()) {
+	                        try {
+	                            jdbcTemplate.execute(trimmed);
+	                        } catch (Exception e) {
+	                            log.warn("Notice executing SQL batch during startup: {}", e.getMessage());
+	                        }
+	                    }
+	                }
+	                log.info("Successfully refreshed survey stats schema and stored procedures.");
+	            }
+	        } catch (Exception e) {
+	            log.warn("Notice refreshing survey stats schema: {}", e.getMessage());
+	        }
+	    });
+	}*/
 
     public void recomputeCampaign(String surveyId, String campaignId) {
         try {

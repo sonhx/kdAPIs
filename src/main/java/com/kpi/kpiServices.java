@@ -790,7 +790,7 @@ public class kpiServices {
 			jout.put("code", 500);
 			jout.put("description", "Server error: " + e.getMessage());
 		}
-		System.out.println("RES(getKpiDefinitionsWithAssignments):" + jout.toString());
+		//System.out.println("RES(getKpiDefinitionsWithAssignments): code=200, count=" + (kpis != null ? kpis.length() : 0));
 		return jout.toString();
 	}
 

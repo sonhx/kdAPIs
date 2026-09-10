@@ -15,17 +15,21 @@ public class UserExtend {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
-	@PostConstruct
+	/*@PostConstruct
 	public void init() {
 		java.util.concurrent.CompletableFuture.runAsync(() -> {
 			try {
-				jdbcTemplate.update("UPDATE users SET IsAdmin = 1, Type = 1 WHERE Email IN ('sonhx@ptit.edu.vn', 'admin@ptit.edu.vn')");
-				System.out.println("[UserExtend] Verified admin privileges for sonhx@ptit.edu.vn and admin@ptit.edu.vn");
+				String checkSql = "SELECT COUNT(*) FROM users WITH (NOLOCK) WHERE Email IN ('sonhx@ptit.edu.vn', 'admin@ptit.edu.vn') AND (IsAdmin IS NULL OR IsAdmin = 0 OR Type <> 1)";
+				Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class);
+				if (count != null && count > 0) {
+					jdbcTemplate.update("UPDATE users SET IsAdmin = 1, Type = 1 WHERE Email IN ('sonhx@ptit.edu.vn', 'admin@ptit.edu.vn')");
+					System.out.println("[UserExtend] Verified admin privileges for sonhx@ptit.edu.vn and admin@ptit.edu.vn");
+				}
 			} catch (Exception e) {
 				System.err.println("[UserExtend] Admin init notice: " + e.getMessage());
 			}
 		});
-	}
+	}*/
 
 	/**
 	 * Provision personnel who are:
@@ -266,7 +270,7 @@ public class UserExtend {
 				"    COALESCE(o3.ten, oChinh.ten, N'Chưa xếp đơn vị') AS dept_name, " +
 				"    COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
 				"FROM users u " +
-				"LEFT JOIN personnel p0 ON p0.id = u.ID AND p0.isDeleted = 0 " +
+				"LEFT JOIN personnel p0 ON CAST(p0.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) AND p0.isDeleted = 0 " +
 				"LEFT JOIN personnel p1 ON p0.id IS NULL AND p1.emailCanBo = u.Email AND p1.isDeleted = 0 " +
 				"LEFT JOIN personnel p2 ON p0.id IS NULL AND p1.id IS NULL AND p2.email = u.Email AND p2.isDeleted = 0 " +
 				"LEFT JOIN orgs o3 ON o3.id = COALESCE(p0.donViL3Id, p1.donViL3Id, p2.donViL3Id) " +

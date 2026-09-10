@@ -390,7 +390,17 @@ public class PersonnelSyncScheduler {
         }
 
         sql.append("ORDER BY fullname ASC");
+        
+        String dbName = jdbcTemplate.queryForObject(
+        	    "SELECT DB_NAME()", String.class);
 
+        	String serverName = jdbcTemplate.queryForObject(
+        	    "SELECT @@SERVERNAME", String.class);
+
+        	System.out.println("DB = " + dbName);
+        	System.out.println("SERVER = " + serverName);
+        	
+        	
         return jdbcTemplate.queryForList(sql.toString(), params.toArray());
     }
 

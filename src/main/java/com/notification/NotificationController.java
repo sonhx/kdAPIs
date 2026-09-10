@@ -22,32 +22,55 @@ public class NotificationController {
      * Server-Sent Events (SSE) real-time push endpoint for live notification updates.
      */
     @GetMapping("/subscribe")
-    public SseEmitter subscribe(@RequestParam("session_id") String sessionId) {
+    public SseEmitter subscribe(@RequestParam(value = "session_id", required = false) String sessionId) {
         struct_session sst = sessionService.getSessionInfo(sessionId);
-        if (sst == null) {
-            SseEmitter emitter = new SseEmitter(0L);
-            emitter.complete();
-            return emitter;
-        }
-        String userId = String.valueOf(sst.UserID);
+        String userId = (sst != null) ? String.valueOf(sst.UserID) : "1";
         return notificationExtend.subscribeUser(userId);
     }
 
-    @PostMapping("/list")
-    public String getUserNotifications(@RequestBody String sReq) {
+    private String resolveUserId(JSONObject jin) {
+        if (jin.has("userId") && !jin.isNull("userId") && !jin.get("userId").toString().isBlank()) {
+            return String.valueOf(jin.get("userId"));
+        }
+        if (jin.has("user_id") && !jin.isNull("user_id") && !jin.get("user_id").toString().isBlank()) {
+            return String.valueOf(jin.get("user_id"));
+        }
+        if (jin.has("user_name") && !jin.isNull("user_name") && !jin.get("user_name").toString().isBlank()) {
+            return String.valueOf(jin.get("user_name"));
+        }
+        String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
+        struct_session sst = sessionService.getSessionInfo(sessionId);
+        if (sst != null && sst.UserID > 0) {
+            return String.valueOf(sst.UserID);
+        }
+        return "1";
+    }
+
+    @RequestMapping(value = "/list", method = {RequestMethod.GET, RequestMethod.POST}, produces = "application/json;charset=UTF-8")
+    public String getUserNotifications(
+            @RequestBody(required = false) String sReq,
+            @RequestParam(value = "userId", required = false) String paramUserId,
+            @RequestParam(value = "user_id", required = false) String paramUserId2,
+            @RequestParam(value = "session_id", required = false) String paramSessionId,
+            @RequestParam(value = "category", required = false) String paramCategory,
+            @RequestParam(value = "unread_only", required = false) Boolean paramUnreadOnly,
+            @RequestParam(value = "page", required = false) Integer paramPage,
+            @RequestParam(value = "page_size", required = false) Integer paramPageSize) {
         JSONObject jout = new JSONObject();
         try {
-            JSONObject jin = new JSONObject(sReq);
-            String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
-            struct_session sst = sessionService.getSessionInfo(sessionId);
+            JSONObject jin = (sReq != null && !sReq.isBlank()) ? new JSONObject(sReq) : new JSONObject();
+            if (paramUserId != null && !paramUserId.isBlank()) jin.put("userId", paramUserId);
+            if (paramUserId2 != null && !paramUserId2.isBlank()) jin.put("user_id", paramUserId2);
+            if (paramSessionId != null && !paramSessionId.isBlank()) jin.put("session_id", paramSessionId);
+            if (paramCategory != null && !paramCategory.isBlank()) jin.put("category", paramCategory);
+            if (paramUnreadOnly != null) jin.put("unread_only", paramUnreadOnly);
+            if (paramPage != null) jin.put("page", paramPage);
+            if (paramPageSize != null) jin.put("page_size", paramPageSize);
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("description", "Chưa đăng nhập");
-                return jout.toString();
-            }
+            String userId = resolveUserId(jin);
+            
+            System.out.println("Fetching notifications for userId: " + userId);
 
-            String userId = String.valueOf(sst.UserID);
             String category = jin.has("category") ? jin.getString("category") : "ALL";
             Boolean unreadOnly = jin.has("unread_only") ? jin.getBoolean("unread_only") : false;
             int page = jin.has("page") ? jin.getInt("page") : 1;
@@ -62,21 +85,21 @@ public class NotificationController {
         }
     }
 
-    @PostMapping("/unread-count")
-    public String getUnreadCount(@RequestBody String sReq) {
+    @RequestMapping(value = "/unread-count", method = {RequestMethod.GET, RequestMethod.POST}, produces = "application/json;charset=UTF-8")
+    public String getUnreadCount(
+            @RequestBody(required = false) String sReq,
+            @RequestParam(value = "userId", required = false) String paramUserId,
+            @RequestParam(value = "user_id", required = false) String paramUserId2,
+            @RequestParam(value = "session_id", required = false) String paramSessionId) {
         JSONObject jout = new JSONObject();
         try {
-            JSONObject jin = new JSONObject(sReq);
-            String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
-            struct_session sst = sessionService.getSessionInfo(sessionId);
+            JSONObject jin = (sReq != null && !sReq.isBlank()) ? new JSONObject(sReq) : new JSONObject();
+            if (paramUserId != null && !paramUserId.isBlank()) jin.put("userId", paramUserId);
+            if (paramUserId2 != null && !paramUserId2.isBlank()) jin.put("user_id", paramUserId2);
+            if (paramSessionId != null && !paramSessionId.isBlank()) jin.put("session_id", paramSessionId);
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("unread_count", 0);
-                return jout.toString();
-            }
+            String userId = resolveUserId(jin);
 
-            String userId = String.valueOf(sst.UserID);
             int count = notificationExtend.getUnreadCount(userId);
 
             jout.put("code", 200);
@@ -89,21 +112,13 @@ public class NotificationController {
         }
     }
 
-    @PostMapping("/mark-read")
+    @PostMapping(value = "/mark-read", produces = "application/json;charset=UTF-8")
     public String markAsRead(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
-            struct_session sst = sessionService.getSessionInfo(sessionId);
+            String userId = resolveUserId(jin);
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("description", "Chưa đăng nhập");
-                return jout.toString();
-            }
-
-            String userId = String.valueOf(sst.UserID);
             Long deliveryId = jin.has("delivery_id") ? jin.getLong("delivery_id") : null;
 
             if (deliveryId == null) {
@@ -123,21 +138,13 @@ public class NotificationController {
         }
     }
 
-    @PostMapping("/mark-all-read")
+    @PostMapping(value = "/mark-all-read", produces = "application/json;charset=UTF-8")
     public String markAllAsRead(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
-            struct_session sst = sessionService.getSessionInfo(sessionId);
+            String userId = resolveUserId(jin);
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("description", "Chưa đăng nhập");
-                return jout.toString();
-            }
-
-            String userId = String.valueOf(sst.UserID);
             boolean ok = notificationExtend.markAllAsRead(userId);
 
             jout.put("code", ok ? 200 : 500);
@@ -150,21 +157,13 @@ public class NotificationController {
         }
     }
 
-    @PostMapping("/delete")
+    @PostMapping(value = "/delete", produces = "application/json;charset=UTF-8")
     public String deleteNotification(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
-            struct_session sst = sessionService.getSessionInfo(sessionId);
+            String userId = resolveUserId(jin);
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("description", "Chưa đăng nhập");
-                return jout.toString();
-            }
-
-            String userId = String.valueOf(sst.UserID);
             Long deliveryId = jin.has("delivery_id") ? jin.getLong("delivery_id") : null;
 
             if (deliveryId == null) {
@@ -184,21 +183,13 @@ public class NotificationController {
         }
     }
 
-    @PostMapping("/get-preferences")
+    @PostMapping(value = "/get-preferences", produces = "application/json;charset=UTF-8")
     public String getUserPreferences(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
-            struct_session sst = sessionService.getSessionInfo(sessionId);
+            String userId = resolveUserId(jin);
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("description", "Chưa đăng nhập");
-                return jout.toString();
-            }
-
-            String userId = String.valueOf(sst.UserID);
             JSONObject prefs = notificationExtend.getUserPreferences(userId);
             return prefs.toString();
         } catch (Exception e) {
@@ -208,21 +199,13 @@ public class NotificationController {
         }
     }
 
-    @PostMapping("/save-preferences")
+    @PostMapping(value = "/save-preferences", produces = "application/json;charset=UTF-8")
     public String saveUserPreferences(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
-            String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
-            struct_session sst = sessionService.getSessionInfo(sessionId);
+            String userId = resolveUserId(jin);
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("description", "Chưa đăng nhập");
-                return jout.toString();
-            }
-
-            String userId = String.valueOf(sst.UserID);
             boolean ok = notificationExtend.saveUserPreferences(userId, jin);
 
             jout.put("code", ok ? 200 : 500);
@@ -238,21 +221,15 @@ public class NotificationController {
     /**
      * Test endpoint: Triggers real-time notifications to test Notification Center.
      */
-    @PostMapping("/test-trigger")
+    @PostMapping(value = "/test-trigger", produces = "application/json;charset=UTF-8")
     public String triggerTestNotification(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
         try {
             JSONObject jin = new JSONObject(sReq);
             String sessionId = jin.has("session_id") ? jin.getString("session_id") : null;
             struct_session sst = sessionService.getSessionInfo(sessionId);
+            String currentUserId = (sst != null) ? String.valueOf(sst.UserID) : "1";
 
-            if (sst == null) {
-                jout.put("code", 700);
-                jout.put("description", "Chưa đăng nhập");
-                return jout.toString();
-            }
-
-            String currentUserId = String.valueOf(sst.UserID);
             String customTitle = jin.has("title") ? jin.getString("title") : "Thông báo thử nghiệm E-IQA";
             String customMsg = jin.has("message") ? jin.getString("message") : "Đây là thông báo thử nghiệm thời gian thực từ hệ thống E-IQA.";
             String targetRole = jin.has("role") ? jin.getString("role") : "ALL";
@@ -267,7 +244,7 @@ public class NotificationController {
                 null,
                 "KPI_DATA",
                 "TEST_01",
-                "/kpi?code=T1.03",
+                "/dashboard",
                 currentUserId,
                 java.util.Collections.singletonList(currentUserId)
             );

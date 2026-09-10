@@ -24,7 +24,7 @@ public class NotificationExtend {
     // SSE Emitter registry for real-time push: userId -> List<SseEmitter>
     private final Map<String, List<SseEmitter>> activeEmitters = new ConcurrentHashMap<>();
 
-	/* @PostConstruct
+    /*@PostConstruct
 	public void init() {
 	    try {
 	        // 1. Create master notifications table if missing
@@ -317,10 +317,46 @@ public class NotificationExtend {
         return uids;
     }
 
+    private final ConcurrentHashMap<String, Long> lastDeliveredMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> retentionDaysCache = new ConcurrentHashMap<>();
+
+    /**
+     * Ensure broadcast and role notifications in notifications table are delivered to user_notifications for the given user.
+     * Throttled to run at most once every 30 seconds per user to maximize query performance.
+     */
+    public void ensureUserNotificationsDelivered(String userId) {
+        try {
+            if (userId == null || userId.isBlank()) return;
+            String trimmedUserId = userId.trim();
+
+            long now = System.currentTimeMillis();
+            Long last = lastDeliveredMap.get(trimmedUserId);
+            if (last != null && (now - last) < 30000) {
+                return;
+            }
+            lastDeliveredMap.put(trimmedUserId, now);
+
+            String autoDeliverSql =
+                "INSERT INTO user_notifications (notification_id, user_id, is_read, delivered_at, is_archived) " +
+                "SELECT n.id, ?, 0, ISNULL(n.created_at, GETDATE()), 0 " +
+                "FROM notifications n " +
+                "WHERE (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
+                "  AND NOT EXISTS ( " +
+                "      SELECT 1 FROM user_notifications un " +
+                "      WHERE un.notification_id = n.id AND un.user_id = ? " +
+                "  )";
+
+            jdbcTemplate.update(autoDeliverSql, trimmedUserId, trimmedUserId);
+        } catch (Exception e) {
+            System.err.println("[NotificationCenter] Auto-deliver notice: " + e.getMessage());
+        }
+    }
+
     /**
      * Get paginated notifications for user, respecting retention_days and opt-in settings.
      */
     public JSONObject getUserNotifications(String userId, String categoryFilter, Boolean unreadOnly, int page, int pageSize) {
+        ensureUserNotificationsDelivered(userId);
         JSONObject res = new JSONObject();
         JSONArray list = new JSONArray();
         try {
@@ -330,7 +366,7 @@ public class NotificationExtend {
             StringBuilder countSql = new StringBuilder(
                 "SELECT COUNT(*) FROM user_notifications un " +
                 "JOIN notifications n ON n.id = un.notification_id " +
-                "WHERE un.user_id = ? AND un.is_archived = 0 AND n.is_deleted = 0 " +
+                "WHERE un.user_id = ? AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
                 "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE()) "
             );
 
@@ -340,7 +376,7 @@ public class NotificationExtend {
                 "n.target_role, n.target_dept_id, n.entity_type, n.entity_id, n.action_url, n.created_at " +
                 "FROM user_notifications un " +
                 "JOIN notifications n ON n.id = un.notification_id " +
-                "WHERE un.user_id = ? AND un.is_archived = 0 AND n.is_deleted = 0 " +
+                "WHERE un.user_id = ? AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
                 "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE()) "
             );
 
@@ -382,13 +418,13 @@ public class NotificationExtend {
                 item.put("entity_type", r.get("entity_type"));
                 item.put("entity_id", r.get("entity_id"));
                 item.put("action_url", r.get("action_url"));
-                item.put("is_read", r.get("is_read") != null && (Boolean.TRUE.equals(r.get("is_read")) || ((Number) r.get("is_read")).intValue() == 1));
+                item.put("is_read", getBool(r.get("is_read")));
                 item.put("read_at", r.get("read_at") != null ? r.get("read_at").toString() : JSONObject.NULL);
                 item.put("delivered_at", r.get("delivered_at") != null ? r.get("delivered_at").toString() : JSONObject.NULL);
                 list.put(item);
             }
 
-            int unreadCount = getUnreadCount(userId);
+            int unreadCount = getUnreadCountInternal(userId, retentionDays);
 
             res.put("code", 200);
             res.put("notifications", list);
@@ -405,12 +441,16 @@ public class NotificationExtend {
     }
 
     public int getUnreadCount(String userId) {
+        ensureUserNotificationsDelivered(userId);
+        return getUnreadCountInternal(userId, getUserRetentionDays(userId));
+    }
+
+    private int getUnreadCountInternal(String userId, int retentionDays) {
         try {
-            int retentionDays = getUserRetentionDays(userId);
             String sql =
                 "SELECT COUNT(*) FROM user_notifications un " +
                 "JOIN notifications n ON n.id = un.notification_id " +
-                "WHERE un.user_id = ? AND un.is_read = 0 AND un.is_archived = 0 AND n.is_deleted = 0 " +
+                "WHERE un.user_id = ? AND un.is_read = 0 AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
                 "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE())";
             Integer cnt = jdbcTemplate.queryForObject(sql, Integer.class, userId);
             return cnt != null ? cnt : 0;
@@ -512,6 +552,7 @@ public class NotificationExtend {
                 optKpi ? 1 : 0, optCapa ? 1 : 0, optEvidence ? 1 : 0, optSurvey ? 1 : 0, optSystem ? 1 : 0, retentionDays, userId,
                 userId, optKpi ? 1 : 0, optCapa ? 1 : 0, optEvidence ? 1 : 0, optSurvey ? 1 : 0, optSystem ? 1 : 0, retentionDays
             );
+            retentionDaysCache.put(userId, retentionDays);
             return true;
         } catch (Exception e) {
             System.err.println("[NotificationCenter] Save preferences error: " + e.getMessage());
@@ -520,13 +561,19 @@ public class NotificationExtend {
     }
 
     public int getUserRetentionDays(String userId) {
+        if (userId == null || userId.isBlank()) return 30;
+        Integer cached = retentionDaysCache.get(userId);
+        if (cached != null) return cached;
         try {
             String sql = "SELECT retention_days FROM user_notification_preferences WHERE user_id = ?";
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, userId);
             if (!rows.isEmpty() && rows.get(0).get("retention_days") != null) {
-                return ((Number) rows.get(0).get("retention_days")).intValue();
+                int days = ((Number) rows.get(0).get("retention_days")).intValue();
+                retentionDaysCache.put(userId, days);
+                return days;
             }
         } catch (Exception e) {}
+        retentionDaysCache.put(userId, 30);
         return 30; // default 30 days
     }
 
