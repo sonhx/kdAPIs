@@ -1,0 +1,69 @@
+name: Build and Deploy kdAPIs to Tomcat 10
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build WAR with Maven Wrapper
+        shell: cmd
+        run: mvnw.cmd clean package -DskipTests
+
+      - name: Deploy to Tomcat 10
+        shell: powershell
+        run: |
+          Write-Host "1. Stopping Tomcat10 service..."
+          Stop-Service -Name Tomcat10 -Force
+
+          $webapps = "C:\Program Files\Apache Software Foundation\Tomcat 10.1\webapps"
+
+          # Clean up previous extraction and old war
+          if (Test-Path "$webapps\kdAPIs") {
+              Write-Host "Removing previous unpacked folder..."
+              Remove-Item -Path "$webapps\kdAPIs" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          if (Test-Path "$webapps\kdAPIs.war") {
+              Write-Host "Removing previous WAR file..."
+              Remove-Item -Path "$webapps\kdAPIs.war" -Force -ErrorAction SilentlyContinue
+          }
+
+          # Locate built war and copy as kdAPIs.war
+          $builtWar = Get-ChildItem -Path "target\*.war" | Select-Object -First 1
+          if (-not $builtWar) {
+              throw "No WAR file found in target directory!"
+          }
+
+          Write-Host "Deploying $($builtWar.Name) -> $webapps\kdAPIs.war..."
+          Copy-Item -Path $builtWar.FullName -Destination "$webapps\kdAPIs.war" -Force
+
+          Write-Host "2. Starting Tomcat10 service..."
+          Start-Service -Name Tomcat10
+
+      - name: Health Check
+        shell: powershell
+        run: |
+          Write-Host "Waiting 15 seconds for Tomcat to initialize Spring Boot..."
+          Start-Sleep -Seconds 15
+
+          $testUrl = "http://127.0.0.1:8080/kdAPIs/user/login"
+          Write-Host "Sending test ping to $testUrl..."
+          try {
+              $response = Invoke-RestMethod -Uri $testUrl -Method Post -Body '{"user_name":"test","user_password":"123"}' -ContentType "application/json" -TimeoutSec 30
+              Write-Host "Deployment successful! Response code: $($response.code)"
+          } catch {
+              Write-Warning "Health check warning: $($_.Exception.Message)"
+          }
