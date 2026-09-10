@@ -55,20 +55,20 @@ public class UserService {
 			userpass = jsologin.has("user_password") ? String.valueOf(jsologin.get("user_password")) : "";
 			
 			System.out.println("loginname = " + loginname);
-			String server = jdbcTemplate.queryForObject(
+			/*String server = jdbcTemplate.queryForObject(
 				    "SELECT @@SERVERNAME",
 				    String.class
 				);
-
+			
 				String db = jdbcTemplate.queryForObject(
 				    "SELECT DB_NAME()",
 				    String.class
 				);
-
+			
 				System.out.println("SERVER = " + server);
 				System.out.println("DATABASE = " + db);
 				
-				
+			*/	
 			
 			// check user's existence by Email, ID, or maCanBo
 			String sqlByEmail = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, "
