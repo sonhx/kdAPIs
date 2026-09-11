@@ -204,7 +204,7 @@ public class UserService {
 			return "{\"code\":" + 500 + ", \"description\":\"Lỗi xử lý hệ thống: " + e.getMessage() + "\"}";
 		}
 
-		System.out.println("LOGIN response:" + jout.toString());
+		//System.out.println("LOGIN response:" + jout.toString());
 		return jout.toString();
 	}
 
@@ -293,7 +293,7 @@ public class UserService {
 			e.printStackTrace();
 			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON parse error" + "\"}";
 		}
-		System.out.println("RES(listUser):" + jout.toString());
+		//System.out.println("RES(listUser):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -333,7 +333,7 @@ public class UserService {
 			e.printStackTrace();
 			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON parse error" + "\"}";
 		}
-		System.out.println("RES(listAgent):" + jout.toString());
+		//System.out.println("RES(listAgent):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -356,7 +356,7 @@ public class UserService {
 			String mobile 		= jsonobjReq.has("mobile") ? jsonobjReq.getString("mobile") : "";
 
 			String user_id 		= userExtend.RegisterUser(full_name, email, password, mobile, type);
-			System.out.println("user_id = " + user_id);
+			//System.out.println("user_id = " + user_id);
 			if (user_id == null) {
 				return "{\"code\":" + 9999 + ", \"description\":\"" + "Error while registering user" + "\"}";
 			}
@@ -568,7 +568,7 @@ public class UserService {
 			e.printStackTrace();
 			return "{\"code\":" + 800 + ", \"description\":\"" + "JSON parse error" + "\"}";
 		}
-		System.out.println("RES(listAllUser):" + jout.toString());
+		//System.out.println("RES(listAllUser):" + jout.toString());
 		return jout.toString();
 	}
 	

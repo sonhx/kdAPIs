@@ -984,6 +984,16 @@ public class kpiExtend {
 							"ORDER BY k.kpi_id ASC";
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql);
 
+			// Map kpi_id -> kpi_code for fallback auto-inference
+			java.util.Map<Integer, String> kpiCodeMap = new java.util.HashMap<>();
+			for (Map<String, Object> kRow : kpiRows) {
+				Integer kId = (Integer) kRow.get("kpi_id");
+				String kCode = kRow.get("kpi_code") != null ? kRow.get("kpi_code").toString().trim() : "";
+				if (kId != null) {
+					kpiCodeMap.put(kId, kCode);
+				}
+			}
+
 			java.util.Map<Integer, java.sql.Date> cycleEndDates = new java.util.HashMap<>();
 			java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd-MM-yyyy");
 			java.util.Date refDate = new java.util.Date();
@@ -994,7 +1004,8 @@ public class kpiExtend {
 				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
 							   "COALESCE(o.ten, o.tenVietTat) as department_name, " +
 							   "u.Email as assigned_by_name, " +
-							   "u.Email as assigned_by_email " +
+							   "u.Email as assigned_by_email, " +
+							   "a.update_mode, a.source_system, a.sync_frequency, a.last_synced_at, a.sync_status, a.allow_manual_override " +
 							   "FROM kpi_assignments a WITH (NOLOCK) " +
 							   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
 							   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID";
@@ -1002,9 +1013,13 @@ public class kpiExtend {
 			} catch (Exception e) {
 				logger.error("Error executing assignSql: " + e.getMessage());
 				try {
-					String fallbackAssignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, o.ten as department_name " +
+					String fallbackAssignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
+											   "COALESCE(o.ten, o.tenVietTat) as department_name, " +
+											   "u.Email as assigned_by_name, " +
+											   "u.Email as assigned_by_email " +
 											   "FROM kpi_assignments a WITH (NOLOCK) " +
-											   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id";
+											   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
+											   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID";
 					assignRows = jdbcTemplate.queryForList(fallbackAssignSql);
 				} catch (Exception ex) {
 					logger.error("Error executing fallbackAssignSql: " + ex.getMessage());
@@ -1025,6 +1040,46 @@ public class kpiExtend {
 					joAssign.put("assigned_by", row.get("assigned_by"));
 					joAssign.put("assigned_by_name", row.get("assigned_by_name") != null ? row.get("assigned_by_name").toString() : JSONObject.NULL);
 					joAssign.put("assigned_by_email", row.get("assigned_by_email") != null ? row.get("assigned_by_email").toString() : JSONObject.NULL);
+
+					// V7: Sync metadata fields with fallback logic
+					String kCode = kpiCodeMap.getOrDefault(kpiId, "");
+					String rawUpdateMode = row.containsKey("update_mode") && row.get("update_mode") != null ? row.get("update_mode").toString().trim() : null;
+					String rawSourceSystem = row.containsKey("source_system") && row.get("source_system") != null ? row.get("source_system").toString().trim() : null;
+
+					String updateMode = "MANUAL";
+					String sourceSystem = null;
+
+					if (rawUpdateMode != null && !rawUpdateMode.isEmpty()) {
+						updateMode = rawUpdateMode;
+						sourceSystem = rawSourceSystem;
+					}
+
+					// Auto-infer for known automated KPIs if update_mode is not AUTOMATED in DB
+					if (!"AUTOMATED".equalsIgnoreCase(updateMode)) {
+						if ("N3.03".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "OPENALEX_SCOPUS_WOS"; }
+						else if ("N3.06".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "OPENALEX_PERSONNEL"; }
+						else if ("N3.08".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "OPENALEX_SCIMAGO"; }
+						else if ("G2.01".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "PERSONNEL_DB"; }
+						else if ("G2.05".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "OPENALEX_PERSONNEL"; }
+						else if ("K6.05".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "KIEMDINH_TBL_MINHCHUNG"; }
+						else if ("D8.07".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "KIEMDINH_TBL_MINHCHUNG"; }
+					}
+
+					joAssign.put("update_mode", updateMode);
+					joAssign.put("source_system", sourceSystem != null ? sourceSystem : JSONObject.NULL);
+					joAssign.put("sync_frequency", row.containsKey("sync_frequency") && row.get("sync_frequency") != null ? row.get("sync_frequency").toString().trim() : ("AUTOMATED".equals(updateMode) ? "MONTHLY" : JSONObject.NULL));
+					joAssign.put("last_synced_at", row.containsKey("last_synced_at") && row.get("last_synced_at") != null ? row.get("last_synced_at").toString() : JSONObject.NULL);
+					joAssign.put("sync_status", row.containsKey("sync_status") && row.get("sync_status") != null ? row.get("sync_status").toString().trim() : ("AUTOMATED".equals(updateMode) ? "SUCCESS" : JSONObject.NULL));
+					Object overrideObj = row.get("allow_manual_override");
+					int overrideVal = 1;
+					if (overrideObj instanceof Boolean) {
+						overrideVal = ((Boolean) overrideObj) ? 1 : 0;
+					} else if (overrideObj instanceof Number) {
+						overrideVal = ((Number) overrideObj).intValue();
+					} else if (overrideObj != null) {
+						try { overrideVal = Integer.parseInt(overrideObj.toString().trim()); } catch (Exception ignored) {}
+					}
+					joAssign.put("allow_manual_override", overrideVal);
 					assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
 				}
 			}
