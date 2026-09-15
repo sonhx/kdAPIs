@@ -4,28 +4,36 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.session.SessionService;
 import com.session.struct_session;
+import com.surveys.service.SurveyT107Service;
 import com.user.UserService;
 
+@CrossOrigin(originPatterns = "*", maxAge = 3600, allowCredentials = "true")
 @RestController
 @RequestMapping("/surveys")
 public class SurveyController {
@@ -36,8 +44,54 @@ public class SurveyController {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private SurveyT107Service surveyT107Service;
+
     @Value("${slink.api-key}")
     private String slinkApiKey;
+
+    @PostMapping(value = "/upload-t107", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String uploadT107SurveyExcel(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "period_id", required = false) String periodId,
+            @RequestParam(value = "survey_title", required = false) String surveyTitle,
+            @RequestParam(value = "session_id", required = false) String sessionId) {
+        JSONObject jout = new JSONObject();
+        try {
+            if (file == null || file.isEmpty()) {
+                jout.put("code", 400);
+                jout.put("description", "Vui lòng chọn tệp Excel khảo sát (.xlsx, .xls).");
+                return jout.toString();
+            }
+
+            String originalFilename = file.getOriginalFilename();
+            if (originalFilename == null) originalFilename = "survey_t107.xlsx";
+            
+            System.out.println("Received file: " + originalFilename + ", size: " + file.getSize() + " bytes");
+
+            JSONObject res = surveyT107Service.processT107Excel(
+                file.getInputStream(),
+                originalFilename,
+                periodId,
+                "Admin"
+            );
+            return res.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Lỗi xử lý tệp khảo sát Excel: " + e.getMessage());
+            return jout.toString();
+        }
+    }
+
+    @GetMapping(value = "/download-t107-template", produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    public ResponseEntity<byte[]> downloadT107Template() {
+        byte[] excelBytes = surveyT107Service.generateT107ExcelTemplate();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.setContentDispositionFormData("attachment", "Mau_Khao_Sat_CTDT_T107.xlsx");
+        return new ResponseEntity<>(excelBytes, headers, HttpStatus.OK);
+    }
 
     @PostMapping("/slink/list")
     public String getSlinkSurveys(@RequestBody String sReq) {

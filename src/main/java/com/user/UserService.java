@@ -70,20 +70,17 @@ public class UserService {
 				
 			*/	
 			
-			// check user's existence by Email, ID, or maCanBo
-			String sqlByEmail = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, "
-					+ "COALESCE(p.fullname, '') AS FullName, COALESCE(p.sdtCaNhan, '') AS Mobile, COALESCE(p.maCanBo, '') AS MaCanBo "
-					+ "FROM dbo.users u "
-					+ "LEFT JOIN dbo.personnel p ON (CAST(p.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) OR p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
+			// check user's existence by Email, ID, or maCanBo (fast indexed lookup with NOLOCK)
+			String sqlByEmail = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser "
+					+ "FROM dbo.users u WITH (NOLOCK) "
 					+ "WHERE (u.Email = ? OR CAST(u.ID AS VARCHAR(100)) = ?) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
 			
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sqlByEmail, loginname, loginname);
 
 			if (users.isEmpty()) {
-				String sqlByPersonnel = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, "
-						+ "p.fullname AS FullName, p.sdtCaNhan AS Mobile, p.maCanBo AS MaCanBo "
-						+ "FROM dbo.personnel p "
-						+ "INNER JOIN dbo.users u ON (CAST(u.ID AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR u.Email = p.emailCanBo OR u.Email = p.email) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0') "
+				String sqlByPersonnel = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser "
+						+ "FROM dbo.personnel p WITH (NOLOCK) "
+						+ "INNER JOIN dbo.users u WITH (NOLOCK) ON (CAST(u.ID AS VARCHAR(100)) = CAST(p.id AS VARCHAR(100)) OR u.Email = p.emailCanBo OR u.Email = p.email) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0') "
 						+ "WHERE (p.maCanBo = ? OR p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
 				users = jdbcTemplate.queryForList(sqlByPersonnel, loginname, loginname, loginname);
 			}
@@ -98,6 +95,7 @@ public class UserService {
 			// --------------check pw
 			Map<String, Object> user = users.get(0);
 			Object user_id = user.get("ID");
+			String userEmail = user.get("Email") != null ? user.get("Email").toString() : "";
 			String local_hash = (String) user.get("Hash");
 
 			boolean isPasswordCorrect = false;
@@ -119,14 +117,29 @@ public class UserService {
 				return jout.toString();
 			}
 
+			// Fetch personnel details for display (fast separate lookup with NOLOCK)
+			String fullName = "";
+			String mobile = "";
+			try {
+				String pSql = "SELECT TOP 1 p.fullname AS FullName, p.sdtCaNhan AS Mobile "
+						+ "FROM dbo.personnel p WITH (NOLOCK) "
+						+ "WHERE p.isDeleted = 0 AND (CAST(p.id AS VARCHAR(100)) = CAST(? AS VARCHAR(100)) OR p.emailCanBo = ? OR p.email = ?)";
+				List<Map<String, Object>> pRows = jdbcTemplate.queryForList(pSql, 
+						user_id != null ? user_id.toString() : "", userEmail, userEmail);
+				if (!pRows.isEmpty()) {
+					fullName = pRows.get(0).get("FullName") != null ? pRows.get(0).get("FullName").toString() : "";
+					mobile = pRows.get(0).get("Mobile") != null ? pRows.get(0).get("Mobile").toString() : "";
+				}
+			} catch (Exception ex) {}
+
 			// create new session
 			session = sessionService.createSession(user_id);
 
 			if (session != null) {
 				jout.put("session_id", session);
 				jout.put("user_id", user_id != null ? user_id : "");
-				jout.put("full_name", user.get("FullName") != null ? user.get("FullName") : "");
-				jout.put("mobile", user.get("Mobile") != null ? user.get("Mobile") : "");
+				jout.put("full_name", fullName);
+				jout.put("mobile", mobile);
 				jout.put("status", user.get("Status") != null ? user.get("Status") : 1);
 				jout.put("is_admin", user.get("IsAdmin") != null ? user.get("IsAdmin") : 0);
 				jout.put("lock_doc", user.get("LockDoc") != null ? user.get("LockDoc") : 0);
@@ -158,10 +171,11 @@ public class UserService {
 				boolean isLanhDaoHocVien = false;
 				try {
 					String ldCheckSql =
-						"SELECT COUNT(*) FROM personnel p WHERE p.id = ? " +
+						"SELECT COUNT(*) FROM personnel p WITH (NOLOCK) WHERE (CAST(p.id AS VARCHAR(100)) = CAST(? AS VARCHAR(100)) OR p.emailCanBo = ? OR p.email = ?) " +
 						"AND (p.donViChinhId IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d') " +
 						"  OR p.donViL3Id   IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d'))";
-					Integer cnt = jdbcTemplate.queryForObject(ldCheckSql, Integer.class, user_id != null ? user_id.toString() : "");
+					Integer cnt = jdbcTemplate.queryForObject(ldCheckSql, Integer.class, 
+							user_id != null ? user_id.toString() : "", userEmail, userEmail);
 					if (cnt != null && cnt > 0) {
 						isLanhDaoHocVien = true;
 					}
@@ -177,10 +191,11 @@ public class UserService {
 				try {
 					String leaderCheckSql =
 						"SELECT TOP 1 o.id AS orgId, o.ten AS orgName " +
-						"FROM orgs o " +
-						"WHERE o.leaderId = ? AND (o.isDeleted IS NULL OR o.isDeleted = 0)";
+						"FROM orgs o WITH (NOLOCK) " +
+						"INNER JOIN personnel p WITH (NOLOCK) ON o.leaderId = p.id " +
+						"WHERE (CAST(p.id AS VARCHAR(100)) = CAST(? AS VARCHAR(100)) OR p.emailCanBo = ? OR p.email = ?) AND (o.isDeleted IS NULL OR o.isDeleted = 0)";
 					List<Map<String, Object>> leaderRows = jdbcTemplate.queryForList(
-						leaderCheckSql, user_id != null ? user_id.toString() : null
+						leaderCheckSql, user_id != null ? user_id.toString() : "", userEmail, userEmail
 					);
 					if (!leaderRows.isEmpty()) {
 						isOrgLeader = true;
@@ -871,10 +886,10 @@ public class UserService {
 				return jout.toString();
 			}
 
-			// Query user with email
-			String sql = "select u.*, p.fullname as Fullname from dbo.users u "
-					+ "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email) AND p.isDeleted = 0 "
-					+ "where u.email=? and (u.IsDeleted IS NULL or u.IsDeleted='0')";
+			// Query user with email (fast indexed query with NOLOCK)
+			String sql = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.Type, u.IsAdmin, u.LockDoc, u.LockUser, u.Avatar "
+					+ "FROM dbo.users u WITH (NOLOCK) "
+					+ "WHERE u.email=? AND (u.IsDeleted IS NULL OR u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, email);
 			
 			Map<String, Object> user;
@@ -883,7 +898,7 @@ public class UserService {
 			if (users.isEmpty()) {
 				// User not in users. Auto-provision if exists in personnel
 				String checkEmpSql = "SELECT TOP 1 p.fullname as full_name, p.donViL3Id as dept_id " +
-						"FROM personnel p " +
+						"FROM personnel p WITH (NOLOCK) " +
 						"WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
 				List<Map<String, Object>> empRows = jdbcTemplate.queryForList(checkEmpSql, email, email);
 
@@ -915,6 +930,17 @@ public class UserService {
 
 			user = users.get(0);
 			user_id = user.get("ID");
+			String userEmail = user.get("Email") != null ? user.get("Email").toString() : email;
+
+			// Fetch personnel details for display
+			String fullName = "";
+			try {
+				String pSql = "SELECT TOP 1 p.fullname FROM personnel p WITH (NOLOCK) WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
+				List<String> pNames = jdbcTemplate.queryForList(pSql, String.class, userEmail, userEmail);
+				if (!pNames.isEmpty() && pNames.get(0) != null) {
+					fullName = pNames.get(0);
+				}
+			} catch (Exception ex) {}
 
 			// create new session
 			String session = sessionService.createSession(user_id);
@@ -922,7 +948,7 @@ public class UserService {
 			if (session != null) {
 				jout.put("session_id", session);
 				jout.put("user_id", user_id != null ? user_id : "");
-				jout.put("full_name", user.get("Fullname") != null ? user.get("Fullname") : "");
+				jout.put("full_name", fullName);
 				jout.put("mobile", user.get("Mobile") != null ? user.get("Mobile") : "");
 				jout.put("status", user.get("Status") != null ? user.get("Status") : 1);
 				jout.put("is_admin", user.get("IsAdmin") != null ? user.get("IsAdmin") : 0);

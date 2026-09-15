@@ -82,7 +82,7 @@ public class SessionService {
 		}
 		try {
 			List<struct_session> sessions = jdbcTemplate.query(
-					"select * from dbo.tbl_session where sessionid = ? and (isdeleted = 0 or isdeleted is null)",
+					"select * from dbo.tbl_session with (nolock) where sessionid = ? and (isdeleted = 0 or isdeleted is null)",
 					(rs1, rowNum) -> {
 						struct_session ss = new struct_session();
 						Object rawUserId = rs1.getObject("UserID");
@@ -105,7 +105,7 @@ public class SessionService {
 			System.err.println("Notice: Database connection retry in getSessionInfo: " + e.getMessage());
 			try {
 				List<struct_session> sessions = jdbcTemplate.query(
-						"select * from dbo.tbl_session where sessionid = ? and (isdeleted = 0 or isdeleted is null)",
+						"select * from dbo.tbl_session with (nolock) where sessionid = ? and (isdeleted = 0 or isdeleted is null)",
 						(rs1, rowNum) -> {
 							struct_session ss = new struct_session();
 							Object rawUserId = rs1.getObject("UserID");

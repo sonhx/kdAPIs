@@ -269,12 +269,12 @@ public class UserExtend {
 				"    COALESCE(p0.donViL3Id, p0.donViChinhId, p1.donViL3Id, p1.donViChinhId, p2.donViL3Id, p2.donViChinhId) AS dept_id, " +
 				"    COALESCE(o3.ten, oChinh.ten, N'Chưa xếp đơn vị') AS dept_name, " +
 				"    COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
-				"FROM users u " +
-				"LEFT JOIN personnel p0 ON CAST(p0.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) AND p0.isDeleted = 0 " +
-				"LEFT JOIN personnel p1 ON p0.id IS NULL AND p1.emailCanBo = u.Email AND p1.isDeleted = 0 " +
-				"LEFT JOIN personnel p2 ON p0.id IS NULL AND p1.id IS NULL AND p2.email = u.Email AND p2.isDeleted = 0 " +
-				"LEFT JOIN orgs o3 ON o3.id = COALESCE(p0.donViL3Id, p1.donViL3Id, p2.donViL3Id) " +
-				"LEFT JOIN orgs oChinh ON oChinh.id = COALESCE(p0.donViChinhId, p1.donViChinhId, p2.donViChinhId) " +
+				"FROM users u WITH (NOLOCK) " +
+				"LEFT JOIN personnel p0 WITH (NOLOCK) ON CAST(p0.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) AND p0.isDeleted = 0 " +
+				"LEFT JOIN personnel p1 WITH (NOLOCK) ON p0.id IS NULL AND p1.emailCanBo = u.Email AND p1.isDeleted = 0 " +
+				"LEFT JOIN personnel p2 WITH (NOLOCK) ON p0.id IS NULL AND p1.id IS NULL AND p2.email = u.Email AND p2.isDeleted = 0 " +
+				"LEFT JOIN orgs o3 WITH (NOLOCK) ON o3.id = COALESCE(p0.donViL3Id, p1.donViL3Id, p2.donViL3Id) " +
+				"LEFT JOIN orgs oChinh WITH (NOLOCK) ON oChinh.id = COALESCE(p0.donViChinhId, p1.donViChinhId, p2.donViChinhId) " +
 				"WHERE u.ID = ? AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
 
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, userId != null ? userId.toString() : "");

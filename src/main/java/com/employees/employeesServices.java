@@ -81,7 +81,7 @@ public class employeesServices {
 			jout.put("code", 500);
 			jout.put("description", "Lỗi máy chủ: " + e.getMessage());
 		}
-		System.out.println("RES(getEmployeesList):" + jout.toString());
+		// System.out.println("RES(getEmployeesList):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -132,7 +132,7 @@ public class employeesServices {
 			jout.put("code", 500);
 			jout.put("description", "Lỗi máy chủ: " + e.getMessage());
 		}
-		System.out.println("RES(getEmployeesListGet):" + jout.toString());
+		// System.out.println("RES(getEmployeesListGet):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -203,7 +203,7 @@ public class employeesServices {
 			jout.put("code", 500);
 			jout.put("description", "Lỗi máy chủ: " + e.getMessage());
 		}
-		System.out.println("RES(getDepartmentsList):" + jout.toString());
+		//System.out.println("RES(getDepartmentsList):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -229,7 +229,7 @@ public class employeesServices {
 			jout.put("code", 500);
 			jout.put("description", "Lỗi máy chủ: " + e.getMessage());
 		}
-		System.out.println("RES(getDepartmentsListGet):" + jout.toString());
+		// System.out.println("RES(getDepartmentsListGet):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -292,7 +292,7 @@ public class employeesServices {
 			jout.put("code", 500);
 			jout.put("description", "Lỗi máy chủ: " + e.getMessage());
 		}
-		System.out.println("RES(getEmployeesByDepartment):" + jout.toString());
+		// System.out.println("RES(getEmployeesByDepartment):" + jout.toString());
 		return jout.toString();
 	}
 
@@ -353,7 +353,7 @@ public class employeesServices {
 			jout.put("code", 500);
 			jout.put("description", "Lỗi máy chủ: " + e.getMessage());
 		}
-		System.out.println("RES(getEmployeesByDepartmentGet):" + jout.toString());
+		// System.out.println("RES(getEmployeesByDepartmentGet):" + jout.toString());
 		return jout.toString();
 	}
 }

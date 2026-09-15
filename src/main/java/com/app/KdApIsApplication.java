@@ -24,6 +24,14 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 public class KdApIsApplication extends SpringBootServletInitializer {
 
+	static {
+		try {
+			org.apache.poi.util.IOUtils.setByteArrayMaxOverride(1_000_000_000);
+		} catch (Throwable t) {
+			System.err.println("Could not set Apache POI ByteArrayMaxOverride: " + t.getMessage());
+		}
+	}
+
 	@Override
 	protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
 		return application.sources(KdApIsApplication.class);

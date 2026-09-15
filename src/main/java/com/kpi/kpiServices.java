@@ -1026,7 +1026,7 @@ public class kpiServices {
 	@GetMapping("/value/history")
 	public String getKpiValueHistory(
 			@RequestParam("kpi_code") String kpiCode,
-			@RequestParam(value = "department_id", required = false) Integer departmentId) {
+			@RequestParam(value = "department_id", required = false) String departmentId) {
 		System.out.println("-------getKpiValueHistory:" + kpiCode + ", dept:" + departmentId);
 		JSONObject jout = new JSONObject();
 		try {

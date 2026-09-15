@@ -1962,16 +1962,19 @@ public class kpiExtend {
 		return response;
 	}
 
-	public JSONArray getKpiValueHistory(int kpiId, Integer deptId) {
+	public JSONArray getKpiValueHistory(int kpiId, String deptId) {
 		JSONArray jsa = new JSONArray();
 		try {
-			String sql = "SELECT v.version_id, v.data_id, v.actual_value, v.notes, v.evidence_link, v.evidence_file_name, v.evidence_file_size, v.updated_at, v.change_type, v.version_number, u.Fullname as updated_by_name " +
+			String safeDeptId = (deptId != null && !deptId.trim().isEmpty() && !"null".equalsIgnoreCase(deptId.trim())) ? deptId.trim() : null;
+			String sql = "SELECT v.version_id, v.data_id, v.actual_value, v.notes, v.evidence_link, v.evidence_file_name, v.evidence_file_size, v.updated_at, v.change_type, v.version_number, " +
+						 "COALESCE(p.fullname, u.Email, CAST(v.updated_by AS VARCHAR(100)), N'Hệ thống') as updated_by_name " +
 						 "FROM kpi_value_versions v " +
 						 "JOIN kpi_data_points d ON v.data_id = d.data_id " +
-						 "LEFT JOIN users u ON v.updated_by = u.ID " +
-						 "WHERE d.kpi_id = ? AND (v.department_id = ? OR (v.department_id IS NULL AND ? IS NULL)) " +
+						 "LEFT JOIN users u ON (CAST(v.updated_by AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) OR u.Email = CAST(v.updated_by AS VARCHAR(100))) " +
+						 "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email OR CAST(p.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100))) " +
+						 "WHERE d.kpi_id = ? AND (v.department_id = ? OR (v.department_id IS NULL AND ? IS NULL) OR ? IS NULL) " +
 						 "ORDER BY v.version_number DESC";
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId, deptId, deptId);
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId, safeDeptId, safeDeptId, safeDeptId);
 			for (Map<String, Object> row : rows) {
 				JSONObject jo = new JSONObject();
 				jo.put("version_id", row.get("version_id"));
