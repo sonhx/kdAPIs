@@ -27,32 +27,30 @@ public class SurveyStatsService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-	/*@PostConstruct
-	public void initProcedures() {
-	    java.util.concurrent.CompletableFuture.runAsync(() -> {
-	        try {
-	            ClassPathResource resource = new ClassPathResource("surveys_stats_schema.sql");
-	            if (resource.exists()) {
-	                InputStream is = resource.getInputStream();
-	                String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
-	                String[] batches = content.split("(?i)\\r?\\nGO\\r?\\n");
-	                for (String batch : batches) {
-	                    String trimmed = batch.trim();
-	                    if (!trimmed.isEmpty()) {
-	                        try {
-	                            jdbcTemplate.execute(trimmed);
-	                        } catch (Exception e) {
-	                            log.warn("Notice executing SQL batch during startup: {}", e.getMessage());
-	                        }
-	                    }
-	                }
-	                log.info("Successfully refreshed survey stats schema and stored procedures.");
-	            }
-	        } catch (Exception e) {
-	            log.warn("Notice refreshing survey stats schema: {}", e.getMessage());
-	        }
-	    });
-	}*/
+    @PostConstruct
+    public void initProcedures() {
+        try {
+            ClassPathResource resource = new ClassPathResource("surveys_stats_schema.sql");
+            if (resource.exists()) {
+                InputStream is = resource.getInputStream();
+                String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
+                String[] batches = content.split("(?i)\\r?\\nGO\\r?\\n");
+                for (String batch : batches) {
+                    String trimmed = batch.trim();
+                    if (!trimmed.isEmpty()) {
+                        try {
+                            jdbcTemplate.execute(trimmed);
+                        } catch (Exception e) {
+                            log.warn("Notice executing SQL batch during startup: {}", e.getMessage());
+                        }
+                    }
+                }
+                log.info("Successfully refreshed survey stats schema and stored procedures.");
+            }
+        } catch (Exception e) {
+            log.warn("Notice refreshing survey stats schema: {}", e.getMessage());
+        }
+    }
 
     public void recomputeCampaign(String surveyId, String campaignId) {
         try {
@@ -80,30 +78,49 @@ public class SurveyStatsService {
         String sql;
         Object[] params;
         if (campaignId == null || "all".equalsIgnoreCase(campaignId)) {
-            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id IS NULL AND question_id = ?";
+            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id IS NULL AND question_id = ? ORDER BY option_text ASC";
             params = new Object[] { surveyId, questionId };
         } else {
-            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id = ? AND question_id = ?";
+            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id = ? AND question_id = ? ORDER BY option_text ASC";
             params = new Object[] { surveyId, campaignId, questionId };
         }
 
-        List<OptionStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
-            rs.getString("option_id"),
-            rs.getString("option_text"),
-            rs.getInt("count"),
-            rs.getBigDecimal("percentage")
-        ), params);
-
-        if (list.isEmpty() && hasSurveyResponses(surveyId)) {
-            recomputeCampaign(surveyId, campaignId);
-            list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
+        try {
+            List<OptionStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
                 rs.getString("option_id"),
                 rs.getString("option_text"),
                 rs.getInt("count"),
                 rs.getBigDecimal("percentage")
             ), params);
+
+            if (list.isEmpty() && hasSurveyResponses(surveyId)) {
+                recomputeCampaign(surveyId, campaignId);
+                list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
+                    rs.getString("option_id"),
+                    rs.getString("option_text"),
+                    rs.getInt("count"),
+                    rs.getBigDecimal("percentage")
+                ), params);
+            }
+            return list;
+        } catch (Exception e) {
+            log.warn("Notice querying question option stats (running auto-repair): {}", e.getMessage());
+            initProcedures();
+            if (hasSurveyResponses(surveyId)) {
+                recomputeCampaign(surveyId, campaignId);
+            }
+            try {
+                return jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
+                    rs.getString("option_id"),
+                    rs.getString("option_text"),
+                    rs.getInt("count"),
+                    rs.getBigDecimal("percentage")
+                ), params);
+            } catch (Exception ex) {
+                log.error("Failed to fetch option stats for questionId={}: {}", questionId, ex.getMessage());
+                return java.util.Collections.emptyList();
+            }
         }
-        return list;
     }
 
     public QuestionNumericStatDto getQuestionNumericStats(String surveyId, String campaignId, String questionId) {
@@ -117,19 +134,8 @@ public class SurveyStatsService {
             params = new Object[] { surveyId, campaignId, questionId };
         }
 
-        List<QuestionNumericStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
-            questionId,
-            rs.getInt("total_responses"),
-            rs.getBigDecimal("mean"),
-            rs.getBigDecimal("std_dev"),
-            rs.getBigDecimal("min_value"),
-            rs.getBigDecimal("max_value"),
-            rs.getInt("text_count")
-        ), params);
-
-        if (list.isEmpty() && hasSurveyResponses(surveyId)) {
-            recomputeCampaign(surveyId, campaignId);
-            list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
+        try {
+            List<QuestionNumericStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
                 questionId,
                 rs.getInt("total_responses"),
                 rs.getBigDecimal("mean"),
@@ -138,9 +144,43 @@ public class SurveyStatsService {
                 rs.getBigDecimal("max_value"),
                 rs.getInt("text_count")
             ), params);
-        }
 
-        return list.isEmpty() ? new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0) : list.get(0);
+            if (list.isEmpty() && hasSurveyResponses(surveyId)) {
+                recomputeCampaign(surveyId, campaignId);
+                list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
+                    questionId,
+                    rs.getInt("total_responses"),
+                    rs.getBigDecimal("mean"),
+                    rs.getBigDecimal("std_dev"),
+                    rs.getBigDecimal("min_value"),
+                    rs.getBigDecimal("max_value"),
+                    rs.getInt("text_count")
+                ), params);
+            }
+
+            return list.isEmpty() ? new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0) : list.get(0);
+        } catch (Exception e) {
+            log.warn("Notice querying question numeric stats (running auto-repair): {}", e.getMessage());
+            initProcedures();
+            if (hasSurveyResponses(surveyId)) {
+                recomputeCampaign(surveyId, campaignId);
+            }
+            try {
+                List<QuestionNumericStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
+                    questionId,
+                    rs.getInt("total_responses"),
+                    rs.getBigDecimal("mean"),
+                    rs.getBigDecimal("std_dev"),
+                    rs.getBigDecimal("min_value"),
+                    rs.getBigDecimal("max_value"),
+                    rs.getInt("text_count")
+                ), params);
+                return list.isEmpty() ? new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0) : list.get(0);
+            } catch (Exception ex) {
+                log.error("Failed to fetch numeric stats for questionId={}: {}", questionId, ex.getMessage());
+                return new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0);
+            }
+        }
     }
 
     public BlockStatDto getBlockStats(String surveyId, String campaignId, String blockId) {
@@ -154,24 +194,44 @@ public class SurveyStatsService {
             params = new Object[] { surveyId, campaignId, blockId };
         }
 
-        List<BlockStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
-            blockId,
-            rs.getInt("total_responses"),
-            rs.getBigDecimal("mean"),
-            rs.getBigDecimal("std_dev")
-        ), params);
-
-        if (list.isEmpty() && hasSurveyResponses(surveyId)) {
-            recomputeCampaign(surveyId, campaignId);
-            list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
+        try {
+            List<BlockStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
                 blockId,
                 rs.getInt("total_responses"),
                 rs.getBigDecimal("mean"),
                 rs.getBigDecimal("std_dev")
             ), params);
-        }
 
-        return list.isEmpty() ? new BlockStatDto(blockId, 0, null, null) : list.get(0);
+            if (list.isEmpty() && hasSurveyResponses(surveyId)) {
+                recomputeCampaign(surveyId, campaignId);
+                list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
+                    blockId,
+                    rs.getInt("total_responses"),
+                    rs.getBigDecimal("mean"),
+                    rs.getBigDecimal("std_dev")
+                ), params);
+            }
+
+            return list.isEmpty() ? new BlockStatDto(blockId, 0, null, null) : list.get(0);
+        } catch (Exception e) {
+            log.warn("Notice querying block stats (running auto-repair): {}", e.getMessage());
+            initProcedures();
+            if (hasSurveyResponses(surveyId)) {
+                recomputeCampaign(surveyId, campaignId);
+            }
+            try {
+                List<BlockStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
+                    blockId,
+                    rs.getInt("total_responses"),
+                    rs.getBigDecimal("mean"),
+                    rs.getBigDecimal("std_dev")
+                ), params);
+                return list.isEmpty() ? new BlockStatDto(blockId, 0, null, null) : list.get(0);
+            } catch (Exception ex) {
+                log.error("Failed to fetch block stats for blockId={}: {}", blockId, ex.getMessage());
+                return new BlockStatDto(blockId, 0, null, null);
+            }
+        }
     }
 
     public OverallStatDto getOverallStats(String surveyId, String campaignId) {
@@ -185,23 +245,43 @@ public class SurveyStatsService {
             params = new Object[] { surveyId, campaignId };
         }
 
-        List<OverallStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
-            surveyId,
-            campaignId,
-            rs.getInt("total_responses"),
-            rs.getString("computed_at")
-        ), params);
-
-        if (list.isEmpty() || (list.get(0).getTotalResponses() == 0 && hasSurveyResponses(surveyId))) {
-            recomputeCampaign(surveyId, campaignId);
-            list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
+        try {
+            List<OverallStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
                 surveyId,
                 campaignId,
                 rs.getInt("total_responses"),
                 rs.getString("computed_at")
             ), params);
-        }
 
-        return list.isEmpty() ? new OverallStatDto(surveyId, campaignId, 0, null) : list.get(0);
+            if (list.isEmpty() || (list.get(0).getTotalResponses() == 0 && hasSurveyResponses(surveyId))) {
+                recomputeCampaign(surveyId, campaignId);
+                list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
+                    surveyId,
+                    campaignId,
+                    rs.getInt("total_responses"),
+                    rs.getString("computed_at")
+                ), params);
+            }
+
+            return list.isEmpty() ? new OverallStatDto(surveyId, campaignId, 0, null) : list.get(0);
+        } catch (Exception e) {
+            log.warn("Notice querying overall stats (running auto-repair): {}", e.getMessage());
+            initProcedures();
+            if (hasSurveyResponses(surveyId)) {
+                recomputeCampaign(surveyId, campaignId);
+            }
+            try {
+                List<OverallStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
+                    surveyId,
+                    campaignId,
+                    rs.getInt("total_responses"),
+                    rs.getString("computed_at")
+                ), params);
+                return list.isEmpty() ? new OverallStatDto(surveyId, campaignId, 0, null) : list.get(0);
+            } catch (Exception ex) {
+                log.error("Failed to fetch overall stats for surveyId={}: {}", surveyId, ex.getMessage());
+                return new OverallStatDto(surveyId, campaignId, 0, null);
+            }
+        }
     }
 }

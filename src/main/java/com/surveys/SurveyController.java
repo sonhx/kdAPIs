@@ -247,12 +247,22 @@ public class SurveyController {
     @GetMapping("/{id}")
     public String getSurveyDetail(@PathVariable("id") String id) {
         try {
-            Map<String, Object> survey = jdbcTemplate.queryForMap(
+            List<Map<String, Object>> list = jdbcTemplate.queryForList(
                 "SELECT id, title as name, survey_type as target, is_active, " +
                 "CONVERT(VARCHAR(10), created_at, 120) as startDate, " +
                 "CONVERT(VARCHAR(10), updated_at, 120) as endDate " +
                 "FROM surveys WHERE id = ?", id
             );
+            
+            if (list.isEmpty()) {
+                JSONObject err = new JSONObject();
+                err.put("code", 404);
+                err.put("error", "Survey not found");
+                err.put("description", "Không tìm thấy khảo sát với mã ID: " + id);
+                return err.toString();
+            }
+
+            Map<String, Object> survey = list.get(0);
             
             Boolean isActive = (Boolean) survey.get("is_active");
             survey.put("status", (isActive != null && isActive) ? "open" : "closed");
@@ -306,7 +316,11 @@ public class SurveyController {
             return obj.toString();
         } catch (Exception e) {
             e.printStackTrace();
-            return "{\"error\":\"" + e.getMessage() + "\"}";
+            JSONObject err = new JSONObject();
+            err.put("code", 500);
+            err.put("error", e.getMessage());
+            err.put("description", "Lỗi tải chi tiết khảo sát: " + e.getMessage());
+            return err.toString();
         }
     }
 }
