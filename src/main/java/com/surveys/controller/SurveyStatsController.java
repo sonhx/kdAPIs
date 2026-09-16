@@ -50,6 +50,22 @@ public class SurveyStatsController {
         return ResponseEntity.ok(stats);
     }
 
+    @GetMapping("/surveys/{surveyId}/full-stats")
+    public ResponseEntity<com.surveys.dto.SurveyFullStatsDto> getSurveyFullStats(
+            @PathVariable("surveyId") String surveyId,
+            @RequestParam(value = "campaignId", required = false) String campaignId) {
+        com.surveys.dto.SurveyFullStatsDto fullStats = surveyStatsService.getSurveyFullStats(surveyId, campaignId);
+        return ResponseEntity.ok(fullStats);
+    }
+
+    @GetMapping("/surveys/{surveyId}/campaigns/{campaignId}/full-stats")
+    public ResponseEntity<com.surveys.dto.SurveyFullStatsDto> getSurveyFullStatsWithCampaign(
+            @PathVariable("surveyId") String surveyId,
+            @PathVariable("campaignId") String campaignId) {
+        com.surveys.dto.SurveyFullStatsDto fullStats = surveyStatsService.getSurveyFullStats(surveyId, campaignId);
+        return ResponseEntity.ok(fullStats);
+    }
+
     @GetMapping("/surveys/{surveyId}/campaigns/{campaignId}/stats")
     public ResponseEntity<OverallStatDto> getOverallStats(
             @PathVariable("surveyId") String surveyId,

@@ -9,8 +9,14 @@ import org.springframework.stereotype.Component;
 
 import com.surveys.service.SurveyStatsService;
 
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Component
 public class SurveyStatsRecomputeJob {
+
+    private static final Logger log = LoggerFactory.getLogger(SurveyStatsRecomputeJob.class);
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -18,8 +24,21 @@ public class SurveyStatsRecomputeJob {
     @Autowired
     private SurveyStatsService surveyStatsService;
 
-    // Run once a day at 4:00 AM
-    @Scheduled(cron = "0 0 4 * * *")
+    @PostConstruct
+    public void initStartupWarmup() {
+        new Thread(() -> {
+            try {
+                Thread.sleep(5000);
+                log.info("Starting boot-time survey statistics pre-calculation warmup...");
+                runIncrementalRecompute();
+            } catch (Exception e) {
+                log.warn("Notice in startup survey stats warmup: {}", e.getMessage());
+            }
+        }, "SurveyStatsWarmupThread").start();
+    }
+
+    // Run periodically every 30 minutes
+    @Scheduled(cron = "0 */30 * * * *")
     public void runIncrementalRecompute() {
         System.out.println("Starting scheduled survey statistics recomputation...");
         try {

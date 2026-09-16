@@ -47,6 +47,9 @@ public class SurveyController {
     @Autowired
     private SurveyT107Service surveyT107Service;
 
+    @Autowired
+    private com.surveys.job.SurveyAutoIgnoreJob surveyAutoIgnoreJob;
+
     @Value("${slink.api-key}")
     private String slinkApiKey;
 
@@ -145,7 +148,7 @@ public class SurveyController {
     @GetMapping("/stats")
     public String getStats() {
         try {
-            Integer totalSurveys = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM surveys", Integer.class);
+            Integer totalSurveys = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM surveys WHERE ISNULL(is_ignored, 0) = 0", Integer.class);
             Integer totalCampaigns = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM survey_campaigns", Integer.class);
             
             String sqlOngoing = "SELECT COUNT(*) FROM survey_campaigns WHERE is_active = 1 " +
@@ -196,6 +199,7 @@ public class SurveyController {
                          "s.title as name, " +
                          "s.survey_type as target, " +
                          "s.is_active, " +
+                         "ISNULL(s.is_ignored, 0) as is_ignored, " +
                          "CONVERT(VARCHAR(10), c.min_start, 120) as startDate, " +
                          "CONVERT(VARCHAR(10), c.max_end, 120) as endDate, " +
                          "ISNULL(r.response_count, 0) as responses " +
@@ -225,6 +229,15 @@ public class SurveyController {
                 Boolean isActive = (Boolean) map.get("is_active");
                 map.put("status", (isActive != null && isActive) ? "open" : "closed");
                 
+                Object isIgnoredObj = map.get("is_ignored");
+                boolean isIgnored = false;
+                if (isIgnoredObj instanceof Boolean) {
+                    isIgnored = (Boolean) isIgnoredObj;
+                } else if (isIgnoredObj instanceof Number) {
+                    isIgnored = ((Number) isIgnoredObj).intValue() == 1;
+                }
+                map.put("is_ignored", isIgnored);
+                
                 if (map.get("startDate") == null) {
                     map.put("startDate", "N/A");
                 }
@@ -241,6 +254,103 @@ public class SurveyController {
         } catch (Exception e) {
             e.printStackTrace();
             return "{\"error\":\"" + e.getMessage() + "\"}";
+        }
+    }
+
+    @RequestMapping(value = {"/{id}/toggle-ignore", "/{id}/ignore"}, method = {org.springframework.web.bind.annotation.RequestMethod.POST, org.springframework.web.bind.annotation.RequestMethod.PUT})
+    public String toggleIgnoreSurvey(@PathVariable("id") String id, @RequestBody(required = false) String body) {
+        JSONObject jout = new JSONObject();
+        try {
+            Boolean targetState = null;
+            if (body != null && !body.trim().isEmpty()) {
+                try {
+                    JSONObject req = new JSONObject(body);
+                    if (req.has("is_ignored")) {
+                        targetState = req.getBoolean("is_ignored");
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            if (targetState != null) {
+                jdbcTemplate.update("UPDATE surveys SET is_ignored = ? WHERE id = ?", targetState ? 1 : 0, id);
+            } else {
+                jdbcTemplate.update("UPDATE surveys SET is_ignored = CASE WHEN ISNULL(is_ignored, 0) = 1 THEN 0 ELSE 1 END WHERE id = ?", id);
+            }
+
+            Integer currentState = jdbcTemplate.queryForObject("SELECT ISNULL(is_ignored, 0) FROM surveys WHERE id = ?", Integer.class, id);
+            jout.put("code", 200);
+            jout.put("message", "Cập nhật trạng thái thành công");
+            jout.put("id", id);
+            jout.put("is_ignored", currentState != null && currentState == 1);
+            return jout.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("error", "Lỗi khi cập nhật trạng thái bỏ qua: " + e.getMessage());
+            return jout.toString();
+        }
+    }
+
+    @PostMapping("/run-auto-ignore")
+    public String runAutoIgnoreScan() {
+        JSONObject jout = new JSONObject();
+        try {
+            int flaggedCount = surveyAutoIgnoreJob.executeAutoIgnoreScan();
+            jout.put("code", 200);
+            jout.put("message", "Đã quét và tự động bỏ qua " + flaggedCount + " cuộc khảo sát rác/ít phản hồi.");
+            jout.put("flagged_count", flaggedCount);
+            return jout.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("error", "Lỗi khi quét tự động bỏ qua khảo sát: " + e.getMessage());
+            return jout.toString();
+        }
+    }
+
+    @GetMapping("/ignore-rules")
+    public String getIgnoreRules() {
+        try {
+            surveyAutoIgnoreJob.initTableSchema();
+            String sql = "SELECT id, rule_code, rule_name, rule_type, pattern_value, is_enabled, description " +
+                         "FROM dbo.survey_auto_ignore_rules ORDER BY id ASC";
+            List<Map<String, Object>> list = jdbcTemplate.queryForList(sql);
+            JSONArray arr = new JSONArray(list);
+            return arr.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "{\"error\":\"" + e.getMessage() + "\"}";
+        }
+    }
+
+    @PostMapping("/ignore-rules")
+    public String updateIgnoreRules(@RequestBody String body) {
+        JSONObject jout = new JSONObject();
+        try {
+            surveyAutoIgnoreJob.initTableSchema();
+            JSONArray rulesArr = new JSONArray(body);
+            for (int i = 0; i < rulesArr.length(); i++) {
+                JSONObject r = rulesArr.getJSONObject(i);
+                String ruleCode = r.optString("rule_code", "");
+                boolean isEnabled = r.optBoolean("is_enabled", true);
+                String patternValue = r.optString("pattern_value", "");
+
+                if (!ruleCode.isEmpty()) {
+                    jdbcTemplate.update(
+                        "UPDATE dbo.survey_auto_ignore_rules SET is_enabled = ?, pattern_value = ?, updated_at = GETDATE() WHERE rule_code = ?",
+                        isEnabled ? 1 : 0, patternValue, ruleCode
+                    );
+                }
+            }
+
+            jout.put("code", 200);
+            jout.put("message", "Lưu cấu hình quy tắc thành công");
+            return jout.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("error", "Lỗi khi lưu cấu hình quy tắc: " + e.getMessage());
+            return jout.toString();
         }
     }
 

@@ -35,6 +35,9 @@ public class SurveyT107Service {
     @Autowired
     private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
+    @Autowired
+    private SurveyStatsService surveyStatsService;
+
     @PostConstruct
     public void initDatabaseTables() {
         try {
@@ -352,6 +355,13 @@ public class SurveyT107Service {
                 bulkInsertResponsesAndAnswers(surveyId, campaignId, responseRows);
 
                 syncToKpiDataPoints(roundedAverage.doubleValue(), fileName, safePeriodId, finalResponses);
+
+                // Trigger non-blocking async pre-calculation of statistics
+                try {
+                    surveyStatsService.recomputeCampaignAsync(surveyId, campaignId);
+                } catch (Exception e) {
+                    log.warn("Notice triggering async stats compute for T1.07: {}", e.getMessage());
+                }
 
                 JSONObject res = new JSONObject();
                 res.put("code", 200);
