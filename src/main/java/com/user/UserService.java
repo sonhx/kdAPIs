@@ -2,6 +2,8 @@ package com.user;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -539,7 +541,12 @@ public class UserService {
 				? jdbcTemplate.queryForList(sql, filterDeptId)
 				: jdbcTemplate.queryForList(sql);
 
+			Set<Object> seenUserIds = new HashSet<>();
 			for (Map<String, Object> row : rows) {
+				Object userId = row.get("ID");
+				if (userId != null && !seenUserIds.add(userId.toString())) {
+					continue;
+				}
 				Object typeVal = row.get("Type");
 				int type = typeVal != null ? ((Number) typeVal).intValue() : 4;
 				JSONObject obj = new JSONObject();
