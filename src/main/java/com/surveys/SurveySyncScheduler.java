@@ -482,40 +482,49 @@ public class SurveySyncScheduler {
             } catch (EmptyResultDataAccessException e) {
                 // Not found
             }
-            
-            if (exists) {
-                if (dbUpdatedAt == null || (finalUpdatedAt != null && finalUpdatedAt.after(dbUpdatedAt))) {
-                    String updateSql = "UPDATE survey_responses SET is_answered=?, updated_at=? WHERE id=?";
+
+            final Timestamp finalDbUpdatedAt = dbUpdatedAt;
+            final boolean finalExists = exists;
+
+            // Wrap ALL write operations in a single TransactionTemplate so they share ONE
+            // connection that is returned to the pool when the lambda exits, preventing the
+            // HikariCP connection leak that was triggered on the scheduling-1 thread.
+            TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+            transactionTemplate.executeWithoutResult(status -> {
+                if (finalExists) {
+                    if (finalDbUpdatedAt == null || (finalUpdatedAt != null && finalUpdatedAt.after(finalDbUpdatedAt))) {
+                        String updateSql = "UPDATE survey_responses SET is_answered=?, updated_at=? WHERE id=?";
+                        jdbcTemplate.update(connection -> {
+                            java.sql.PreparedStatement ps = connection.prepareStatement(updateSql);
+                            ps.setBoolean(1, finalAnswered);
+                            ps.setTimestamp(2, finalUpdatedAt);
+                            ps.setString(3, finalId);
+                            return ps;
+                        });
+
+                        jdbcTemplate.update("DELETE FROM survey_response_answers WHERE response_id = ?", finalId);
+                        insertAnswers(finalSurveyId, finalId, res.optJSONArray("danhSachTraLoi"));
+                    }
+                } else {
+                    String insertSql = "INSERT INTO survey_responses (id, survey_id, user_code, full_name, role, class_code, is_answered, started_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                     jdbcTemplate.update(connection -> {
-                        java.sql.PreparedStatement ps = connection.prepareStatement(updateSql);
-                        ps.setBoolean(1, finalAnswered);
-                        ps.setTimestamp(2, finalUpdatedAt);
-                        ps.setString(3, finalId);
+                        java.sql.PreparedStatement ps = connection.prepareStatement(insertSql);
+                        ps.setString(1, finalId);
+                        ps.setString(2, finalSurveyId);
+                        ps.setString(3, finalUserCode);
+                        ps.setNString(4, finalHoTen);
+                        ps.setNString(5, finalRole);
+                        ps.setString(6, finalClassCode);
+                        ps.setBoolean(7, finalAnswered);
+                        ps.setTimestamp(8, finalStartedAt);
+                        ps.setTimestamp(9, finalCreatedAt);
+                        ps.setTimestamp(10, finalUpdatedAt);
                         return ps;
                     });
-                    
-                    jdbcTemplate.update("DELETE FROM survey_response_answers WHERE response_id = ?", finalId);
+
                     insertAnswers(finalSurveyId, finalId, res.optJSONArray("danhSachTraLoi"));
                 }
-            } else {
-                String insertSql = "INSERT INTO survey_responses (id, survey_id, user_code, full_name, role, class_code, is_answered, started_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                jdbcTemplate.update(connection -> {
-                    java.sql.PreparedStatement ps = connection.prepareStatement(insertSql);
-                    ps.setString(1, finalId);
-                    ps.setString(2, finalSurveyId);
-                    ps.setString(3, finalUserCode);
-                    ps.setNString(4, finalHoTen);
-                    ps.setNString(5, finalRole);
-                    ps.setString(6, finalClassCode);
-                    ps.setBoolean(7, finalAnswered);
-                    ps.setTimestamp(8, finalStartedAt);
-                    ps.setTimestamp(9, finalCreatedAt);
-                    ps.setTimestamp(10, finalUpdatedAt);
-                    return ps;
-                });
-                
-                insertAnswers(finalSurveyId, finalId, res.optJSONArray("danhSachTraLoi"));
-            }
+            });
         } catch (Exception e) {
             System.out.println("Error updating survey response " + res.optString("_id") + ": " + e.getMessage());
             e.printStackTrace();

@@ -62,24 +62,34 @@ public class SurveyStatsService {
     }
 
     public void recomputeCampaign(String surveyId, String campaignId) {
+        String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
+        String key = surveyId + "_" + (actualCampaignId == null ? "ALL" : actualCampaignId);
+        if (computeLocks.putIfAbsent(key, Boolean.TRUE) != null) {
+            log.info("Recomputation for key={} is already in progress. Skipping duplicate execution.", key);
+            return;
+        }
         try {
-            String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
             jdbcTemplate.update("EXEC dbo.sp_recompute_campaign ?, ?", surveyId, actualCampaignId);
         } catch (Exception e) {
             log.warn("Exception in recomputeCampaign for surveyId={}, campaignId={}: {}", surveyId, campaignId, e.getMessage());
+        } finally {
+            computeLocks.remove(key);
         }
     }
 
     @Async
     public void recomputeCampaignAsync(String surveyId, String campaignId) {
-        String key = surveyId + "_" + (campaignId == null || "all".equalsIgnoreCase(campaignId) ? "ALL" : campaignId);
+        String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
+        String key = surveyId + "_" + (actualCampaignId == null ? "ALL" : actualCampaignId);
+        // Fix: use putIfAbsent (atomic) instead of containsKey (non-atomic) to prevent
+        // duplicate async tasks from slipping through during concurrent scheduler runs.
         if (computeLocks.putIfAbsent(key, Boolean.TRUE) != null) {
-            log.info("Recomputation for key={} is already in progress. Skipping duplicate async task.", key);
+            log.info("Recomputation for key={} is already in progress. Skipping async task.", key);
             return;
         }
         try {
             log.info("Starting background async recomputation for key={}", key);
-            recomputeCampaign(surveyId, campaignId);
+            jdbcTemplate.update("EXEC dbo.sp_recompute_campaign ?, ?", surveyId, actualCampaignId);
             log.info("Completed background async recomputation for key={}", key);
         } catch (Exception e) {
             log.error("Error in recomputeCampaignAsync for key={}: {}", key, e.getMessage(), e);
@@ -149,10 +159,7 @@ public class SurveyStatsService {
             log.warn("Error fetching bulk option stats: {}", e.getMessage());
         }
 
-        // If cache is empty & survey has responses, trigger non-blocking background recompute
-        if (numericMap.isEmpty() && optionMap.isEmpty() && hasSurveyResponses(surveyId)) {
-            recomputeCampaignAsync(surveyId, actualCampaignId);
-        }
+        // Stats will be recomputed by the scheduler if stale; read path returns cached data as-is.
 
         // Combine into QuestionFullStatDto map
         Map<String, SurveyFullStatsDto.QuestionFullStatDto> questionMap = new HashMap<>();
@@ -201,33 +208,10 @@ public class SurveyStatsService {
                 rs.getBigDecimal("percentage")
             ), params);
 
-            if (list.isEmpty() && hasSurveyResponses(surveyId)) {
-                recomputeCampaign(surveyId, campaignId);
-                list = jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
-                    rs.getString("option_id"),
-                    rs.getString("option_text"),
-                    rs.getInt("count"),
-                    rs.getBigDecimal("percentage")
-                ), params);
-            }
             return list;
         } catch (Exception e) {
-            log.warn("Notice querying question option stats (running auto-repair): {}", e.getMessage());
-            initProcedures();
-            if (hasSurveyResponses(surveyId)) {
-                recomputeCampaign(surveyId, campaignId);
-            }
-            try {
-                return jdbcTemplate.query(sql, (rs, rowNum) -> new OptionStatDto(
-                    rs.getString("option_id"),
-                    rs.getString("option_text"),
-                    rs.getInt("count"),
-                    rs.getBigDecimal("percentage")
-                ), params);
-            } catch (Exception ex) {
-                log.error("Failed to fetch option stats for questionId={}: {}", questionId, ex.getMessage());
-                return java.util.Collections.emptyList();
-            }
+            log.warn("Error fetching question option stats for questionId={}: {}", questionId, e.getMessage());
+            return java.util.Collections.emptyList();
         }
     }
 
@@ -253,41 +237,10 @@ public class SurveyStatsService {
                 rs.getInt("text_count")
             ), params);
 
-            if (list.isEmpty() && hasSurveyResponses(surveyId)) {
-                recomputeCampaign(surveyId, campaignId);
-                list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
-                    questionId,
-                    rs.getInt("total_responses"),
-                    rs.getBigDecimal("mean"),
-                    rs.getBigDecimal("std_dev"),
-                    rs.getBigDecimal("min_value"),
-                    rs.getBigDecimal("max_value"),
-                    rs.getInt("text_count")
-                ), params);
-            }
-
             return list.isEmpty() ? new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0) : list.get(0);
         } catch (Exception e) {
-            log.warn("Notice querying question numeric stats (running auto-repair): {}", e.getMessage());
-            initProcedures();
-            if (hasSurveyResponses(surveyId)) {
-                recomputeCampaign(surveyId, campaignId);
-            }
-            try {
-                List<QuestionNumericStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new QuestionNumericStatDto(
-                    questionId,
-                    rs.getInt("total_responses"),
-                    rs.getBigDecimal("mean"),
-                    rs.getBigDecimal("std_dev"),
-                    rs.getBigDecimal("min_value"),
-                    rs.getBigDecimal("max_value"),
-                    rs.getInt("text_count")
-                ), params);
-                return list.isEmpty() ? new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0) : list.get(0);
-            } catch (Exception ex) {
-                log.error("Failed to fetch numeric stats for questionId={}: {}", questionId, ex.getMessage());
-                return new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0);
-            }
+            log.warn("Error fetching question numeric stats for questionId={}: {}", questionId, e.getMessage());
+            return new QuestionNumericStatDto(questionId, 0, null, null, null, null, 0);
         }
     }
 
@@ -310,35 +263,10 @@ public class SurveyStatsService {
                 rs.getBigDecimal("std_dev")
             ), params);
 
-            if (list.isEmpty() && hasSurveyResponses(surveyId)) {
-                recomputeCampaign(surveyId, campaignId);
-                list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
-                    blockId,
-                    rs.getInt("total_responses"),
-                    rs.getBigDecimal("mean"),
-                    rs.getBigDecimal("std_dev")
-                ), params);
-            }
-
             return list.isEmpty() ? new BlockStatDto(blockId, 0, null, null) : list.get(0);
         } catch (Exception e) {
-            log.warn("Notice querying block stats (running auto-repair): {}", e.getMessage());
-            initProcedures();
-            if (hasSurveyResponses(surveyId)) {
-                recomputeCampaign(surveyId, campaignId);
-            }
-            try {
-                List<BlockStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new BlockStatDto(
-                    blockId,
-                    rs.getInt("total_responses"),
-                    rs.getBigDecimal("mean"),
-                    rs.getBigDecimal("std_dev")
-                ), params);
-                return list.isEmpty() ? new BlockStatDto(blockId, 0, null, null) : list.get(0);
-            } catch (Exception ex) {
-                log.error("Failed to fetch block stats for blockId={}: {}", blockId, ex.getMessage());
-                return new BlockStatDto(blockId, 0, null, null);
-            }
+            log.warn("Error fetching block stats for blockId={}: {}", blockId, e.getMessage());
+            return new BlockStatDto(blockId, 0, null, null);
         }
     }
 
@@ -361,35 +289,10 @@ public class SurveyStatsService {
                 rs.getString("computed_at")
             ), params);
 
-            if (list.isEmpty() || (list.get(0).getTotalResponses() == 0 && hasSurveyResponses(surveyId))) {
-                recomputeCampaign(surveyId, campaignId);
-                list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
-                    surveyId,
-                    campaignId,
-                    rs.getInt("total_responses"),
-                    rs.getString("computed_at")
-                ), params);
-            }
-
             return list.isEmpty() ? new OverallStatDto(surveyId, campaignId, 0, null) : list.get(0);
         } catch (Exception e) {
-            log.warn("Notice querying overall stats (running auto-repair): {}", e.getMessage());
-            initProcedures();
-            if (hasSurveyResponses(surveyId)) {
-                recomputeCampaign(surveyId, campaignId);
-            }
-            try {
-                List<OverallStatDto> list = jdbcTemplate.query(sql, (rs, rowNum) -> new OverallStatDto(
-                    surveyId,
-                    campaignId,
-                    rs.getInt("total_responses"),
-                    rs.getString("computed_at")
-                ), params);
-                return list.isEmpty() ? new OverallStatDto(surveyId, campaignId, 0, null) : list.get(0);
-            } catch (Exception ex) {
-                log.error("Failed to fetch overall stats for surveyId={}: {}", surveyId, ex.getMessage());
-                return new OverallStatDto(surveyId, campaignId, 0, null);
-            }
+            log.warn("Error fetching overall stats for surveyId={}: {}", surveyId, e.getMessage());
+            return new OverallStatDto(surveyId, campaignId, 0, null);
         }
     }
 }

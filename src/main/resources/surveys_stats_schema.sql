@@ -100,8 +100,8 @@ GO
 
 -- 7. CREATE / ALTER STORED PROCEDURES WITH DEDUPLICATION
 CREATE OR ALTER PROCEDURE dbo.sp_compute_question_option_stats 
-  @survey_id varchar(24), 
-  @campaign_id varchar(24) = NULL, 
+  @survey_id varchar(100), 
+  @campaign_id varchar(100) = NULL, 
   @campaign_start datetime2 = NULL, 
   @campaign_end datetime2 = NULL
 AS
@@ -122,7 +122,7 @@ BEGIN
   
   SELECT r.id AS response_id
   INTO #temp_responses
-  FROM dbo.survey_responses r
+  FROM dbo.survey_responses r WITH (NOLOCK)
   WHERE r.survey_id = @survey_id
     AND (@campaign_id IS NULL OR r.created_at BETWEEN @campaign_start AND @campaign_end);
 
@@ -133,98 +133,47 @@ BEGIN
 
   SELECT a.question_id, a.choices, a.response_id
   INTO #temp_active_answers
-  FROM dbo.survey_response_answers a WITH (NOLOCK, INDEX(IX_answers_response_id))
+  FROM dbo.survey_response_answers a WITH (NOLOCK)
   JOIN #temp_responses fa ON a.response_id = fa.response_id;
 
   CREATE CLUSTERED INDEX IX_temp_active_answers ON #temp_active_answers(question_id);
 
-  -- Create a tiny temp table for pre-computed original-to-hashed ID mapping
-  IF OBJECT_ID('tempdb..#id_map') IS NOT NULL DROP TABLE #id_map;
-  
-  CREATE TABLE #id_map (
-    original_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
-    hashed_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL
-  );
-
-  -- Extract distinct standard option IDs
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.value AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.value)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) opt
-  WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
-
-  -- Extract distinct grid row IDs (idHang)
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.idHang AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idHang)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) WITH (
-    idHang varchar(24) '$.idHang'
-  ) opt
-  WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idHang IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idHang);
-
-  -- Extract distinct grid column IDs (idCot)
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.idCot AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idCot)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) WITH (
-    idCot varchar(24) '$.idCot'
-  ) opt
-  WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idCot IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idCot);
-
-  -- Temporary table to hold parsed and hashed choices
+  -- Temporary table to hold parsed choices
   IF OBJECT_ID('tempdb..#temp_exploded') IS NOT NULL DROP TABLE #temp_exploded;
   
   CREATE TABLE #temp_exploded (
-    target_question_id varchar(24) NOT NULL,
-    option_id varchar(24) NOT NULL,
-    response_id varchar(24) NOT NULL
+    target_question_id varchar(100) NOT NULL,
+    option_id varchar(100) NOT NULL,
+    response_id varchar(100) NOT NULL
   );
 
   -- standard choice answers
   INSERT INTO #temp_exploded (target_question_id, option_id, response_id)
   SELECT 
     q.id AS target_question_id,
-    m.hashed_id AS option_id,
+    opt.value AS option_id,
     a.response_id
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) opt
-  JOIN #id_map m ON opt.value = m.original_id
   WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
 
   -- grid choice answers
   INSERT INTO #temp_exploded (target_question_id, option_id, response_id)
   SELECT 
-    mHang.hashed_id AS target_question_id,
-    mCot.hashed_id AS option_id,
+    opt.idHang AS target_question_id,
+    opt.idCot AS option_id,
     a.response_id
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) WITH (
-    idHang varchar(24) '$.idHang',
-    idCot varchar(24) '$.idCot'
+    idHang varchar(100) '$.idHang',
+    idCot varchar(100) '$.idCot'
   ) opt
-  JOIN #id_map mHang ON opt.idHang = mHang.original_id
-  JOIN #id_map mCot ON opt.idCot = mCot.original_id
   WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
+    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
+    AND opt.idHang IS NOT NULL AND opt.idCot IS NOT NULL;
 
   CREATE CLUSTERED INDEX IX_temp_exploded ON #temp_exploded(target_question_id, option_id);
 
@@ -251,9 +200,9 @@ BEGIN
       q.block_id,
       qo.id AS option_id,
       qo.content AS option_text
-    FROM dbo.survey_questions q
-    JOIN dbo.question_options qo ON q.id = qo.question_id
-    WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
+    FROM dbo.survey_questions q WITH (NOLOCK)
+    JOIN dbo.question_options qo WITH (NOLOCK) ON q.id = qo.question_id
+    WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WITH (NOLOCK) WHERE sb.survey_id = @survey_id)
 
     UNION
 
@@ -263,10 +212,10 @@ BEGIN
       q.block_id,
       qmc.id AS option_id,
       qmc.content AS option_text
-    FROM dbo.survey_questions q
-    JOIN dbo.question_matrix_rows qmr ON q.id = qmr.question_id
-    JOIN dbo.question_matrix_cols qmc ON q.id = qmc.question_id
-    WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
+    FROM dbo.survey_questions q WITH (NOLOCK)
+    JOIN dbo.question_matrix_rows qmr WITH (NOLOCK) ON q.id = qmr.question_id
+    JOIN dbo.question_matrix_cols qmc WITH (NOLOCK) ON q.id = qmc.question_id
+    WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WITH (NOLOCK) WHERE sb.survey_id = @survey_id)
   ),
   raw_option_stats AS (
     SELECT 
@@ -297,15 +246,14 @@ BEGIN
   WHERE rn = 1;
 
   DROP TABLE #temp_exploded;
-  DROP TABLE #id_map;
   DROP TABLE #temp_active_answers;
   DROP TABLE #temp_responses;
 END;
 GO
 
 CREATE OR ALTER PROCEDURE dbo.sp_compute_question_numeric_stats 
-  @survey_id varchar(24), 
-  @campaign_id varchar(24) = NULL, 
+  @survey_id varchar(100), 
+  @campaign_id varchar(100) = NULL, 
   @campaign_start datetime2 = NULL, 
   @campaign_end datetime2 = NULL
 AS
@@ -325,7 +273,7 @@ BEGIN
   
   SELECT r.id AS response_id
   INTO #temp_responses
-  FROM dbo.survey_responses r
+  FROM dbo.survey_responses r WITH (NOLOCK)
   WHERE r.survey_id = @survey_id
     AND (@campaign_id IS NULL OR r.created_at BETWEEN @campaign_start AND @campaign_end);
 
@@ -336,69 +284,20 @@ BEGIN
 
   SELECT a.question_id, a.choices, a.response_id, a.other_answer
   INTO #temp_active_answers
-  FROM dbo.survey_response_answers a WITH (NOLOCK, INDEX(IX_answers_response_id))
+  FROM dbo.survey_response_answers a WITH (NOLOCK)
   JOIN #temp_responses fa ON a.response_id = fa.response_id;
 
   CREATE CLUSTERED INDEX IX_temp_active_answers ON #temp_active_answers(question_id);
 
-  -- Create a tiny temp table for pre-computed original-to-hashed ID mapping
-  IF OBJECT_ID('tempdb..#id_map') IS NOT NULL DROP TABLE #id_map;
-  
-  CREATE TABLE #id_map (
-    original_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
-    hashed_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL
-  );
-
-  -- Extract distinct standard option IDs
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.value AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.value)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) opt
-  WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
-
-  -- Extract distinct grid row IDs (idHang)
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.idHang AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idHang)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) WITH (
-    idHang varchar(24) '$.idHang'
-  ) opt
-  WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idHang IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idHang);
-
-  -- Extract distinct grid column IDs (idCot)
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.idCot AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idCot)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) WITH (
-    idCot varchar(24) '$.idCot'
-  ) opt
-  WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idCot IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idCot);
-
-  -- Temporary table to hold parsed and hashed choices
+  -- Temporary table to hold parsed choices
   IF OBJECT_ID('tempdb..#temp_exploded') IS NOT NULL DROP TABLE #temp_exploded;
   
   CREATE TABLE #temp_exploded (
-    original_question_id varchar(24) NOT NULL,
-    target_question_id varchar(24) NOT NULL,
-    block_id varchar(24) NOT NULL,
-    response_id varchar(24) NOT NULL,
-    option_id varchar(24) NULL,
+    original_question_id varchar(100) NOT NULL,
+    target_question_id varchar(100) NOT NULL,
+    block_id varchar(100) NOT NULL,
+    response_id varchar(100) NOT NULL,
+    option_id varchar(100) NULL,
     other_answer nvarchar(max) NULL,
     question_type varchar(50) NOT NULL
   );
@@ -410,13 +309,12 @@ BEGIN
     q.id AS target_question_id,
     q.block_id,
     a.response_id,
-    m.hashed_id AS option_id,
+    opt.value AS option_id,
     a.other_answer,
     q.question_type
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   OUTER APPLY OPENJSON(a.choices) opt
-  LEFT JOIN #id_map m ON opt.value = m.original_id
   WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
     AND ((a.choices IS NOT NULL AND ISJSON(a.choices) = 1) OR a.other_answer IS NOT NULL);
 
@@ -424,22 +322,21 @@ BEGIN
   INSERT INTO #temp_exploded (original_question_id, target_question_id, block_id, response_id, option_id, other_answer, question_type)
   SELECT 
     q.id AS original_question_id,
-    mHang.hashed_id AS target_question_id,
+    opt.idHang AS target_question_id,
     q.block_id,
     a.response_id,
-    mCot.hashed_id AS option_id,
+    opt.idCot AS option_id,
     NULL AS other_answer,
     q.question_type
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) WITH (
-    idHang varchar(24) '$.idHang',
-    idCot varchar(24) '$.idCot'
+    idHang varchar(100) '$.idHang',
+    idCot varchar(100) '$.idCot'
   ) opt
-  JOIN #id_map mHang ON opt.idHang = mHang.original_id
-  JOIN #id_map mCot ON opt.idCot = mCot.original_id
   WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
+    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
+    AND opt.idHang IS NOT NULL AND opt.idCot IS NOT NULL;
 
   CREATE CLUSTERED INDEX IX_temp_exploded ON #temp_exploded(target_question_id, option_id);
 
@@ -456,19 +353,20 @@ BEGIN
           WHEN COALESCE(qo.content, qmc.content) LIKE '3 =%' OR COALESCE(qo.content, qmc.content) LIKE '3=%' THEN 3.0
           WHEN COALESCE(qo.content, qmc.content) LIKE '2 =%' OR COALESCE(qo.content, qmc.content) LIKE '2=%' THEN 2.0
           WHEN COALESCE(qo.content, qmc.content) LIKE '1 =%' OR COALESCE(qo.content, qmc.content) LIKE '1=%' THEN 1.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
           WHEN COALESCE(qo.content, qmc.content) IN (N'Rất hài lòng', N'Rất tốt', N'Xuất sắc', N'Rất sẵn sàng', N'Rất phù hợp', N'Hoàn toàn đồng ý') THEN 5.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
           ELSE NULL
         END,
-        TRY_CAST(COALESCE(qo.content, qmc.content) AS decimal(9,4))
+        TRY_CAST(COALESCE(qo.content, qmc.content) AS decimal(9,4)),
+        TRY_CAST(ea.option_id AS decimal(9,4))
       ) AS score_val,
       CASE WHEN ea.other_answer IS NOT NULL AND RTRIM(LTRIM(ea.other_answer)) <> '' THEN 1 ELSE 0 END AS is_text
     FROM #temp_exploded ea
-    LEFT JOIN dbo.question_options qo ON ea.option_id = qo.id AND ea.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
-    LEFT JOIN dbo.question_matrix_cols qmc ON ea.option_id = qmc.id AND ea.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
+    LEFT JOIN dbo.question_options qo WITH (NOLOCK) ON ea.option_id = qo.id AND ea.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
+    LEFT JOIN dbo.question_matrix_cols qmc WITH (NOLOCK) ON ea.option_id = qmc.id AND ea.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
   ),
   question_aggregates AS (
     SELECT 
@@ -487,9 +385,9 @@ BEGIN
     SELECT DISTINCT
       q.id AS target_question_id,
       q.block_id
-    FROM dbo.survey_questions q
+    FROM dbo.survey_questions q WITH (NOLOCK)
     WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
-      AND q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
+      AND q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WITH (NOLOCK) WHERE sb.survey_id = @survey_id)
 
     UNION
 
@@ -497,9 +395,9 @@ BEGIN
     SELECT DISTINCT
       qmr.id AS target_question_id,
       q.block_id
-    FROM dbo.survey_questions q
-    JOIN dbo.question_matrix_rows qmr ON q.id = qmr.question_id
-    WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WHERE sb.survey_id = @survey_id)
+    FROM dbo.survey_questions q WITH (NOLOCK)
+    JOIN dbo.question_matrix_rows qmr WITH (NOLOCK) ON q.id = qmr.question_id
+    WHERE q.block_id IN (SELECT sb.id FROM dbo.survey_blocks sb WITH (NOLOCK) WHERE sb.survey_id = @survey_id)
   ),
   raw_question_stats AS (
     SELECT 
@@ -530,15 +428,14 @@ BEGIN
   WHERE rn = 1;
 
   DROP TABLE #temp_exploded;
-  DROP TABLE #id_map;
   DROP TABLE #temp_active_answers;
   DROP TABLE #temp_responses;
 END;
 GO
 
 CREATE OR ALTER PROCEDURE dbo.sp_compute_block_stats 
-  @survey_id varchar(24), 
-  @campaign_id varchar(24) = NULL
+  @survey_id varchar(100), 
+  @campaign_id varchar(100) = NULL
 AS
 BEGIN
   SET NOCOUNT ON;
@@ -557,7 +454,7 @@ BEGIN
   IF @campaign_id IS NOT NULL
   BEGIN
     SELECT @campaign_start = start_time, @campaign_end = end_time 
-    FROM dbo.survey_campaigns 
+    FROM dbo.survey_campaigns WITH (NOLOCK)
     WHERE id = @campaign_id;
   END;
 
@@ -566,7 +463,7 @@ BEGIN
   
   SELECT r.id AS response_id
   INTO #temp_responses
-  FROM dbo.survey_responses r
+  FROM dbo.survey_responses r WITH (NOLOCK)
   WHERE r.survey_id = @survey_id
     AND (@campaign_id IS NULL OR r.created_at BETWEEN @campaign_start AND @campaign_end);
 
@@ -577,66 +474,31 @@ BEGIN
 
   SELECT a.question_id, a.choices, a.response_id
   INTO #temp_active_answers
-  FROM dbo.survey_response_answers a WITH (NOLOCK, INDEX(IX_answers_response_id))
+  FROM dbo.survey_response_answers a WITH (NOLOCK)
   JOIN #temp_responses fa ON a.response_id = fa.response_id;
 
   CREATE CLUSTERED INDEX IX_temp_active_answers ON #temp_active_answers(question_id);
 
-  -- Create a tiny temp table for pre-computed original-to-hashed ID mapping
-  IF OBJECT_ID('tempdb..#id_map') IS NOT NULL DROP TABLE #id_map;
-  
-  CREATE TABLE #id_map (
-    original_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY,
-    hashed_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL
-  );
-
-  -- Extract distinct standard option IDs
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.value AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.value)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) opt
-  WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
-
-  -- Extract distinct grid column IDs (idCot)
-  INSERT INTO #id_map (original_id, hashed_id)
-  SELECT DISTINCT 
-    opt.idCot AS original_id,
-    LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idCot)), 2), 1, 24)) AS hashed_id
-  FROM #temp_active_answers a
-  JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
-  CROSS APPLY OPENJSON(a.choices) WITH (
-    idCot varchar(24) '$.idCot'
-  ) opt
-  WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idCot IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM #id_map WHERE original_id = opt.idCot);
-
-  -- Temporary table to hold parsed and hashed choices
+  -- Temporary table to hold parsed choices
   IF OBJECT_ID('tempdb..#temp_exploded') IS NOT NULL DROP TABLE #temp_exploded;
   
   CREATE TABLE #temp_exploded (
-    block_id varchar(24) NOT NULL,
-    option_id varchar(24) NOT NULL,
+    block_id varchar(100) NOT NULL,
+    option_id varchar(100) NOT NULL,
     question_type varchar(50) NOT NULL,
-    response_id varchar(24) NOT NULL
+    response_id varchar(100) NOT NULL
   );
 
   -- standard choice answers
   INSERT INTO #temp_exploded (block_id, option_id, question_type, response_id)
   SELECT 
     q.block_id,
-    m.hashed_id AS option_id,
+    opt.value AS option_id,
     q.question_type,
     a.response_id
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) opt
-  JOIN #id_map m ON opt.value = m.original_id
   WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
 
@@ -644,17 +506,17 @@ BEGIN
   INSERT INTO #temp_exploded (block_id, option_id, question_type, response_id)
   SELECT 
     q.block_id,
-    mCot.hashed_id AS option_id,
+    opt.idCot AS option_id,
     q.question_type,
     a.response_id
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) WITH (
-    idCot varchar(24) '$.idCot'
+    idCot varchar(100) '$.idCot'
   ) opt
-  JOIN #id_map mCot ON opt.idCot = mCot.original_id
   WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
-    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
+    AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
+    AND opt.idCot IS NOT NULL;
 
   CREATE CLUSTERED INDEX IX_temp_exploded ON #temp_exploded(block_id, option_id);
 
@@ -669,18 +531,19 @@ BEGIN
           WHEN COALESCE(qo.content, qmc.content) LIKE '3 =%' OR COALESCE(qo.content, qmc.content) LIKE '3=%' THEN 3.0
           WHEN COALESCE(qo.content, qmc.content) LIKE '2 =%' OR COALESCE(qo.content, qmc.content) LIKE '2=%' THEN 2.0
           WHEN COALESCE(qo.content, qmc.content) LIKE '1 =%' OR COALESCE(qo.content, qmc.content) LIKE '1=%' THEN 1.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
           WHEN COALESCE(qo.content, qmc.content) IN (N'Rất hài lòng', N'Rất tốt', N'Xuất sắc', N'Rất sẵn sàng', N'Rất phù hợp', N'Hoàn toàn đồng ý') THEN 5.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
+          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
           ELSE NULL
         END,
-        TRY_CAST(COALESCE(qo.content, qmc.content) AS decimal(9,4))
+        TRY_CAST(COALESCE(qo.content, qmc.content) AS decimal(9,4)),
+        TRY_CAST(ea.option_id AS decimal(9,4))
       ) AS score_val
     FROM #temp_exploded ea
-    LEFT JOIN dbo.question_options qo ON ea.option_id = qo.id AND ea.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
-    LEFT JOIN dbo.question_matrix_cols qmc ON ea.option_id = qmc.id AND ea.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
+    LEFT JOIN dbo.question_options qo WITH (NOLOCK) ON ea.option_id = qo.id AND ea.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
+    LEFT JOIN dbo.question_matrix_cols qmc WITH (NOLOCK) ON ea.option_id = qmc.id AND ea.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
   ),
   block_aggregates AS (
     SELECT 
@@ -704,7 +567,7 @@ BEGIN
         PARTITION BY LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', COALESCE(@campaign_id, 'ALL'), '_', sb.id)), 2), 1, 24))
         ORDER BY sb.id
       ) AS rn
-    FROM dbo.survey_blocks sb
+    FROM dbo.survey_blocks sb WITH (NOLOCK)
     LEFT JOIN block_aggregates ba ON sb.id = ba.block_id
     WHERE sb.survey_id = @survey_id
   )
@@ -717,7 +580,6 @@ BEGIN
   WHERE rn = 1;
 
   DROP TABLE #temp_exploded;
-  DROP TABLE #id_map;
   DROP TABLE #temp_active_answers;
   DROP TABLE #temp_responses;
 END;
