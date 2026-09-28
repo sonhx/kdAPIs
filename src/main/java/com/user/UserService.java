@@ -536,6 +536,8 @@ public class UserService {
 				"WHERE (u.IsDeleted IS NULL OR u.IsDeleted = '0') " +
 				(filterDeptId != null ? "AND (" + deptIdExpr + " = ?) " : "") +
 				"ORDER BY COALESCE(p0.fullname, p1.fullname, p2.fullname) ASC";
+			
+			System.out.println("listAllUser SQL: " + sql);
 
 			List<Map<String, Object>> rows = filterDeptId != null
 				? jdbcTemplate.queryForList(sql, filterDeptId)
