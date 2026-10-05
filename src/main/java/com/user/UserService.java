@@ -429,19 +429,16 @@ public class UserService {
 
 			// Check admin/leader rights
 			boolean isAuthorized = false;
-			String adminCheckSql = "SELECT TOP 1 role_code, Type, Email FROM users WHERE CAST(ID AS VARCHAR(100)) = ? OR ID = ?";
+			String adminCheckSql = "SELECT TOP 1 role_code, Email FROM users WHERE CAST(ID AS VARCHAR(100)) = ? OR ID = ?";
 			try {
 				List<Map<String, Object>> uRows = jdbcTemplate.queryForList(adminCheckSql, currentUserId, currentUserId);
 				if (!uRows.isEmpty()) {
 					Map<String, Object> r = uRows.get(0);
 					String adminRoleCode = r.get("role_code") != null ? r.get("role_code").toString().toUpperCase() : "";
-					Number uTypeNum = r.get("Type") != null && (r.get("Type") instanceof Number) ? (Number) r.get("Type") : null;
-					int userType = uTypeNum != null ? uTypeNum.intValue() : 4;
 					String userEmail = r.get("Email") != null ? r.get("Email").toString().trim().toLowerCase() : "";
 
-					if (userType == 1 || userType == 2 || userType == 3 ||
-						"ADMIN".equals(adminRoleCode) || "LANH_DAO_HV".equals(adminRoleCode) || "TRUONG_DON_VI".equals(adminRoleCode) ||
-						userEmail.equalsIgnoreCase("admin@ptit.edu.vn") || userEmail.equalsIgnoreCase("sonhx@ptit.edu.vn")) {
+					if ("ADMIN".equals(adminRoleCode) || "LANH_DAO_HV".equals(adminRoleCode) || "TRUONG_DON_VI".equals(adminRoleCode) ||
+						 userEmail.equalsIgnoreCase("sonhx@ptit.edu.vn")) {
 						isAuthorized = true;
 					}
 				}
@@ -459,12 +456,23 @@ public class UserService {
 			}
 
 			Object target_user_id = jsonobjReq.get("user_id");
-			String newRoleCode = jsonobjReq.has("role_code") ? jsonobjReq.getString("role_code") : null;
-			if (newRoleCode == null && jsonobjReq.has("type")) {
+			String newRoleCode = null;
+			if (jsonobjReq.has("role_code") && !jsonobjReq.isNull("role_code")) {
+				newRoleCode = jsonobjReq.getString("role_code");
+			} else if (jsonobjReq.has("role_codes") && !jsonobjReq.isNull("role_codes")) {
+				Object rcObj = jsonobjReq.get("role_codes");
+				if (rcObj instanceof org.json.JSONArray ja && ja.length() > 0) {
+					newRoleCode = ja.getString(0);
+				} else if (rcObj instanceof String str && !str.isBlank()) {
+					newRoleCode = str.split(",")[0].trim();
+				}
+			} else if (jsonobjReq.has("type") && !jsonobjReq.isNull("type")) {
 				int new_type = jsonobjReq.getInt("type");
 				newRoleCode = new_type == 1 ? "ADMIN" : (new_type == 2 ? "LANH_DAO_HV" : (new_type == 3 ? "TRUONG_DON_VI" : "CHUYEN_VIEN"));
 			}
-			if (newRoleCode == null) newRoleCode = "CHUYEN_VIEN";
+			if (newRoleCode == null || newRoleCode.isBlank()) {
+				newRoleCode = "CHUYEN_VIEN";
+			}
 
 			String updaterId = (sst.sUserId != null && !sst.sUserId.isEmpty()) ? sst.sUserId : String.valueOf(sst.UserID);
 
@@ -669,18 +677,15 @@ public class UserService {
 
 			// check admin right (role_code ADMIN or LANH_DAO_HV or TRUONG_DON_VI)
 			boolean isAuthorized = false;
-			String adminCheckSql = "SELECT TOP 1 role_code, Type, Email FROM users WHERE CAST(ID AS VARCHAR(100)) = ? OR ID = ?";
+			String adminCheckSql = "SELECT TOP 1 role_code, Email FROM users WHERE CAST(ID AS VARCHAR(100)) = ? OR ID = ?";
 			try {
 				List<Map<String, Object>> uRows = jdbcTemplate.queryForList(adminCheckSql, currentUserId, currentUserId);
 				if (!uRows.isEmpty()) {
 					Map<String, Object> r = uRows.get(0);
 					String adminRoleCode = r.get("role_code") != null ? r.get("role_code").toString().toUpperCase() : "";
-					Number uTypeNum = r.get("Type") != null && (r.get("Type") instanceof Number) ? (Number) r.get("Type") : null;
-					int userType = uTypeNum != null ? uTypeNum.intValue() : 4;
 					String userEmail = r.get("Email") != null ? r.get("Email").toString().trim().toLowerCase() : "";
 
-					if (userType == 1 || userType == 2 || userType == 3 ||
-						"ADMIN".equals(adminRoleCode) || "LANH_DAO_HV".equals(adminRoleCode) || "TRUONG_DON_VI".equals(adminRoleCode) ||
+					if ("ADMIN".equals(adminRoleCode) || "LANH_DAO_HV".equals(adminRoleCode) || "TRUONG_DON_VI".equals(adminRoleCode) ||
 						userEmail.equalsIgnoreCase("admin@ptit.edu.vn") || userEmail.equalsIgnoreCase("sonhx@ptit.edu.vn")) {
 						isAuthorized = true;
 					}
