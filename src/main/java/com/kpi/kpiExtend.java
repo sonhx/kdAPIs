@@ -38,33 +38,9 @@ public class kpiExtend {
 	 * On startup, migrate kpi_assignments CHECK constraint on 'role' to allow
 	 * both 'A' (department data-entry) and 'B' (approver) roles.
 	 */
-	/*@PostConstruct
-	public void migrateKpiAssignmentsConstraints() {
+	@PostConstruct
+	public void initKpiSchemaAndTables() {
 		try {
-			// Drop the old CHECK constraint that only allows 'A', then recreate allowing 'A' or 'B'
-			String migrateSql =
-				"IF EXISTS (" +
-				"    SELECT 1 FROM sys.check_constraints " +
-				"    WHERE parent_object_id = OBJECT_ID('kpi_assignments') " +
-				"    AND OBJECT_DEFINITION(object_id) NOT LIKE '%B%'" +
-				") " +
-				"BEGIN " +
-				"    DECLARE @constraintName NVARCHAR(256); " +
-				"    SELECT @constraintName = name FROM sys.check_constraints " +
-				"        WHERE parent_object_id = OBJECT_ID('kpi_assignments') " +
-				"        AND OBJECT_DEFINITION(object_id) NOT LIKE '%B%'; " +
-				"    IF @constraintName IS NOT NULL " +
-				"        EXEC('ALTER TABLE kpi_assignments DROP CONSTRAINT [' + @constraintName + ']'); " +
-				"    IF NOT EXISTS (" +
-				"        SELECT 1 FROM sys.check_constraints " +
-				"        WHERE parent_object_id = OBJECT_ID('kpi_assignments') AND name = 'CK_kpi_assignments_role'" +
-				"    ) " +
-				"        ALTER TABLE kpi_assignments ADD CONSTRAINT CK_kpi_assignments_role CHECK (role IN ('A', 'B')); " +
-				"END";
-			jdbcTemplate.execute(migrateSql);
-			logger.info("kpi_assignments role CHECK constraint migrated to allow A and B.");
-	
-			// Migration: Add is_approved, approved_by, approved_at to kpi_data_points and ensure department_id is VARCHAR(100)
 			jdbcTemplate.execute(
 				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'is_approved') " +
 				"    ALTER TABLE kpi_data_points ADD is_approved INT DEFAULT 0 NULL; " +
@@ -75,13 +51,25 @@ public class kpiExtend {
 				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'department_id' AND t.name NOT IN ('varchar', 'nvarchar')) " +
 				"    ALTER TABLE kpi_data_points ALTER COLUMN department_id VARCHAR(100) NULL; " +
 				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'department_id' AND t.name NOT IN ('varchar', 'nvarchar')) " +
-				"    ALTER TABLE kpi_value_versions ALTER COLUMN department_id VARCHAR(100) NULL; "
+				"    ALTER TABLE kpi_value_versions ALTER COLUMN department_id VARCHAR(100) NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'evidence_file_name' AND t.name = 'varchar') " +
+				"    ALTER TABLE kpi_data_points ALTER COLUMN evidence_file_name NVARCHAR(500) NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'evidence_link' AND t.name = 'varchar') " +
+				"    ALTER TABLE kpi_data_points ALTER COLUMN evidence_link NVARCHAR(2000) NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'notes' AND t.name = 'varchar') " +
+				"    ALTER TABLE kpi_data_points ALTER COLUMN notes NVARCHAR(MAX) NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'evidence_file_name' AND t.name = 'varchar') " +
+				"    ALTER TABLE kpi_value_versions ALTER COLUMN evidence_file_name NVARCHAR(500) NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'evidence_link' AND t.name = 'varchar') " +
+				"    ALTER TABLE kpi_value_versions ALTER COLUMN evidence_link NVARCHAR(2000) NULL; " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'notes' AND t.name = 'varchar') " +
+				"    ALTER TABLE kpi_value_versions ALTER COLUMN notes NVARCHAR(MAX) NULL; "
 			);
-			logger.info("kpi_data_points columns verified/updated.");
+			logger.info("kpi_data_points and kpi_value_versions schema verified: evidence_file_name, evidence_link, and notes set to NVARCHAR.");
 		} catch (Exception e) {
-			logger.warn("Could not migrate kpi_assignments or kpi_data_points constraints: {}", e.getMessage());
+			logger.warn("Could not verify kpi_data_points schema: {}", e.getMessage());
 		}
-	}*/
+	}
 
 	/**
 	 * Save a KPI assignment to the kpi_assignments table
@@ -94,6 +82,16 @@ public class kpiExtend {
 	 */
 	@Transactional
 	public JSONObject saveAssignment(Integer kpiId, String departmentId, String role, String assignedBy) {
+		return saveAssignment(kpiId, departmentId, role, assignedBy, null, true);
+	}
+
+	@Transactional
+	public JSONObject saveAssignment(Integer kpiId, String departmentId, String role, String assignedBy, boolean sendNotification) {
+		return saveAssignment(kpiId, departmentId, role, assignedBy, null, sendNotification);
+	}
+
+	@Transactional
+	public JSONObject saveAssignment(Integer kpiId, String departmentId, String role, String assignedBy, String assignedTo, boolean sendNotification) {
 		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
@@ -107,6 +105,45 @@ public class kpiExtend {
 				response.put("description", "Role is required");
 				return response;
 			}
+
+			// --- Role C (Employee data entry assignment) routing ---
+			if ("C".equalsIgnoreCase(role) || "EMPLOYEE".equalsIgnoreCase(role) || "ASSIGNEE".equalsIgnoreCase(role)) {
+				Integer deptAssignmentId = null;
+				try {
+					if (departmentId != null && !departmentId.isBlank()) {
+						deptAssignmentId = jdbcTemplate.queryForObject(
+							"SELECT TOP 1 assignment_id FROM kpi_assignments WHERE kpi_id = ? AND role = 'A' AND CAST(department_id AS VARCHAR(100)) = ?",
+							Integer.class, kpiId, departmentId
+						);
+					} else {
+						deptAssignmentId = jdbcTemplate.queryForObject(
+							"SELECT TOP 1 assignment_id FROM kpi_assignments WHERE kpi_id = ? AND role = 'A' ORDER BY assignment_id DESC",
+							Integer.class, kpiId
+						);
+					}
+				} catch (Exception ex) {
+					// Create role A assignment if not yet present for this department
+					if (departmentId != null && !departmentId.isBlank()) {
+						JSONObject aRes = saveAssignment(kpiId, departmentId, "A", assignedBy, null, false);
+						if (aRes.has("assignment_id")) {
+							deptAssignmentId = aRes.getInt("assignment_id");
+						}
+					}
+				}
+
+				String targetEmployee = (assignedTo != null && !assignedTo.isBlank() && !"null".equalsIgnoreCase(assignedTo))
+						? assignedTo
+						: assignedBy;
+
+				if (deptAssignmentId != null && deptAssignmentId > 0) {
+					return saveEmployeeAssignment(deptAssignmentId, targetEmployee, assignedBy, true, false);
+				} else {
+					response.put("code", 200);
+					response.put("description", "Thành công");
+					return response;
+				}
+			}
+
 			if (assignedBy == null || assignedBy.trim().isEmpty()) {
 				if ("B".equalsIgnoreCase(role)) {
 					// Delete Role B assignment when cleared/unselected
@@ -138,27 +175,8 @@ public class kpiExtend {
 					response.put("description", "Thành công");
 					response.put("assignment_id", assignmentId);
 
-					try {
-						if (notificationExtend != null && departmentId != null && !departmentId.isBlank()) {
-							String kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
-							String roleLabel = "A".equalsIgnoreCase(role) ? "thực hiện/nhập liệu" : "theo dõi/phê duyệt";
-							notificationExtend.dispatchNotification(
-								"KPI_ASSIGNED",
-								"KPI",
-								"info",
-								"Phân công chỉ số KPI: " + (kpiCode != null ? kpiCode : kpiId),
-								"Đơn vị đã được phân công " + roleLabel + " chỉ số KPI '" + (kpiCode != null ? kpiCode : kpiId) + "'.",
-								"TRUONG_DON_VI",
-								departmentId,
-								"KPI_ASSIGNMENT",
-								String.valueOf(kpiId),
-								"/kpi?code=" + kpiCode,
-								assignedBy != null ? assignedBy : "SYSTEM",
-								null
-							);
-						}
-					} catch (Exception notifEx) {
-						logger.warn("Error dispatching KPI_ASSIGNED notification: " + notifEx.getMessage());
+					if (sendNotification) {
+						dispatchSingleAssignmentNotification(kpiId, departmentId, role, assignedBy);
 					}
 				} else {
 					response.put("code", 500);
@@ -180,27 +198,8 @@ public class kpiExtend {
 					response.put("description", "Thành công");
 					response.put("assignment_id", assignmentId);
 
-					try {
-						if (notificationExtend != null && departmentId != null && !departmentId.isBlank()) {
-							String kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
-							String roleLabel = "A".equalsIgnoreCase(role) ? "thực hiện/nhập liệu" : "theo dõi/phê duyệt";
-							notificationExtend.dispatchNotification(
-								"KPI_ASSIGNED",
-								"KPI",
-								"info",
-								"Phân công chỉ số KPI: " + (kpiCode != null ? kpiCode : kpiId),
-								"Đơn vị đã được phân công " + roleLabel + " chỉ số KPI '" + (kpiCode != null ? kpiCode : kpiId) + "'.",
-								"TRUONG_DON_VI",
-								departmentId,
-								"KPI_ASSIGNMENT",
-								String.valueOf(kpiId),
-								"/kpi?code=" + kpiCode,
-								assignedBy != null ? assignedBy : "SYSTEM",
-								null
-							);
-						}
-					} catch (Exception notifEx) {
-						logger.warn("Error dispatching KPI_ASSIGNED notification: " + notifEx.getMessage());
+					if (sendNotification) {
+						dispatchSingleAssignmentNotification(kpiId, departmentId, role, assignedBy);
 					}
 				} else {
 					response.put("code", 500);
@@ -213,6 +212,51 @@ public class kpiExtend {
 			response.put("description", "Database error: " + e.getMessage());
 		}
 		return response;
+	}
+
+	private void dispatchSingleAssignmentNotification(Integer kpiId, String departmentId, String role, String assignedBy) {
+		if (notificationExtend == null) return;
+		try {
+			String kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
+			String codeStr = (kpiCode != null ? kpiCode : String.valueOf(kpiId));
+			if ("B".equalsIgnoreCase(role)) {
+				if (assignedBy != null && !assignedBy.isBlank()) {
+					notificationExtend.dispatchNotification(
+						"KPI_ASSIGNED",
+						"KPI",
+						"info",
+						"Phân công phê duyệt chỉ số KPI: " + codeStr,
+						"Bạn đã được phân công phê duyệt chỉ số KPI '" + codeStr + "'.",
+						null,
+						departmentId,
+						"KPI_ASSIGNMENT",
+						String.valueOf(kpiId),
+						"/kpi?code=" + codeStr,
+						"SYSTEM",
+						java.util.Collections.singletonList(assignedBy)
+					);
+				}
+			} else {
+				if (departmentId != null && !departmentId.isBlank()) {
+					notificationExtend.dispatchNotification(
+						"KPI_ASSIGNED",
+						"KPI",
+						"info",
+						"Phân công chỉ số KPI: " + codeStr,
+						"Đơn vị đã được phân công thực hiện/nhập liệu chỉ số KPI '" + codeStr + "'.",
+						"TRUONG_DON_VI",
+						departmentId,
+						"KPI_ASSIGNMENT",
+						String.valueOf(kpiId),
+						"/kpi?code=" + codeStr,
+						assignedBy != null ? assignedBy : "SYSTEM",
+						null
+					);
+				}
+			}
+		} catch (Exception notifEx) {
+			logger.warn("Error dispatching KPI_ASSIGNED notification: " + notifEx.getMessage());
+		}
 	}
 
 	/**
@@ -807,6 +851,331 @@ public class kpiExtend {
 	}
 
 	/**
+	 * Initialize kpi_employee_assignments table if not exists.
+	 */
+	public void initKpiEmployeeAssignmentsTable() {
+		try {
+			String sql = 
+				"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'kpi_employee_assignments') " +
+				"BEGIN " +
+				"    CREATE TABLE kpi_employee_assignments ( " +
+				"        employee_assignment_id INT IDENTITY(1,1) PRIMARY KEY, " +
+				"        assignment_id INT NOT NULL, " +
+				"        employee_id VARCHAR(100) NOT NULL, " +
+				"        assigned_date DATETIME DEFAULT GETDATE(), " +
+				"        assigned_by VARCHAR(100) NULL, " +
+				"        allow_manual_override BIT NOT NULL DEFAULT 1, " +
+				"        is_overridden BIT NOT NULL DEFAULT 0, " +
+				"        CONSTRAINT fk_assignment FOREIGN KEY (assignment_id) REFERENCES kpi_assignments(assignment_id) ON DELETE CASCADE " +
+				"    ); " +
+				"END " +
+				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_employee_assignments') AND c.name = 'employee_id' AND t.name NOT IN ('varchar', 'nvarchar')) " +
+				"BEGIN " +
+				"    ALTER TABLE kpi_employee_assignments ALTER COLUMN employee_id VARCHAR(100) NOT NULL; " +
+				"END " +
+				"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_employee_assignments') AND name = 'allow_manual_override') " +
+				"BEGIN " +
+				"    ALTER TABLE kpi_employee_assignments ADD allow_manual_override BIT NOT NULL DEFAULT 1; " +
+				"END " +
+				"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_employee_assignments') AND name = 'is_overridden') " +
+				"BEGIN " +
+				"    ALTER TABLE kpi_employee_assignments ADD is_overridden BIT NOT NULL DEFAULT 0; " +
+				"END";
+			jdbcTemplate.execute(sql);
+		} catch (Exception e) {
+			logger.warn("Error initializing kpi_employee_assignments table: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * Save or update KPI assignment for an employee in kpi_employee_assignments
+	 */
+	@Transactional
+	public JSONObject saveEmployeeAssignment(Integer assignmentId, Object employeeId, String assignedBy, Boolean allowManualOverride, Boolean isOverridden) {
+		invalidateKpisWithAssignmentsCache();
+		initKpiEmployeeAssignmentsTable();
+		JSONObject response = new JSONObject();
+		try {
+			if (assignmentId == null || assignmentId <= 0) {
+				response.put("code", 400);
+				response.put("description", "Assignment ID is required");
+				return response;
+			}
+
+			String empIdStr = employeeId != null ? String.valueOf(employeeId).trim() : "";
+
+			// If employeeId is empty, null, or "0", remove employee assignment for this assignment_id
+			if (empIdStr.isEmpty() || "null".equalsIgnoreCase(empIdStr) || "0".equals(empIdStr)) {
+				String deleteSql = "DELETE FROM kpi_employee_assignments WHERE assignment_id = ?";
+				jdbcTemplate.update(deleteSql, assignmentId);
+				response.put("code", 200);
+				response.put("description", "Thành công (Đã xóa phân công cá nhân)");
+				return response;
+			}
+
+			boolean allowOverride = allowManualOverride != null ? allowManualOverride : true;
+			boolean overridden = isOverridden != null ? isOverridden : false;
+
+			// Check if employee assignment already exists for assignment_id
+			String checkSql = "SELECT COUNT(*) FROM kpi_employee_assignments WHERE assignment_id = ?";
+			Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, assignmentId);
+
+			if (count != null && count > 0) {
+				String updateSql = "UPDATE kpi_employee_assignments SET employee_id = ?, assigned_date = GETDATE(), assigned_by = ?, allow_manual_override = ?, is_overridden = ? WHERE assignment_id = ?";
+				int rows = jdbcTemplate.update(updateSql, empIdStr, assignedBy, allowOverride ? 1 : 0, overridden ? 1 : 0, assignmentId);
+				if (rows > 0) {
+					Integer empAssignId = jdbcTemplate.queryForObject("SELECT TOP 1 employee_assignment_id FROM kpi_employee_assignments WHERE assignment_id = ?", Integer.class, assignmentId);
+					response.put("code", 200);
+					response.put("description", "Cập nhật phân công cá nhân thành công");
+					response.put("employee_assignment_id", empAssignId);
+					response.put("assignment_id", assignmentId);
+					response.put("employee_id", empIdStr);
+				} else {
+					response.put("code", 500);
+					response.put("description", "Lỗi cập nhật phân công cá nhân");
+				}
+			} else {
+				String insertSql = "INSERT INTO kpi_employee_assignments (assignment_id, employee_id, assigned_date, assigned_by, allow_manual_override, is_overridden) VALUES (?, ?, GETDATE(), ?, ?, ?)";
+				int rows = jdbcTemplate.update(insertSql, assignmentId, empIdStr, assignedBy, allowOverride ? 1 : 0, overridden ? 1 : 0);
+				if (rows > 0) {
+					Integer empAssignId = jdbcTemplate.queryForObject("SELECT IDENT_CURRENT('kpi_employee_assignments') as id", Integer.class);
+					response.put("code", 200);
+					response.put("description", "Phân công cá nhân thành công");
+					response.put("employee_assignment_id", empAssignId);
+					response.put("assignment_id", assignmentId);
+					response.put("employee_id", empIdStr);
+				} else {
+					response.put("code", 500);
+					response.put("description", "Lỗi thêm phân công cá nhân");
+				}
+			}
+		} catch (Exception e) {
+			logger.error("Error saveEmployeeAssignment: " + e.getMessage(), e);
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
+	}
+
+	/**
+	 * Get employee assignments by department
+	 */
+	public JSONArray getEmployeeAssignmentsByDepartment(Object departmentId) {
+		initKpiEmployeeAssignmentsTable();
+		JSONArray jsa = new JSONArray();
+		try {
+			String sql = "SELECT ea.employee_assignment_id, ea.assignment_id, ea.employee_id, ea.assigned_date, ea.assigned_by, " +
+					"ea.allow_manual_override, ea.is_overridden, " +
+					"ka.kpi_id, ka.department_id, ka.role, " +
+					"kd.kpi_code, kd.name as kpi_name, kd.category, " +
+					"ISNULL(u.Email, CAST(ea.employee_id AS VARCHAR(50))) as employee_name, " +
+					"u.Email as employee_email " +
+					"FROM kpi_employee_assignments ea " +
+					"JOIN kpi_assignments ka ON ea.assignment_id = ka.assignment_id " +
+					"LEFT JOIN kpi_definitions kd ON ka.kpi_id = kd.kpi_id " +
+					"LEFT JOIN users u ON CAST(u.ID AS VARCHAR(100)) = CAST(ea.employee_id AS VARCHAR(100)) " +
+					"WHERE CAST(ka.department_id AS VARCHAR(100)) = ? " +
+					"ORDER BY ea.employee_assignment_id DESC";
+
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, String.valueOf(departmentId));
+			for (Map<String, Object> row : rows) {
+				JSONObject item = new JSONObject();
+				item.put("employee_assignment_id", row.get("employee_assignment_id"));
+				item.put("assignment_id", row.get("assignment_id"));
+				item.put("employee_id", row.get("employee_id"));
+				item.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : "");
+				item.put("assigned_by", row.get("assigned_by"));
+				item.put("allow_manual_override", Boolean.TRUE.equals(row.get("allow_manual_override")) || "1".equals(String.valueOf(row.get("allow_manual_override"))));
+				item.put("is_overridden", Boolean.TRUE.equals(row.get("is_overridden")) || "1".equals(String.valueOf(row.get("is_overridden"))));
+				item.put("kpi_id", row.get("kpi_id"));
+				item.put("kpi_code", row.get("kpi_code"));
+				item.put("kpi_name", row.get("kpi_name"));
+				item.put("category", row.get("category"));
+				item.put("department_id", row.get("department_id"));
+				item.put("role", row.get("role"));
+				item.put("employee_name", row.get("employee_name"));
+				item.put("employee_email", row.get("employee_email"));
+				jsa.put(item);
+			}
+		} catch (Exception e) {
+			logger.error("Error getEmployeeAssignmentsByDepartment: " + e.getMessage(), e);
+		}
+		return jsa;
+	}
+
+	/**
+	 * Get KPI assignments by employee_id
+	 */
+	public JSONArray getEmployeeAssignmentsByEmployee(Integer employeeId) {
+		initKpiEmployeeAssignmentsTable();
+		JSONArray jsa = new JSONArray();
+		try {
+			String sql = "SELECT ea.employee_assignment_id, ea.assignment_id, ea.employee_id, ea.assigned_date, ea.assigned_by, " +
+					"ea.allow_manual_override, ea.is_overridden, " +
+					"ka.kpi_id, ka.department_id, ka.role, " +
+					"kd.kpi_code, kd.name as kpi_name, kd.category, kd.unit, kd.measurement, kd.cycle " +
+					"FROM kpi_employee_assignments ea " +
+					"JOIN kpi_assignments ka ON ea.assignment_id = ka.assignment_id " +
+					"LEFT JOIN kpi_definitions kd ON ka.kpi_id = kd.kpi_id " +
+					"WHERE ea.employee_id = ? " +
+					"ORDER BY ea.employee_assignment_id DESC";
+
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, employeeId);
+			for (Map<String, Object> row : rows) {
+				JSONObject item = new JSONObject();
+				item.put("employee_assignment_id", row.get("employee_assignment_id"));
+				item.put("assignment_id", row.get("assignment_id"));
+				item.put("employee_id", row.get("employee_id"));
+				item.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : "");
+				item.put("assigned_by", row.get("assigned_by"));
+				item.put("allow_manual_override", Boolean.TRUE.equals(row.get("allow_manual_override")) || "1".equals(String.valueOf(row.get("allow_manual_override"))));
+				item.put("is_overridden", Boolean.TRUE.equals(row.get("is_overridden")) || "1".equals(String.valueOf(row.get("is_overridden"))));
+				item.put("kpi_id", row.get("kpi_id"));
+				item.put("kpi_code", row.get("kpi_code"));
+				item.put("kpi_name", row.get("kpi_name"));
+				item.put("category", row.get("category"));
+				item.put("unit", row.get("unit"));
+				item.put("measurement", row.get("measurement"));
+				item.put("cycle", row.get("cycle"));
+				item.put("department_id", row.get("department_id"));
+				item.put("role", row.get("role"));
+				jsa.put(item);
+			}
+		} catch (Exception e) {
+			logger.error("Error getEmployeeAssignmentsByEmployee: " + e.getMessage(), e);
+		}
+		return jsa;
+	}
+
+	/**
+	 * Get single employee assignment by employee_assignment_id
+	 */
+	public JSONObject getEmployeeAssignmentById(Integer employeeAssignmentId) {
+		initKpiEmployeeAssignmentsTable();
+		JSONObject result = new JSONObject();
+		try {
+			String sql = "SELECT ea.employee_assignment_id, ea.assignment_id, ea.employee_id, ea.assigned_date, ea.assigned_by, " +
+					"ea.allow_manual_override, ea.is_overridden, " +
+					"ka.kpi_id, ka.department_id, ka.role, " +
+					"kd.kpi_code, kd.name as kpi_name, kd.category " +
+					"FROM kpi_employee_assignments ea " +
+					"JOIN kpi_assignments ka ON ea.assignment_id = ka.assignment_id " +
+					"LEFT JOIN kpi_definitions kd ON ka.kpi_id = kd.kpi_id " +
+					"WHERE ea.employee_assignment_id = ?";
+
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, employeeAssignmentId);
+			if (!rows.isEmpty()) {
+				Map<String, Object> row = rows.get(0);
+				result.put("employee_assignment_id", row.get("employee_assignment_id"));
+				result.put("assignment_id", row.get("assignment_id"));
+				result.put("employee_id", row.get("employee_id"));
+				result.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : "");
+				result.put("assigned_by", row.get("assigned_by"));
+				result.put("allow_manual_override", Boolean.TRUE.equals(row.get("allow_manual_override")) || "1".equals(String.valueOf(row.get("allow_manual_override"))));
+				result.put("is_overridden", Boolean.TRUE.equals(row.get("is_overridden")) || "1".equals(String.valueOf(row.get("is_overridden"))));
+				result.put("kpi_id", row.get("kpi_id"));
+				result.put("kpi_code", row.get("kpi_code"));
+				result.put("kpi_name", row.get("kpi_name"));
+				result.put("category", row.get("category"));
+				result.put("department_id", row.get("department_id"));
+				result.put("role", row.get("role"));
+			}
+		} catch (Exception e) {
+			logger.error("Error getEmployeeAssignmentById: " + e.getMessage(), e);
+		}
+		return result;
+	}
+
+	/**
+	 * Delete employee assignment by employee_assignment_id
+	 */
+	@Transactional
+	public JSONObject deleteEmployeeAssignment(Integer employeeAssignmentId) {
+		invalidateKpisWithAssignmentsCache();
+		initKpiEmployeeAssignmentsTable();
+		JSONObject response = new JSONObject();
+		try {
+			int rows = jdbcTemplate.update("DELETE FROM kpi_employee_assignments WHERE employee_assignment_id = ?", employeeAssignmentId);
+			if (rows > 0) {
+				response.put("code", 200);
+				response.put("description", "Xóa phân công cá nhân thành công");
+				response.put("employee_assignment_id", employeeAssignmentId);
+			} else {
+				response.put("code", 404);
+				response.put("description", "Không tìm thấy phân công cá nhân");
+			}
+		} catch (Exception e) {
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
+	}
+
+	/**
+	 * Delete employee assignment by assignment_id
+	 */
+	@Transactional
+	public JSONObject deleteEmployeeAssignmentByAssignmentId(Integer assignmentId) {
+		invalidateKpisWithAssignmentsCache();
+		initKpiEmployeeAssignmentsTable();
+		JSONObject response = new JSONObject();
+		try {
+			int rows = jdbcTemplate.update("DELETE FROM kpi_employee_assignments WHERE assignment_id = ?", assignmentId);
+			response.put("code", 200);
+			response.put("description", "Thành công");
+			response.put("rows_affected", rows);
+		} catch (Exception e) {
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
+	}
+
+	/**
+	 * Update override flags on employee assignment
+	 */
+	@Transactional
+	public JSONObject updateEmployeeAssignmentFlags(Integer employeeAssignmentId, Boolean allowManualOverride, Boolean isOverridden) {
+		invalidateKpisWithAssignmentsCache();
+		initKpiEmployeeAssignmentsTable();
+		JSONObject response = new JSONObject();
+		try {
+			StringBuilder sql = new StringBuilder("UPDATE kpi_employee_assignments SET ");
+			List<Object> params = new ArrayList<>();
+			if (allowManualOverride != null) {
+				sql.append("allow_manual_override = ?, ");
+				params.add(allowManualOverride ? 1 : 0);
+			}
+			if (isOverridden != null) {
+				sql.append("is_overridden = ?, ");
+				params.add(isOverridden ? 1 : 0);
+			}
+			if (params.isEmpty()) {
+				response.put("code", 400);
+				response.put("description", "Không có trạng thái nào cần cập nhật");
+				return response;
+			}
+			sql.setLength(sql.length() - 2);
+			sql.append(" WHERE employee_assignment_id = ?");
+			params.add(employeeAssignmentId);
+
+			int rows = jdbcTemplate.update(sql.toString(), params.toArray());
+			if (rows > 0) {
+				response.put("code", 200);
+				response.put("description", "Cập nhật trạng thái phân công cá nhân thành công");
+				response.put("employee_assignment_id", employeeAssignmentId);
+			} else {
+				response.put("code", 404);
+				response.put("description", "Không tìm thấy phân công cá nhân");
+			}
+		} catch (Exception e) {
+			response.put("code", 500);
+			response.put("description", "Database error: " + e.getMessage());
+		}
+		return response;
+	}
+
+	/**
 	 * Get all KPI assignments for a specific department
 	 * 
 	 * @param departmentId The department ID
@@ -1003,23 +1372,27 @@ public class kpiExtend {
 			try {
 				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
 							   "COALESCE(o.ten, o.tenVietTat) as department_name, " +
-							   "u.Email as assigned_by_name, " +
+							   "COALESCE(p.fullname, p.ten, u.Email, CAST(a.assigned_by AS VARCHAR(100))) as assigned_by_name, " +
 							   "u.Email as assigned_by_email, " +
 							   "a.update_mode, a.source_system, a.sync_frequency, a.last_synced_at, a.sync_status, a.allow_manual_override " +
 							   "FROM kpi_assignments a WITH (NOLOCK) " +
 							   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
-							   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID";
+							   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID " +
+							   "LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(a.assigned_by AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)) OR p.email = CAST(u.Email AS VARCHAR(100)) OR p.emailCanBo = CAST(a.assigned_by AS VARCHAR(100)))";
+				
+				System.out.println("Executing assignSql: " + assignSql); // Debug log
 				assignRows = jdbcTemplate.queryForList(assignSql);
 			} catch (Exception e) {
 				logger.error("Error executing assignSql: " + e.getMessage());
 				try {
 					String fallbackAssignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
 											   "COALESCE(o.ten, o.tenVietTat) as department_name, " +
-											   "u.Email as assigned_by_name, " +
+											   "COALESCE(p.fullname, p.ten, u.Email, CAST(a.assigned_by AS VARCHAR(100))) as assigned_by_name, " +
 											   "u.Email as assigned_by_email " +
 											   "FROM kpi_assignments a WITH (NOLOCK) " +
 											   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
-											   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID";
+											   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID " +
+											   "LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(a.assigned_by AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)) OR p.email = CAST(u.Email AS VARCHAR(100)) OR p.emailCanBo = CAST(a.assigned_by AS VARCHAR(100)))";
 					assignRows = jdbcTemplate.queryForList(fallbackAssignSql);
 				} catch (Exception ex) {
 					logger.error("Error executing fallbackAssignSql: " + ex.getMessage());
@@ -1082,6 +1455,63 @@ public class kpiExtend {
 					joAssign.put("allow_manual_override", overrideVal);
 					assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
 				}
+			}
+
+			// 2b. Fetch and group all Employee KPI assignments (Role C)
+			try {
+				initKpiEmployeeAssignmentsTable();
+				String empAssignSql = "SELECT ea.employee_assignment_id, ea.assignment_id, ea.employee_id, ea.assigned_date, ea.assigned_by, " +
+									  "ea.allow_manual_override, ea.is_overridden, " +
+									  "ka.kpi_id, ka.department_id, " +
+									  "COALESCE(o.ten, o.tenVietTat) as department_name, " +
+									  "COALESCE(p.fullname, p.ten, u.Email, CAST(ea.employee_id AS VARCHAR(100))) as employee_name, " +
+									  "u.Email as employee_email " +
+									  "FROM kpi_employee_assignments ea WITH (NOLOCK) " +
+									  "JOIN kpi_assignments ka WITH (NOLOCK) ON ea.assignment_id = ka.assignment_id " +
+									  "LEFT JOIN orgs o WITH (NOLOCK) ON ka.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
+									  "LEFT JOIN users u WITH (NOLOCK) ON (CAST(u.ID AS VARCHAR(100)) = CAST(ea.employee_id AS VARCHAR(100)) OR u.Email = CAST(ea.employee_id AS VARCHAR(100))) " +
+									  "LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(ea.employee_id AS VARCHAR(100)) OR p.email = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)))";
+				logger.info("Executing empAssignSql for Role C employee assignments...");
+				List<Map<String, Object>> empRows = new ArrayList<>();
+				try {
+					empRows = jdbcTemplate.queryForList(empAssignSql);
+				} catch (Exception exPrimary) {
+					logger.warn("Primary empAssignSql failed, trying fallback empAssignSql: " + exPrimary.getMessage());
+					String fallbackEmpSql = "SELECT ea.employee_assignment_id, ea.assignment_id, ea.employee_id, ea.assigned_date, ea.assigned_by, " +
+											"ka.kpi_id, ka.department_id, " +
+											"COALESCE(o.ten, o.tenVietTat) as department_name, " +
+											"COALESCE(p.fullname, p.ten, u.Email, CAST(ea.employee_id AS VARCHAR(100))) as employee_name, " +
+											"u.Email as employee_email " +
+											"FROM kpi_employee_assignments ea WITH (NOLOCK) " +
+											"JOIN kpi_assignments ka WITH (NOLOCK) ON ea.assignment_id = ka.assignment_id " +
+											"LEFT JOIN orgs o WITH (NOLOCK) ON ka.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
+											"LEFT JOIN users u WITH (NOLOCK) ON (CAST(u.ID AS VARCHAR(100)) = CAST(ea.employee_id AS VARCHAR(100)) OR u.Email = CAST(ea.employee_id AS VARCHAR(100))) " +
+											"LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(ea.employee_id AS VARCHAR(100)) OR p.email = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)))";
+					empRows = jdbcTemplate.queryForList(fallbackEmpSql);
+				}
+				logger.info("Found " + empRows.size() + " employee assignment rows (Role C)");
+				for (Map<String, Object> eRow : empRows) {
+					Integer kpiId = (Integer) eRow.get("kpi_id");
+					if (kpiId != null) {
+						JSONObject joEmp = new JSONObject();
+						joEmp.put("employee_assignment_id", eRow.get("employee_assignment_id"));
+						joEmp.put("assignment_id", eRow.get("assignment_id"));
+						joEmp.put("department_id", eRow.get("department_id"));
+						joEmp.put("department_name", eRow.get("department_name") != null ? eRow.get("department_name").toString() : JSONObject.NULL);
+						joEmp.put("role", "C");
+						joEmp.put("assigned_to", eRow.get("employee_id") != null ? eRow.get("employee_id").toString() : JSONObject.NULL);
+						joEmp.put("assigned_to_name", eRow.get("employee_name") != null ? eRow.get("employee_name").toString() : JSONObject.NULL);
+						joEmp.put("assigned_to_email", eRow.get("employee_email") != null ? eRow.get("employee_email").toString() : JSONObject.NULL);
+						joEmp.put("assigned_by", eRow.get("assigned_by") != null ? eRow.get("assigned_by").toString() : JSONObject.NULL);
+						joEmp.put("assigned_date", eRow.get("assigned_date") != null ? eRow.get("assigned_date").toString() : JSONObject.NULL);
+						joEmp.put("allow_manual_override", eRow.containsKey("allow_manual_override") && eRow.get("allow_manual_override") != null ? (Boolean.TRUE.equals(eRow.get("allow_manual_override")) || "1".equals(String.valueOf(eRow.get("allow_manual_override")))) : true);
+						joEmp.put("is_overridden", eRow.containsKey("is_overridden") && eRow.get("is_overridden") != null ? (Boolean.TRUE.equals(eRow.get("is_overridden")) || "1".equals(String.valueOf(eRow.get("is_overridden")))) : false);
+
+						assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joEmp);
+					}
+				}
+			} catch (Exception ex) {
+				logger.error("Error fetching employee assignments in getKpisWithAssignments: " + ex.getMessage(), ex);
 			}
 
 			// 3. Fetch all KPI data points

@@ -31,8 +31,11 @@ public class NotificationScheduler {
                 "FROM kpi_data_points dp " +
                 "JOIN kpi_definitions k ON k.kpi_id = dp.kpi_id " +
                 "LEFT JOIN orgs o ON CAST(o.id AS VARCHAR(100)) = CAST(dp.department_id AS VARCHAR(100)) " +
-                "WHERE dp.actual_value IS NOT NULL AND k.target IS NOT NULL AND k.target > 0 " +
-                "  AND (dp.actual_value < (k.target * 0.85)) " + // Less than 85% of target
+                "WHERE dp.actual_value IS NOT NULL " +
+                "  AND k.target IS NOT NULL " +
+                "  AND TRY_CAST(k.target AS FLOAT) IS NOT NULL " +
+                "  AND TRY_CAST(k.target AS FLOAT) > 0 " +
+                "  AND (dp.actual_value < (TRY_CAST(k.target AS FLOAT) * 0.85)) " + // Less than 85% of target
                 "  AND (dp.is_approved IS NULL OR dp.is_approved = 0)";
 
             List<Map<String, Object>> riskyRows = jdbcTemplate.queryForList(sql);
@@ -89,7 +92,7 @@ public class NotificationScheduler {
             String sql =
                 "SELECT ka.assignment_id, ka.kpi_code, k.name AS kpi_name, ka.department_id, ka.role, ka.assigned_by, o.ten AS dept_name " +
                 "FROM kpi_assignments ka " +
-                "JOIN kpi_definitions k ON (k.kpi_id = ka.kpi_id OR k.kpi_code = ka.kpi_code) " +
+                "JOIN kpi_definitions k ON (k.kpi_id = ka.kpi_id) " +
                 "LEFT JOIN orgs o ON CAST(o.id AS VARCHAR(100)) = CAST(ka.department_id AS VARCHAR(100))";
 
             List<Map<String, Object>> assignments = jdbcTemplate.queryForList(sql);

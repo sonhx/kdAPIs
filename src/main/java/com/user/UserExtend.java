@@ -15,21 +15,19 @@ public class UserExtend {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
-	/*@PostConstruct
+	@PostConstruct
 	public void init() {
 		java.util.concurrent.CompletableFuture.runAsync(() -> {
 			try {
-				String checkSql = "SELECT COUNT(*) FROM users WITH (NOLOCK) WHERE Email IN ('sonhx@ptit.edu.vn', 'admin@ptit.edu.vn') AND (IsAdmin IS NULL OR IsAdmin = 0 OR Type <> 1)";
-				Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class);
-				if (count != null && count > 0) {
-					jdbcTemplate.update("UPDATE users SET IsAdmin = 1, Type = 1 WHERE Email IN ('sonhx@ptit.edu.vn', 'admin@ptit.edu.vn')");
-					System.out.println("[UserExtend] Verified admin privileges for sonhx@ptit.edu.vn and admin@ptit.edu.vn");
-				}
+				jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_users_ID' AND object_id = OBJECT_ID('users')) CREATE NONCLUSTERED INDEX IX_users_ID ON dbo.users(ID);");
+				jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_users_Email' AND object_id = OBJECT_ID('users')) CREATE NONCLUSTERED INDEX IX_users_Email ON dbo.users(Email);");
+				jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_personnel_email' AND object_id = OBJECT_ID('personnel')) CREATE NONCLUSTERED INDEX IX_personnel_email ON dbo.personnel(email);");
+				System.out.println("[UserExtend] Verified database performance indexes on users and personnel tables.");
 			} catch (Exception e) {
-				System.err.println("[UserExtend] Admin init notice: " + e.getMessage());
+				System.err.println("[UserExtend] Index init notice: " + e.getMessage());
 			}
 		});
-	}*/
+	}
 
 	/**
 	 * Provision personnel who are:
@@ -85,9 +83,9 @@ public class UserExtend {
 						String hashedPassword = BCrypt.hashpw(rawPassword, BCrypt.gensalt());
 
 						if (existingUserId == null) {
-							// Insert new user with Type = 0 (Normal user/Cán bộ)
+							// Insert new user with default role_code = 'CHUYEN_VIEN'
 							jdbcTemplate.update(
-								"INSERT INTO users (ID, Email, Hash, Status, Type) VALUES (?, ?, ?, 1, 0)",
+								"INSERT INTO users (ID, Email, Hash, Status, role_code) VALUES (?, ?, ?, 1, 'CHUYEN_VIEN')",
 								id, email, hashedPassword
 							);
 							inserted++;
@@ -114,7 +112,7 @@ public class UserExtend {
 	}
 
 
-	public String RegisterUser(String idOrEmail, String email, String password, String mobile, int type) {
+	public String RegisterUser(String idOrEmail, String email, String password, String mobile, String roleCode) {
 		try {
 			String hashedPassword = BCrypt.hashpw(password, BCrypt.gensalt());
 			String targetEmail = (email != null && !email.isBlank()) ? email.trim() : (idOrEmail != null ? idOrEmail.trim() : "");
@@ -153,14 +151,20 @@ public class UserExtend {
 				}
 			}
 
-			String sql = "INSERT INTO users (ID, Email, Hash, Status, Type) VALUES (?, ?, ?, 1, ?)";
+			String finalRoleCode = (roleCode != null && !roleCode.isBlank()) ? roleCode : "CHUYEN_VIEN";
+			String sql = "INSERT INTO users (ID, Email, Hash, Status, role_code) VALUES (?, ?, ?, 1, ?)";
 			final String finalUserId = userId;
-			int rows = jdbcTemplate.update(sql, finalUserId, targetEmail, hashedPassword, type);
+			int rows = jdbcTemplate.update(sql, finalUserId, targetEmail, hashedPassword, finalRoleCode);
 			return rows > 0 ? finalUserId : null;
 		} catch (Exception e) {
 			e.printStackTrace();
 			return null;
 		}
+	}
+
+	public String RegisterUser(String idOrEmail, String email, String password, String mobile, int type) {
+		String roleCode = type == 1 ? "ADMIN" : (type == 2 ? "LANH_DAO_HV" : (type == 3 ? "TRUONG_DON_VI" : "CHUYEN_VIEN"));
+		return RegisterUser(idOrEmail, email, password, mobile, roleCode);
 	}
 
 	private static boolean isNumeric(String str) {
@@ -173,14 +177,13 @@ public class UserExtend {
 		}
 	}
 
-	public String fn_user_type_name(int type_id) {
-		try {
-			String sql = "select Name from dbo.def_user_type where Value=?";
-			List<String> results = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("Name"), type_id);
-			return results.isEmpty() ? "unknown" : results.get(0);
-		} catch (Exception e) {
-			e.printStackTrace();
-			return "unknown";
+	public String fn_user_type_name(String roleCode) {
+		if (roleCode == null) return "Chuyên viên";
+		switch (roleCode.toUpperCase()) {
+			case "ADMIN": return "Admin";
+			case "LANH_DAO_HV": return "Lãnh đạo HV";
+			case "TRUONG_DON_VI": return "Trưởng đơn vị";
+			default: return "Chuyên viên";
 		}
 	}
 
@@ -195,18 +198,23 @@ public class UserExtend {
 		}
 	}
 
-	public int UpdateUser(Object user_id, int user_type, String email, String updaterId) {
+	public int UpdateUser(Object user_id, String roleCode, String email, String updaterId) {
 		try {
-			String sql = "Update users set Email = ?, Type = ?, UpdatedBy = ?, UpdatedTime = GETDATE() where ID = ?";
-			return jdbcTemplate.update(sql, email, user_type, updaterId, user_id.toString());
+			String sql = "Update users set Email = ?, role_code = ?, UpdatedBy = ?, UpdatedTime = GETDATE() where ID = ?";
+			return jdbcTemplate.update(sql, email, roleCode, updaterId, user_id.toString());
 		} catch (Exception e) {
 			e.printStackTrace();
 			return -1;
 		}
 	}
 
-	public int UpdateUser(Object user_id, int user_type, String email) {
-		return UpdateUser(user_id, user_type, email, (String) null);
+	public int UpdateUser(Object user_id, int user_type, String email, String updaterId) {
+		String roleCode = user_type == 1 ? "ADMIN" : (user_type == 2 ? "LANH_DAO_HV" : (user_type == 3 ? "TRUONG_DON_VI" : "CHUYEN_VIEN"));
+		return UpdateUser(user_id, roleCode, email, updaterId);
+	}
+
+	public int UpdateUser(Object user_id, String roleCode, String email) {
+		return UpdateUser(user_id, roleCode, email, (String) null);
 	}
 
 	public int UpdateLockUserRight(Object user_id, int lock_user, String updaterId) {
@@ -247,15 +255,20 @@ public class UserExtend {
 		}
 	}
 
-	public boolean typeExisted(int type, Object userId) {
+	public boolean typeExisted(String roleCode, Object userId) {
 		try {
-			String sql = "select count(*) from dbo.users where ID=? and Type=?";
-			Integer count = jdbcTemplate.queryForObject(sql, Integer.class, userId.toString(), type);
+			String sql = "select count(*) from dbo.users where ID=? and role_code=?";
+			Integer count = jdbcTemplate.queryForObject(sql, Integer.class, userId.toString(), roleCode);
 			return count != null && count > 0;
 		} catch (Exception e) {
 			e.printStackTrace();
 			return false;
 		}
+	}
+
+	public boolean typeExisted(int userType, Object userId) {
+		String roleCode = userType == 1 ? "ADMIN" : (userType == 2 ? "LANH_DAO_HV" : (userType == 3 ? "TRUONG_DON_VI" : "CHUYEN_VIEN"));
+		return typeExisted(roleCode, userId);
 	}
 
 	/**

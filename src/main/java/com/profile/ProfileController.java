@@ -133,7 +133,7 @@ public class ProfileController {
             if (sst == null) {
                 return "{\"code\":700, \"description\":\"Người sử dụng chưa đăng nhập\"}";
             }
-            if (!userExtend.typeExisted(2, sst.UserID)) {
+            if (!userExtend.typeExisted("ADMIN", sst.UserID) && !userExtend.typeExisted("LANH_DAO_HV", sst.UserID)) {
                 return "{\"code\":709, \"description\":\"Người dùng không có quyền thực hiện tác vụ này\"}";
             }
 

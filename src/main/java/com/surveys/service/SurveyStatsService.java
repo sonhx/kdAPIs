@@ -76,28 +76,32 @@ public class SurveyStatsService {
             computeLocks.remove(key);
         }
     }
-
-    @Async
-    public void recomputeCampaignAsync(String surveyId, String campaignId) {
-        String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
-        String key = surveyId + "_" + (actualCampaignId == null ? "ALL" : actualCampaignId);
-        // Fix: use putIfAbsent (atomic) instead of containsKey (non-atomic) to prevent
-        // duplicate async tasks from slipping through during concurrent scheduler runs.
-        if (computeLocks.putIfAbsent(key, Boolean.TRUE) != null) {
-            log.info("Recomputation for key={} is already in progress. Skipping async task.", key);
-            return;
-        }
-        try {
-            log.info("Starting background async recomputation for key={}", key);
-            jdbcTemplate.update("EXEC dbo.sp_recompute_campaign ?, ?", surveyId, actualCampaignId);
-            log.info("Completed background async recomputation for key={}", key);
-        } catch (Exception e) {
-            log.error("Error in recomputeCampaignAsync for key={}: {}", key, e.getMessage(), e);
-        } finally {
-            computeLocks.remove(key);
-        }
-    }
-
+    
+    
+	@Async
+	public void recomputeCampaignAsync(String surveyId, String campaignId) {
+		log.info("recomputeCampaignAsync is currently disabled for surveyId={}, campaignId={}", surveyId, campaignId);
+		/*
+	    String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
+	    String key = surveyId + "_" + (actualCampaignId == null ? "ALL" : actualCampaignId);
+	    // Fix: use putIfAbsent (atomic) instead of containsKey (non-atomic) to prevent
+	    // duplicate async tasks from slipping through during concurrent scheduler runs.
+	    if (computeLocks.putIfAbsent(key, Boolean.TRUE) != null) {
+	        log.info("Recomputation for key={} is already in progress. Skipping async task.", key);
+	        return;
+	    }
+	    try {
+	        log.info("Starting background async recomputation for key={}", key);
+	        jdbcTemplate.update("EXEC dbo.sp_recompute_campaign ?, ?", surveyId, actualCampaignId);
+	        log.info("Completed background async recomputation for key={}", key);
+	    } catch (Exception e) {
+	        log.error("Error in recomputeCampaignAsync for key={}: {}", key, e.getMessage(), e);
+	    } finally {
+	        computeLocks.remove(key);
+	    }
+	    */
+	}
+	
     public SurveyFullStatsDto getSurveyFullStats(String surveyId, String campaignId) {
         String actualCampaignId = (campaignId == null || "all".equalsIgnoreCase(campaignId)) ? null : campaignId;
 

@@ -31,6 +31,9 @@ public class kpiServices {
 	private kpiExtend kpiExtend;
 
 	@Autowired
+	private com.notification.NotificationExtend notificationExtend;
+
+	@Autowired
 	private SessionService sessionService;
 
 	@Autowired
@@ -583,6 +586,9 @@ public class kpiServices {
 				return "{\"code\":" + 400 + ", \"description\":\"" + "Dữ liệu phân công KPI không hợp lệ" + "\"}";
 			}
 
+			Map<String, java.util.Set<String>> approverToKpis = new java.util.LinkedHashMap<>();
+			Map<String, java.util.Set<String>> deptToKpis = new java.util.LinkedHashMap<>();
+
 			System.out.println("Received " + jsAssignments.length() + " assignments to save.");
 			System.out.println(jsAssignments.toString());
 			for (int i = 0; i < jsAssignments.length(); i++) {
@@ -591,8 +597,10 @@ public class kpiServices {
 				System.out.println(assignment.toString());
 
 				Integer kpiId = null;
-				if (assignment.has("kpiCode")) {
-					kpiId = resolveKpiId(assignment.getString("kpiCode"));
+				String kpiCode = null;
+				if (assignment.has("kpiCode") && !assignment.isNull("kpiCode")) {
+					kpiCode = assignment.getString("kpiCode");
+					kpiId = resolveKpiId(kpiCode);
 				}
 				if (kpiId == null && assignment.has("kpi_id")) {
 					kpiId = assignment.getInt("kpi_id");
@@ -606,16 +614,125 @@ public class kpiServices {
 					rawAssignedBy = assignment.get("assigned_by").toString().trim();
 				else if (assignment.has("assignedBy") && !assignment.isNull("assignedBy"))
 					rawAssignedBy = assignment.get("assignedBy").toString().trim();
-				else if (assignment.has("user_id") && !assignment.isNull("user_id"))
-					rawAssignedBy = assignment.get("user_id").toString().trim();
 				String assignedBy = (rawAssignedBy == null || rawAssignedBy.isEmpty() || rawAssignedBy.equals("null")) ? "" : rawAssignedBy;
+				String rawAssignedTo = null;
+				if (assignment.has("assigned_to") && !assignment.isNull("assigned_to"))
+					rawAssignedTo = assignment.get("assigned_to").toString().trim();
+				else if (assignment.has("assignedTo") && !assignment.isNull("assignedTo"))
+					rawAssignedTo = assignment.get("assignedTo").toString().trim();
+				else if (assignment.has("employee_id") && !assignment.isNull("employee_id"))
+					rawAssignedTo = assignment.get("employee_id").toString().trim();
+				String assignedTo = (rawAssignedTo == null || rawAssignedTo.isEmpty() || rawAssignedTo.equals("null")) ? assignedBy : rawAssignedTo;
 
 				if (kpiId != null) {
 					System.out.println("Saving/Deleting assignment: kpiId=" + kpiId + ", departmentId=" + departmentId
-							+ ", role=" + role + ", assignedBy=" + assignedBy);
-					kpiExtend.saveAssignment(kpiId, departmentId, role, assignedBy);
+							+ ", role=" + role + ", assignedBy=" + assignedBy + ", assignedTo=" + assignedTo);
+					JSONObject saveRes = kpiExtend.saveAssignment(kpiId, departmentId, role, assignedBy, assignedTo, false);
+
+					if (saveRes != null && saveRes.optInt("code") == 200) {
+						if (kpiCode == null || kpiCode.isBlank()) {
+							try {
+								kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
+							} catch (Exception e) {}
+						}
+						String finalCode = (kpiCode != null && !kpiCode.isBlank()) ? kpiCode : String.valueOf(kpiId);
+
+						if ("B".equalsIgnoreCase(role)) {
+							if (!assignedBy.isEmpty()) {
+								approverToKpis.computeIfAbsent(assignedBy, k -> new java.util.LinkedHashSet<>()).add(finalCode);
+							}
+						} else {
+							if (departmentId != null && !departmentId.isBlank()) {
+								deptToKpis.computeIfAbsent(departmentId, k -> new java.util.LinkedHashSet<>()).add(finalCode);
+							}
+						}
+					}
 				} else {
 					System.err.println("Skipping assignment due to unresolved KPI ID: kpiId=" + kpiId);
+				}
+			}
+
+			// Aggregate & dispatch single combined notification per approver (Role B)
+			if (notificationExtend != null) {
+				for (Map.Entry<String, java.util.Set<String>> entry : approverToKpis.entrySet()) {
+					String approverId = entry.getKey();
+					java.util.Set<String> kpiCodes = entry.getValue();
+					if (kpiCodes.isEmpty()) continue;
+
+					try {
+						String title;
+						String message;
+						String actionUrl;
+						if (kpiCodes.size() == 1) {
+							String codeStr = kpiCodes.iterator().next();
+							title = "Phân công phê duyệt chỉ số KPI: " + codeStr;
+							message = "Bạn đã được phân công phê duyệt chỉ số KPI '" + codeStr + "'.";
+							actionUrl = "/kpi?code=" + codeStr;
+						} else {
+							String codesJoined = String.join(", ", kpiCodes);
+							title = "Phân công phê duyệt KPI (" + kpiCodes.size() + " chỉ số)";
+							message = "Bạn đã được phân công phê duyệt " + kpiCodes.size() + " chỉ số KPI: " + codesJoined + ".";
+							actionUrl = "/kpi";
+						}
+
+						notificationExtend.dispatchNotification(
+							"KPI_ASSIGNED",
+							"KPI",
+							"info",
+							title,
+							message,
+							null,
+							null,
+							"KPI_ASSIGNMENT",
+							null,
+							actionUrl,
+							"SYSTEM",
+							java.util.Collections.singletonList(approverId)
+						);
+					} catch (Exception notifEx) {
+						System.err.println("Error dispatching aggregated approver notification: " + notifEx.getMessage());
+					}
+				}
+
+				// Aggregate & dispatch combined notification per department (Role A)
+				for (Map.Entry<String, java.util.Set<String>> entry : deptToKpis.entrySet()) {
+					String deptId = entry.getKey();
+					java.util.Set<String> kpiCodes = entry.getValue();
+					if (kpiCodes.isEmpty()) continue;
+
+					try {
+						String title;
+						String message;
+						String actionUrl;
+						if (kpiCodes.size() == 1) {
+							String codeStr = kpiCodes.iterator().next();
+							title = "Phân công chỉ số KPI: " + codeStr;
+							message = "Đơn vị đã được phân công thực hiện/nhập liệu chỉ số KPI '" + codeStr + "'.";
+							actionUrl = "/kpi?code=" + codeStr;
+						} else {
+							String codesJoined = String.join(", ", kpiCodes);
+							title = "Phân công chỉ số KPI (" + kpiCodes.size() + " chỉ số)";
+							message = "Đơn vị đã được phân công thực hiện/nhập liệu " + kpiCodes.size() + " chỉ số KPI: " + codesJoined + ".";
+							actionUrl = "/kpi";
+						}
+
+						notificationExtend.dispatchNotification(
+							"KPI_ASSIGNED",
+							"KPI",
+							"info",
+							title,
+							message,
+							"TRUONG_DON_VI",
+							deptId,
+							"KPI_ASSIGNMENT",
+							null,
+							actionUrl,
+							"SYSTEM",
+							null
+						);
+					} catch (Exception notifEx) {
+						System.err.println("Error dispatching aggregated department notification: " + notifEx.getMessage());
+					}
 				}
 			}
 
@@ -898,6 +1015,16 @@ public class kpiServices {
 			}
 
 			String originalName = file.getOriginalFilename();
+			if (originalName != null) {
+				try {
+					byte[] isoBytes = originalName.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+					String utf8Decoded = new String(isoBytes, java.nio.charset.StandardCharsets.UTF_8);
+					if (!utf8Decoded.contains("\uFFFD") && !utf8Decoded.contains("ï¿½") && utf8Decoded.length() > 0) {
+						originalName = utf8Decoded;
+					}
+				} catch (Exception e) {}
+			}
+
 			String safeKpiCode = kpiCode.replaceAll("[^a-zA-Z0-9_-]", "");
 			String uploadDir = Config.homeDir + "/kpi/evidence/" + safeKpiCode;
 			File destFolder = new File(uploadDir);
@@ -929,6 +1056,37 @@ public class kpiServices {
 		}
 		System.out.println("RES(uploadEvidence):" + jout.toString());
 		return jout.toString();
+	}
+
+	@GetMapping("/evidence/{kpiCode:.+}/{fileName:.+}")
+	public org.springframework.http.ResponseEntity<org.springframework.core.io.Resource> getEvidenceFile(
+			@PathVariable("kpiCode") String kpiCode,
+			@PathVariable("fileName") String fileName) {
+		try {
+			String safeKpiCode = kpiCode.replaceAll("[^a-zA-Z0-9_-]", "");
+			String decodedFileName = java.net.URLDecoder.decode(fileName, "UTF-8");
+			File file = new File(Config.homeDir + "/kpi/evidence/" + safeKpiCode + "/" + decodedFileName);
+			if (!file.exists()) {
+				file = new File(Config.homeDir + "/kpi/evidence/" + safeKpiCode + "/" + fileName);
+			}
+			if (!file.exists()) {
+				return org.springframework.http.ResponseEntity.notFound().build();
+			}
+			org.springframework.core.io.Resource resource = new org.springframework.core.io.FileSystemResource(file);
+			String contentType = java.nio.file.Files.probeContentType(file.toPath());
+			if (contentType == null) {
+				contentType = "application/octet-stream";
+			}
+			String encodedHeaderName = java.net.URLEncoder.encode(file.getName(), "UTF-8").replace("+", "%20");
+			String contentDisposition = "inline; filename=\"" + file.getName().replaceAll("[^a-zA-Z0-9._-]", "_") + "\"; filename*=UTF-8''" + encodedHeaderName;
+
+			return org.springframework.http.ResponseEntity.ok()
+					.contentType(org.springframework.http.MediaType.parseMediaType(contentType))
+					.header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
+					.body(resource);
+		} catch (Exception e) {
+			return org.springframework.http.ResponseEntity.status(500).build();
+		}
 	}
 
 	@PostMapping("/value/save")
@@ -1166,5 +1324,188 @@ public class kpiServices {
 			jout.put("description", "Lỗi hủy phê duyệt: " + e.getMessage());
 		}
 		return jout.toString();
+	}
+
+	/**
+	 * POST /kpi/employee-assignments/assign or POST /kpi/employee-assignments
+	 * Save/update employee KPI assignment(s)
+	 */
+	@PostMapping(value = {"/employee-assignments/assign", "/employee-assignments"})
+	public String assignEmployeeKpi(@RequestBody String sReq) {
+		System.out.println("-------assignEmployeeKpi:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+
+			if (jin.has("data") && jin.get("data") instanceof JSONArray) {
+				JSONArray jsAssignments = jin.getJSONArray("data");
+				int count = 0;
+				JSONArray results = new JSONArray();
+				for (int i = 0; i < jsAssignments.length(); i++) {
+					JSONObject item = jsAssignments.getJSONObject(i);
+					Integer assignmentId = item.has("assignment_id") ? item.getInt("assignment_id") : null;
+					Integer employeeId = item.has("employee_id") ? item.getInt("employee_id") : (item.has("assigned_to") ? item.getInt("assigned_to") : null);
+					String assignedBy = item.optString("assigned_by", "system");
+					Boolean allowManualOverride = item.has("allow_manual_override") ? item.getBoolean("allow_manual_override") : null;
+					Boolean isOverridden = item.has("is_overridden") ? item.getBoolean("is_overridden") : null;
+
+					JSONObject res = kpiExtend.saveEmployeeAssignment(assignmentId, employeeId, assignedBy, allowManualOverride, isOverridden);
+					results.put(res);
+					if (res.optInt("code") == 200) count++;
+				}
+				jout.put("code", 200);
+				jout.put("description", "Thành công");
+				jout.put("processed_count", count);
+				jout.put("details", results);
+				return jout.toString();
+			}
+
+			Integer assignmentId = jin.has("assignment_id") ? jin.getInt("assignment_id") : null;
+			Integer employeeId = jin.has("employee_id") ? jin.getInt("employee_id") : (jin.has("assigned_to") ? jin.getInt("assigned_to") : null);
+			String assignedBy = jin.optString("assigned_by", "system");
+			Boolean allowManualOverride = jin.has("allow_manual_override") ? jin.getBoolean("allow_manual_override") : null;
+			Boolean isOverridden = jin.has("is_overridden") ? jin.getBoolean("is_overridden") : null;
+
+			JSONObject res = kpiExtend.saveEmployeeAssignment(assignmentId, employeeId, assignedBy, allowManualOverride, isOverridden);
+			return res.toString();
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi phân công cá nhân: " + e.getMessage());
+			return jout.toString();
+		}
+	}
+
+	/**
+	 * POST /kpi/employee-assignments/batch - Batch assign employees to KPI assignments
+	 */
+	@PostMapping("/employee-assignments/batch")
+	public String batchAssignEmployeeKpi(@RequestBody String sReq) {
+		return assignEmployeeKpi(sReq);
+	}
+
+	/**
+	 * GET /kpi/employee-assignments/by-department/{departmentId} - Get all employee assignments for a department
+	 */
+	@GetMapping("/employee-assignments/by-department/{departmentId}")
+	public String getEmployeeAssignmentsByDepartment(@PathVariable Object departmentId) {
+		System.out.println("-------getEmployeeAssignmentsByDepartment:" + departmentId);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONArray assignments = kpiExtend.getEmployeeAssignmentsByDepartment(departmentId);
+			jout.put("code", 200);
+			jout.put("description", "Thành công");
+			jout.put("department_id", departmentId);
+			jout.put("assignments", assignments);
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi lấy danh sách phân công cá nhân theo đơn vị: " + e.getMessage());
+		}
+		return jout.toString();
+	}
+
+	/**
+	 * GET /kpi/employee-assignments/by-employee/{employeeId} - Get all KPI assignments for a specific employee
+	 */
+	@GetMapping("/employee-assignments/by-employee/{employeeId}")
+	public String getEmployeeAssignmentsByEmployee(@PathVariable Integer employeeId) {
+		System.out.println("-------getEmployeeAssignmentsByEmployee:" + employeeId);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONArray assignments = kpiExtend.getEmployeeAssignmentsByEmployee(employeeId);
+			jout.put("code", 200);
+			jout.put("description", "Thành công");
+			jout.put("employee_id", employeeId);
+			jout.put("assignments", assignments);
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi lấy danh sách KPI phân công cho cá nhân: " + e.getMessage());
+		}
+		return jout.toString();
+	}
+
+	/**
+	 * GET /kpi/employee-assignments/{employeeAssignmentId} - Get single employee assignment
+	 */
+	@GetMapping("/employee-assignments/{employeeAssignmentId}")
+	public String getEmployeeAssignmentById(@PathVariable Integer employeeAssignmentId) {
+		System.out.println("-------getEmployeeAssignmentById:" + employeeAssignmentId);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject assignment = kpiExtend.getEmployeeAssignmentById(employeeAssignmentId);
+			if (assignment.length() == 0) {
+				jout.put("code", 404);
+				jout.put("description", "Không tìm thấy phân công cá nhân");
+			} else {
+				jout.put("code", 200);
+				jout.put("description", "Thành công");
+				jout.put("assignment", assignment);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi lấy thông tin phân công cá nhân: " + e.getMessage());
+		}
+		return jout.toString();
+	}
+
+	/**
+	 * PUT /kpi/employee-assignments/{employeeAssignmentId} - Update employee assignment status / override flags
+	 */
+	@PutMapping("/employee-assignments/{employeeAssignmentId}")
+	public String updateEmployeeAssignment(@PathVariable Integer employeeAssignmentId, @RequestBody String sReq) {
+		System.out.println("-------updateEmployeeAssignment:" + employeeAssignmentId + " -> " + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+			Boolean allowManualOverride = jin.has("allow_manual_override") ? jin.getBoolean("allow_manual_override") : null;
+			Boolean isOverridden = jin.has("is_overridden") ? jin.getBoolean("is_overridden") : null;
+
+			JSONObject result = kpiExtend.updateEmployeeAssignmentFlags(employeeAssignmentId, allowManualOverride, isOverridden);
+			return result.toString();
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi cập nhật phân công cá nhân: " + e.getMessage());
+			return jout.toString();
+		}
+	}
+
+	/**
+	 * DELETE /kpi/employee-assignments/{employeeAssignmentId} - Delete employee assignment
+	 */
+	@DeleteMapping("/employee-assignments/{employeeAssignmentId}")
+	public String deleteEmployeeAssignment(@PathVariable Integer employeeAssignmentId) {
+		System.out.println("-------deleteEmployeeAssignment:" + employeeAssignmentId);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject result = kpiExtend.deleteEmployeeAssignment(employeeAssignmentId);
+			return result.toString();
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi xóa phân công cá nhân: " + e.getMessage());
+			return jout.toString();
+		}
+	}
+
+	/**
+	 * DELETE /kpi/employee-assignments/by-assignment/{assignmentId} - Delete employee assignment by department assignment_id
+	 */
+	@DeleteMapping("/employee-assignments/by-assignment/{assignmentId}")
+	public String deleteEmployeeAssignmentByAssignmentId(@PathVariable Integer assignmentId) {
+		System.out.println("-------deleteEmployeeAssignmentByAssignmentId:" + assignmentId);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject result = kpiExtend.deleteEmployeeAssignmentByAssignmentId(assignmentId);
+			return result.toString();
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi xóa phân công cá nhân theo assignment_id: " + e.getMessage());
+			return jout.toString();
+		}
 	}
 }
