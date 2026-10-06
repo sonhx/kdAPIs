@@ -2436,17 +2436,17 @@ public class kpiExtend {
 
 			List<Map<String, Object>> rows = new ArrayList<>();
 			if (sDeptId != null) {
-				String sqlExact = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC";
+				String sqlExact = "SELECT TOP 1 data_id, actual_value FROM kpi_data_points WHERE kpi_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC";
 				rows = jdbcTemplate.queryForList(sqlExact, kpiId, sDeptId);
 			}
 
 			if (rows.isEmpty()) {
-				String sqlNullDept = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND (department_id IS NULL OR CAST(department_id AS VARCHAR(100)) = '') ORDER BY data_id DESC";
+				String sqlNullDept = "SELECT TOP 1 data_id, actual_value FROM kpi_data_points WHERE kpi_id = ? AND (department_id IS NULL OR CAST(department_id AS VARCHAR(100)) = '') ORDER BY data_id DESC";
 				rows = jdbcTemplate.queryForList(sqlNullDept, kpiId);
 			}
 
 			if (rows.isEmpty()) {
-				String sqlAny = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC";
+				String sqlAny = "SELECT TOP 1 data_id, actual_value FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC";
 				rows = jdbcTemplate.queryForList(sqlAny, kpiId);
 			}
 
@@ -2456,6 +2456,12 @@ public class kpiExtend {
 				return response;
 			}
 			int dataId = ((Number) rows.get(0).get("data_id")).intValue();
+			Object actualVal = rows.get(0).get("actual_value");
+			if (actualVal == null || actualVal.toString().trim().isEmpty()) {
+				response.put("code", 400);
+				response.put("description", "Chưa có số liệu nhập cho KPI này để phê duyệt.");
+				return response;
+			}
 			String updateSql = "UPDATE kpi_data_points SET is_approved = 1, approved_by = ?, approved_at = GETDATE() WHERE data_id = ?";
 			jdbcTemplate.update(updateSql, userId, dataId);
 

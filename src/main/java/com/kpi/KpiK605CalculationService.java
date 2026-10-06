@@ -154,7 +154,7 @@ public class KpiK605CalculationService {
             double actualValue = Math.round(ratio * 10.0) / 10.0;
 
             String notes = String.format(
-                "Tự động tính toán KPI K6.05 từ kiemdinh.TBL_Minhchung: %d/%d minh chứng QA đã số hóa (%.1f%%)",
+                "Tự động cập nhật từ hệ thống quản lý minh chứng kiểm định: %d/%d minh chứng QA đã số hóa (%.1f%%)",
                 digitizedProofs, totalProofs, actualValue
             );
 

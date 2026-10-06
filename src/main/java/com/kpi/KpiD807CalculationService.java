@@ -152,7 +152,7 @@ public class KpiD807CalculationService {
             double actualValue = Math.round(ratio * 10.0) / 10.0;
 
             String notes = String.format(
-                "Tự động tính toán KPI D8.07 từ kiemdinh.TBL_Minhchung: %d/%d hồ sơ QA đã số hóa (%.1f%%)",
+                "Tự động cập nhật từ hệ thống quản lý minh chứng kiểm định: %d/%d hồ sơ QA đã số hóa (%.1f%%)",
                 digitizedProofs, totalProofs, actualValue
             );
 

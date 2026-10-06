@@ -25,12 +25,13 @@ public class TcktRawDataController {
      * Fetches the latest raw financial record for the given year, including formatted tableValues for client display.
      */
     @GetMapping("/latest")
-    public ResponseEntity<String> getLatestRawData(@RequestParam(value = "year", required = false, defaultValue = "2026") int year) {
+    public ResponseEntity<String> getLatestRawData(@RequestParam(value = "year", required = false) Integer year) {
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT TOP 1 * FROM tckt_raw_financial_data WHERE reporting_year = ? AND is_deleted = 0 ORDER BY id DESC",
-                year
-            );
+            List<Map<String, Object>> rows = (year != null)
+                ? jdbcTemplate.queryForList(
+                    "SELECT TOP 1 * FROM tckt_raw_financial_data WHERE reporting_year = ? AND is_deleted = 0 ORDER BY id DESC", year)
+                : jdbcTemplate.queryForList(
+                    "SELECT TOP 1 * FROM tckt_raw_financial_data WHERE is_deleted = 0 ORDER BY id DESC");
 
             JSONObject res = new JSONObject();
             if (!rows.isEmpty()) {
@@ -74,19 +75,21 @@ public class TcktRawDataController {
             Double profit = body.has("profit") && !body.isNull("profit") ? body.getDouble("profit") : null;
             String unit = body.optString("unit", "billion");
             String submittedBy = body.optString("submittedBy", "TCKT");
+            String tableValuesJson = (body.has("tableValues") && !body.isNull("tableValues"))
+                ? body.getJSONObject("tableValues").toString() : null;
 
             String sql = "INSERT INTO tckt_raw_financial_data (" +
                 "reporting_year, target_total_revenue, total_revenue, tuition_revenue, " +
                 "service_activity_revenue, training_expenditure, staff_development_expenditure, " +
                 "service_activity_expenditure, consulting_networking_expenditure, state_budget_revenue, " +
-                "academy_activity_revenue, other_sources_revenue, profit, unit, submitted_by, is_deleted" +
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
+                "academy_activity_revenue, other_sources_revenue, profit, unit, submitted_by, table_values_json, is_deleted" +
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
 
             jdbcTemplate.update(sql,
                 reportingYear, targetTotalRevenue, totalRevenue, tuitionRevenue,
                 serviceActivityRevenue, trainingExpenditure, staffDevelopmentExpenditure,
                 serviceActivityExpenditure, consultingNetworkingExpenditure, stateBudgetRevenue,
-                academyActivityRevenue, otherSourcesRevenue, profit, unit, submittedBy
+                academyActivityRevenue, otherSourcesRevenue, profit, unit, submittedBy, tableValuesJson
             );
 
             // Auto-calculate percentage rates & sync to kpi_data_points & kpi_value_versions
@@ -252,7 +255,16 @@ public class TcktRawDataController {
         data.put("submittedBy", row.get("submitted_by"));
         data.put("createdAt", row.get("created_at") != null ? row.get("created_at").toString() : null);
 
-        // Build tableValues map matching React frontend TCKT_RAW_ROWS ids (BVH / BVS split)
+        // Prefer the full cell grid stored at save time (exact BVH / BVS values from the uploaded report)
+        Object storedTv = row.get("table_values_json");
+        if (storedTv != null && !storedTv.toString().trim().isEmpty()) {
+            try {
+                data.put("tableValues", new JSONObject(storedTv.toString()));
+                return data;
+            } catch (Exception ignored) {}
+        }
+
+        // Legacy fallback: approximate tableValues map (BVH / BVS split) for records without a stored grid
         JSONObject tableValues = new JSONObject();
 
         double totRev = row.get("total_revenue") != null ? ((Number) row.get("total_revenue")).doubleValue() : 0.0;
@@ -294,24 +306,38 @@ public class TcktRawDataController {
             return;
         }
 
-        Map<String, Double> calculatedKpis = new HashMap<>();
+        Map<String, Object[]> calculatedKpis = new HashMap<>();
 
         if (trainingExpenditure != null) {
-            calculatedKpis.put("Q7.02", Math.round((trainingExpenditure / totalRevenue * 100.0) * 100.0) / 100.0);
+            calculatedKpis.put("Q7.02", new Object[]{
+                Math.round((trainingExpenditure / totalRevenue * 100.0) * 100.0) / 100.0,
+                "Chi cho đào tạo", trainingExpenditure
+            });
         }
         if (serviceActivityExpenditure != null) {
-            calculatedKpis.put("Q7.03", Math.round((serviceActivityExpenditure / totalRevenue * 100.0) * 100.0) / 100.0);
+            calculatedKpis.put("Q7.03", new Object[]{
+                Math.round((serviceActivityExpenditure / totalRevenue * 100.0) * 100.0) / 100.0,
+                "Chi cho NCKH", serviceActivityExpenditure
+            });
         }
         if (consultingNetworkingExpenditure != null) {
-            calculatedKpis.put("N3.04", Math.round((consultingNetworkingExpenditure / totalRevenue * 100.0) * 100.0) / 100.0);
+            calculatedKpis.put("N3.04", new Object[]{
+                Math.round((consultingNetworkingExpenditure / totalRevenue * 100.0) * 100.0) / 100.0,
+                "Doanh thu chuyển giao", consultingNetworkingExpenditure
+            });
         }
         if (serviceActivityRevenue != null) {
-            calculatedKpis.put("Q7.07", Math.round((serviceActivityRevenue / totalRevenue * 100.0) * 100.0) / 100.0);
+            calculatedKpis.put("Q7.07", new Object[]{
+                Math.round((serviceActivityRevenue / totalRevenue * 100.0) * 100.0) / 100.0,
+                "Nguồn thu ngoài ngân sách", serviceActivityRevenue
+            });
         }
 
-        for (Map.Entry<String, Double> entry : calculatedKpis.entrySet()) {
+        for (Map.Entry<String, Object[]> entry : calculatedKpis.entrySet()) {
             String kpiCode = entry.getKey();
-            Double actualValue = entry.getValue();
+            Double actualValue = (Double) entry.getValue()[0];
+            String numeratorName = (String) entry.getValue()[1];
+            Double numeratorValue = (Double) entry.getValue()[2];
 
             try {
                 // 1. Find kpi_id from kpi_definitions
@@ -322,8 +348,8 @@ public class TcktRawDataController {
                 if (kpiDefs.isEmpty()) continue;
                 int kpiId = (int) kpiDefs.get(0).get("kpi_id");
 
-                String notes = String.format("[P. TCKT Tự động tính toán]: Nguồn thu = %,.2f, Giá trị = %s (Tỷ lệ = %.2f%%).",
-                    totalRevenue, kpiCode, actualValue);
+                String notes = String.format("[P. TCKT Tự động tính toán]: Nguồn thu = %,.2f, %s = %,.2f (Tỷ lệ = %.2f%%).",
+                    totalRevenue, numeratorName, numeratorValue, actualValue);
 
                 // 2. Lookup existing kpi_data_points row
                 List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(
