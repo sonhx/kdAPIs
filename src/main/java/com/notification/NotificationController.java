@@ -119,15 +119,16 @@ public class NotificationController {
             JSONObject jin = new JSONObject(sReq);
             String userId = resolveUserId(jin);
 
-            Long deliveryId = jin.has("delivery_id") ? jin.getLong("delivery_id") : null;
+            Object rawDeliveryId = jin.has("delivery_id") ? jin.get("delivery_id") : null;
 
-            if (deliveryId == null) {
+            if (rawDeliveryId == null) {
                 jout.put("code", 400);
                 jout.put("description", "Thiếu delivery_id");
                 return jout.toString();
             }
+            String deliveryIdsStr = String.valueOf(rawDeliveryId);
 
-            boolean ok = notificationExtend.markAsRead(userId, deliveryId);
+            boolean ok = notificationExtend.markAsRead(userId, deliveryIdsStr);
             jout.put("code", ok ? 200 : 400);
             jout.put("description", ok ? "Thành công" : "Không thể cập nhật trạng thái");
             return jout.toString();
@@ -164,15 +165,16 @@ public class NotificationController {
             JSONObject jin = new JSONObject(sReq);
             String userId = resolveUserId(jin);
 
-            Long deliveryId = jin.has("delivery_id") ? jin.getLong("delivery_id") : null;
+            Object rawDeliveryId = jin.has("delivery_id") ? jin.get("delivery_id") : null;
 
-            if (deliveryId == null) {
+            if (rawDeliveryId == null) {
                 jout.put("code", 400);
                 jout.put("description", "Thiếu delivery_id");
                 return jout.toString();
             }
+            String deliveryIdsStr = String.valueOf(rawDeliveryId);
 
-            boolean ok = notificationExtend.deleteNotification(userId, deliveryId);
+            boolean ok = notificationExtend.deleteNotification(userId, deliveryIdsStr);
             jout.put("code", ok ? 200 : 400);
             jout.put("description", ok ? "Thành công" : "Không thể xóa thông báo");
             return jout.toString();

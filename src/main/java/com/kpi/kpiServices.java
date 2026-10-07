@@ -1132,7 +1132,7 @@ public class kpiServices {
 			boolean isAdmin = false;
 			try {
 				List<Map<String, Object>> userRows = jdbcTemplate
-						.queryForList("SELECT IsAdmin, Email FROM users WHERE ID = ?", sst.UserID);
+						.queryForList("SELECT IsAdmin, Email FROM users WHERE ID = ?", sst.sUserId);
 				if (!userRows.isEmpty()) {
 					Map<String, Object> uRow = userRows.get(0);
 					int adminVal = uRow.get("IsAdmin") != null ? ((Number) uRow.get("IsAdmin")).intValue() : 0;

@@ -364,16 +364,33 @@ public class NotificationExtend {
             int retentionDays = getUserRetentionDays(userId);
 
             StringBuilder countSql = new StringBuilder(
-                "SELECT COUNT(*) FROM user_notifications un " +
+                "SELECT COUNT(*) FROM (SELECT n.notification_code, n.category, CAST(n.created_at AS DATE) as cdate, un.is_read " +
+                "FROM user_notifications un " +
                 "JOIN notifications n ON n.id = un.notification_id " +
                 "WHERE un.user_id = ? AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
                 "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE()) "
             );
 
             StringBuilder querySql = new StringBuilder(
-                "SELECT un.id AS delivery_id, un.is_read, un.read_at, un.delivered_at, " +
-                "n.id AS notification_id, n.notification_code, n.category, n.severity, n.title, n.message, " +
-                "n.target_role, n.target_dept_id, n.entity_type, n.entity_id, n.action_url, n.created_at " +
+                "SELECT " +
+                "  MIN(un.id) AS delivery_id, " +
+                "  MIN(n.id) AS notification_id, " +
+                "  n.notification_code, " +
+                "  n.category, " +
+                "  MAX(n.severity) AS severity, " +
+                "  MAX(n.title) AS title, " +
+                "  MAX(n.message) AS message, " +
+                "  MAX(n.target_role) AS target_role, " +
+                "  MAX(n.target_dept_id) AS target_dept_id, " +
+                "  MAX(n.entity_type) AS entity_type, " +
+                "  STRING_AGG(ISNULL(n.entity_id, ''), ', ') AS entity_id, " +
+                "  MAX(n.action_url) AS action_url, " +
+                "  un.is_read, " +
+                "  MAX(un.read_at) AS read_at, " +
+                "  MAX(un.delivered_at) AS delivered_at, " +
+                "  MAX(n.created_at) AS created_at, " +
+                "  COUNT(n.id) AS total_items, " +
+                "  STRING_AGG(CAST(un.id AS VARCHAR(50)), ',') AS delivery_ids " +
                 "FROM user_notifications un " +
                 "JOIN notifications n ON n.id = un.notification_id " +
                 "WHERE un.user_id = ? AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
@@ -394,7 +411,10 @@ public class NotificationExtend {
                 querySql.append("AND un.is_read = 0 ");
             }
 
-            querySql.append("ORDER BY un.delivered_at DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY");
+            countSql.append("GROUP BY n.notification_code, n.category, CAST(n.created_at AS DATE), un.is_read) as grp");
+
+            querySql.append("GROUP BY n.notification_code, n.category, CAST(n.created_at AS DATE), un.is_read ");
+            querySql.append("ORDER BY MAX(un.delivered_at) DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY");
 
             Integer totalCount = jdbcTemplate.queryForObject(countSql.toString(), Integer.class, params.toArray());
 
@@ -406,21 +426,39 @@ public class NotificationExtend {
 
             for (Map<String, Object> r : rows) {
                 JSONObject item = new JSONObject();
-                item.put("delivery_id", r.get("delivery_id"));
+                int totalItems = r.get("total_items") != null ? ((Number) r.get("total_items")).intValue() : 1;
+                
+                String originalTitle = (String) r.get("title");
+                String originalMessage = (String) r.get("message");
+                String groupedEntities = (String) r.get("entity_id");
+                
+                if (totalItems > 1) {
+                    item.put("title", "Bạn có " + totalItems + " thông báo cùng loại");
+                    if ("KPI_ASSIGNMENT".equals(r.get("entity_type")) || "KPI_DATA".equals(r.get("entity_type"))) {
+                        item.put("message", "Danh sách các KPIs: " + groupedEntities);
+                    } else {
+                        item.put("message", "Các mục: " + groupedEntities);
+                    }
+                    item.put("action_url", "/dashboard");
+                } else {
+                    item.put("title", originalTitle);
+                    item.put("message", originalMessage);
+                    item.put("action_url", r.get("action_url"));
+                }
+                
+                item.put("delivery_id", r.get("delivery_ids")); // Override with comma-separated IDs
                 item.put("notification_id", r.get("notification_id"));
                 item.put("code", r.get("notification_code"));
                 item.put("category", r.get("category"));
                 item.put("severity", r.get("severity"));
-                item.put("title", r.get("title"));
-                item.put("message", r.get("message"));
                 item.put("target_role", r.get("target_role"));
                 item.put("target_dept_id", r.get("target_dept_id"));
                 item.put("entity_type", r.get("entity_type"));
                 item.put("entity_id", r.get("entity_id"));
-                item.put("action_url", r.get("action_url"));
                 item.put("is_read", getBool(r.get("is_read")));
                 item.put("read_at", r.get("read_at") != null ? r.get("read_at").toString() : JSONObject.NULL);
                 item.put("delivered_at", r.get("delivered_at") != null ? r.get("delivered_at").toString() : JSONObject.NULL);
+                
                 list.put(item);
             }
 
@@ -448,10 +486,12 @@ public class NotificationExtend {
     private int getUnreadCountInternal(String userId, int retentionDays) {
         try {
             String sql =
-                "SELECT COUNT(*) FROM user_notifications un " +
+                "SELECT COUNT(*) FROM (SELECT n.notification_code, n.category, CAST(n.created_at AS DATE) as cdate " +
+                "FROM user_notifications un " +
                 "JOIN notifications n ON n.id = un.notification_id " +
                 "WHERE un.user_id = ? AND un.is_read = 0 AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
-                "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE())";
+                "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE()) " +
+                "GROUP BY n.notification_code, n.category, CAST(n.created_at AS DATE)) as grp";
             Integer cnt = jdbcTemplate.queryForObject(sql, Integer.class, userId);
             return cnt != null ? cnt : 0;
         } catch (Exception e) {
@@ -459,10 +499,10 @@ public class NotificationExtend {
         }
     }
 
-    public boolean markAsRead(String userId, Long deliveryId) {
+    public boolean markAsRead(String userId, String deliveryIdsStr) {
         try {
-            String sql = "UPDATE user_notifications SET is_read = 1, read_at = GETDATE() WHERE id = ? AND user_id = ?";
-            boolean updated = jdbcTemplate.update(sql, deliveryId, userId) > 0;
+            String sql = "UPDATE user_notifications SET is_read = 1, read_at = GETDATE() WHERE id IN (SELECT CAST(value AS BIGINT) FROM STRING_SPLIT(?, ',')) AND user_id = ?";
+            boolean updated = jdbcTemplate.update(sql, deliveryIdsStr, userId) > 0;
             if (updated) {
                 pushUnreadCountToUser(userId);
             }
@@ -483,10 +523,10 @@ public class NotificationExtend {
         }
     }
 
-    public boolean deleteNotification(String userId, Long deliveryId) {
+    public boolean deleteNotification(String userId, String deliveryIdsStr) {
         try {
-            String sql = "UPDATE user_notifications SET is_archived = 1 WHERE id = ? AND user_id = ?";
-            boolean updated = jdbcTemplate.update(sql, deliveryId, userId) > 0;
+            String sql = "UPDATE user_notifications SET is_archived = 1 WHERE id IN (SELECT CAST(value AS BIGINT) FROM STRING_SPLIT(?, ',')) AND user_id = ?";
+            boolean updated = jdbcTemplate.update(sql, deliveryIdsStr, userId) > 0;
             if (updated) {
                 pushUnreadCountToUser(userId);
             }
