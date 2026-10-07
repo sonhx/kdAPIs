@@ -1210,5 +1210,48 @@ public class UserService {
 		}
 		return jout.toString();
 	}
+
+	// ==================== RESET PASSWORD REQUEST ====================
+	@PostMapping(value = "/reset-password-request", produces = "application/json; charset=UTF-8")
+	public String resetPasswordRequest(@RequestBody String sReq) {
+		System.out.println("ResetPasswordRequest:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jsonobjReq = new JSONObject(sReq);
+			String email = jsonobjReq.has("email") ? jsonobjReq.getString("email").trim() : "";
+
+			if (email.isEmpty()) {
+				jout.put("code", 400);
+				jout.put("description", "Vui lòng nhập địa chỉ email của bạn");
+				return jout.toString();
+			}
+
+			// Verify user exists in users or personnel table
+			String checkSql = "SELECT TOP 1 u.ID, u.Email FROM dbo.users u WITH (NOLOCK) "
+					+ "WHERE (u.Email = ?) AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
+			List<Map<String, Object>> users = jdbcTemplate.queryForList(checkSql, email);
+
+			if (users.isEmpty()) {
+				String checkPersonnelSql = "SELECT TOP 1 p.id, p.emailCanBo FROM dbo.personnel p WITH (NOLOCK) "
+						+ "WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
+				List<Map<String, Object>> personnel = jdbcTemplate.queryForList(checkPersonnelSql, email, email);
+				if (personnel.isEmpty()) {
+					jout.put("code", 404);
+					jout.put("description", "Không tìm thấy người dùng với email này trong hệ thống");
+					return jout.toString();
+				}
+			}
+
+			jout.put("code", 200);
+			jout.put("description", "Yêu cầu khôi phục mật khẩu đã được tiếp nhận thành công");
+		} catch (JSONException e) {
+			e.printStackTrace();
+			return "{\"code\": 800, \"description\": \"Lỗi cấu trúc dữ liệu JSON\"}";
+		} catch (Exception e) {
+			e.printStackTrace();
+			return "{\"code\": 500, \"description\": \"Lỗi xử lý hệ thống: " + e.getMessage() + "\"}";
+		}
+		return jout.toString();
+	}
 }
 

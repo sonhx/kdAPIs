@@ -352,6 +352,123 @@ public class NotificationExtend {
         }
     }
 
+    private String getNotificationGroupCategory(String code, String category) {
+        String c = code != null ? code.toUpperCase() : "";
+        String cat = category != null ? category.toUpperCase() : "";
+
+        if ("KPI_CREATED".equals(c) || "KPI_NEW".equals(c) || (cat.equals("KPI") && c.contains("CREATE"))) {
+            return "KPI_NEW";
+        }
+        if ("KPI_UPDATED".equals(c) || "KPI_DELETED".equals(c) || "KPI_DEF_MOD".equals(c) || (cat.equals("KPI") && (c.contains("UPDATE") || c.contains("DELETE")))) {
+            return "KPI_DEF_MOD";
+        }
+        if ("KPI_ASSIGNED".equals(c) || "KPI_APPROVER_APPOINTED".equals(c) || "KPI_ASSIGN".equals(c)) {
+            return "KPI_ASSIGN";
+        }
+        if ("KPI_DATA_UPDATED".equals(c) || "KPI_VALUE_SUBMITTED".equals(c) || "KPI_DATA".equals(c) || (cat.equals("KPI") && c.contains("DATA"))) {
+            return "KPI_DATA_UPD";
+        }
+        if ("KPI_APPROVED".equals(c) || (cat.equals("KPI") && c.contains("APPROV"))) {
+            return "KPI_APPROVED";
+        }
+        if ("CAPA_CREATED".equals(c) || "CAPA_NEW".equals(c) || (cat.equals("CAPA") && c.contains("CREATE"))) {
+            return "CAPA_NEW";
+        }
+        if ("CAPA_UPDATED".equals(c) || "CAPA_STATUS_CHANGED".equals(c) || (cat.equals("CAPA") && (c.contains("UPDATE") || c.contains("STATUS")))) {
+            return "CAPA_UPD";
+        }
+
+        return !cat.isEmpty() ? cat : "OTHER";
+    }
+
+    private boolean isPersonalNotification(String title, String message) {
+        String text = ((title != null ? title : "") + " " + (message != null ? message : "")).toLowerCase();
+        return text.contains("bạn được phân công") ||
+               text.contains("bạn được giao") ||
+               text.contains("giao cho bạn") ||
+               text.contains("bạn có 1 kpi") ||
+               text.contains("yêu cầu bạn") ||
+               text.contains("trực tiếp nhập") ||
+               text.contains("phân công xử lý capa");
+    }
+
+    private String getPersonalGroupTitle(String groupCat, int count) {
+        switch (groupCat) {
+            case "KPI_ASSIGN":
+                return "Bạn được phân công " + count + " chỉ số KPI mới";
+            case "KPI_DATA_UPD":
+                return "Bạn được giao cập nhật dữ liệu cho " + count + " chỉ số KPI";
+            case "CAPA_NEW":
+            case "CAPA_UPD":
+            case "CAPA_ASSIGN":
+                return "Bạn được phân công xử lý " + count + " hồ sơ CAPA";
+            default:
+                return "Bạn có " + count + " nhiệm vụ cá nhân mới được giao";
+        }
+    }
+
+    private String getGroupTitle(String groupCat, int count) {
+        switch (groupCat) {
+            case "KPI_NEW":
+                return "Có " + count + " chỉ số KPI mới được khởi tạo";
+            case "KPI_DEF_MOD":
+                return "Có " + count + " chỉ số KPI vừa được cập nhật định nghĩa";
+            case "KPI_ASSIGN":
+                return "Phân công KPI & người phê duyệt cho " + count + " chỉ số";
+            case "KPI_DATA_UPD":
+                return "Có " + count + " chỉ số KPI vừa có cập nhật dữ liệu mới";
+            case "KPI_APPROVED":
+                return "Có " + count + " chỉ số KPI đã hoàn thành phê duyệt";
+            case "CAPA_NEW":
+                return "Có " + count + " hồ sơ CAPA mới được khởi tạo";
+            case "CAPA_UPD":
+                return "Có " + count + " hồ sơ CAPA vừa có cập nhật tiến độ";
+            default:
+                return "Bạn có " + count + " thông báo cùng loại";
+        }
+    }
+
+    private String formatNotificationLineItem(Map<String, Object> r) {
+        String entityId = r.get("entity_id") != null ? r.get("entity_id").toString().trim() : "";
+        String title = r.get("title") != null ? r.get("title").toString().trim() : "";
+        String message = r.get("message") != null ? r.get("message").toString().trim() : "";
+        String fullText = (title + " " + message).trim();
+
+        // Strip internal database numeric primary key IDs like "40", "102"
+        String code = "";
+        if (!entityId.isEmpty() && !entityId.matches("^\\d+$")) {
+            code = entityId;
+        }
+
+        if (code.isEmpty()) {
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("([A-Z]\\d{1,2}\\.\\d{1,2}|CAPA-[A-Z0-9\\-]+|[A-Z]{2,6}-\\d{4}-\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher matcher = pattern.matcher(fullText);
+            if (matcher.find()) {
+                code = matcher.group(1).toUpperCase();
+            }
+        }
+
+        String name = title.isEmpty() ? message : title;
+        name = name.replaceAll("^(Danh sách các KPIs|Các mục|Thông báo|Chỉ số|Hồ sơ CAPA|Khởi tạo|Cập nhật):\\s*", "").trim();
+        name = name.replaceAll(":\\s*([A-Z]\\d{1,2}\\.\\d{1,2}|CAPA-[A-Z0-9\\-]+)$", "").trim();
+
+        if (!code.isEmpty()) {
+            name = name.replaceAll("(?i)[:\\s\\[\\]]*" + java.util.regex.Pattern.quote(code) + "[:\\s\\[\\]]*", " ").trim();
+        }
+        name = name.replaceAll("(,\\s*)+$", "").trim();
+
+        if (!code.isEmpty() && !name.isEmpty() && !name.equalsIgnoreCase(code)) {
+            return "• [" + code + "] " + name;
+        }
+        if (!code.isEmpty()) {
+            return "• [" + code + "] Cập nhật chỉ số KPI";
+        }
+        if (!name.isEmpty()) {
+            return "• " + name;
+        }
+        return "• Cập nhật thông báo chi tiết";
+    }
+
     /**
      * Get paginated notifications for user, respecting retention_days and opt-in settings.
      */
@@ -363,34 +480,24 @@ public class NotificationExtend {
             int offset = Math.max(0, (page - 1) * pageSize);
             int retentionDays = getUserRetentionDays(userId);
 
-            StringBuilder countSql = new StringBuilder(
-                "SELECT COUNT(*) FROM (SELECT n.notification_code, n.category, CAST(n.created_at AS DATE) as cdate, un.is_read " +
-                "FROM user_notifications un " +
-                "JOIN notifications n ON n.id = un.notification_id " +
-                "WHERE un.user_id = ? AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
-                "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE()) "
-            );
-
             StringBuilder querySql = new StringBuilder(
                 "SELECT " +
-                "  MIN(un.id) AS delivery_id, " +
-                "  MIN(n.id) AS notification_id, " +
+                "  un.id AS delivery_id, " +
+                "  n.id AS notification_id, " +
                 "  n.notification_code, " +
                 "  n.category, " +
-                "  MAX(n.severity) AS severity, " +
-                "  MAX(n.title) AS title, " +
-                "  MAX(n.message) AS message, " +
-                "  MAX(n.target_role) AS target_role, " +
-                "  MAX(n.target_dept_id) AS target_dept_id, " +
-                "  MAX(n.entity_type) AS entity_type, " +
-                "  STRING_AGG(ISNULL(n.entity_id, ''), ', ') AS entity_id, " +
-                "  MAX(n.action_url) AS action_url, " +
+                "  n.severity, " +
+                "  n.title, " +
+                "  n.message, " +
+                "  n.target_role, " +
+                "  n.target_dept_id, " +
+                "  n.entity_type, " +
+                "  n.entity_id, " +
+                "  n.action_url, " +
                 "  un.is_read, " +
-                "  MAX(un.read_at) AS read_at, " +
-                "  MAX(un.delivered_at) AS delivered_at, " +
-                "  MAX(n.created_at) AS created_at, " +
-                "  COUNT(n.id) AS total_items, " +
-                "  STRING_AGG(CAST(un.id AS VARCHAR(50)), ',') AS delivery_ids " +
+                "  un.read_at, " +
+                "  un.delivered_at, " +
+                "  n.created_at " +
                 "FROM user_notifications un " +
                 "JOIN notifications n ON n.id = un.notification_id " +
                 "WHERE un.user_id = ? AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
@@ -401,76 +508,180 @@ public class NotificationExtend {
             params.add(userId);
 
             if (categoryFilter != null && !categoryFilter.isBlank() && !"ALL".equalsIgnoreCase(categoryFilter)) {
-                countSql.append("AND n.category = ? ");
                 querySql.append("AND n.category = ? ");
                 params.add(categoryFilter.trim());
             }
 
             if (Boolean.TRUE.equals(unreadOnly)) {
-                countSql.append("AND un.is_read = 0 ");
                 querySql.append("AND un.is_read = 0 ");
             }
 
-            countSql.append("GROUP BY n.notification_code, n.category, CAST(n.created_at AS DATE), un.is_read) as grp");
+            querySql.append("ORDER BY un.delivered_at DESC");
 
-            querySql.append("GROUP BY n.notification_code, n.category, CAST(n.created_at AS DATE), un.is_read ");
-            querySql.append("ORDER BY MAX(un.delivered_at) DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY");
+            List<Map<String, Object>> rawRows = jdbcTemplate.queryForList(querySql.toString(), params.toArray());
 
-            Integer totalCount = jdbcTemplate.queryForObject(countSql.toString(), Integer.class, params.toArray());
+            // Process and group rows in Java
+            Map<String, List<Map<String, Object>>> personalBuckets = new LinkedHashMap<>();
+            Map<String, List<Map<String, Object>>> groupBuckets = new LinkedHashMap<>();
 
-            List<Object> queryParams = new ArrayList<>(params);
-            queryParams.add(offset);
-            queryParams.add(pageSize);
+            for (Map<String, Object> r : rawRows) {
+                String title = (String) r.get("title");
+                String message = (String) r.get("message");
+                String code = (String) r.get("notification_code");
+                String cat = (String) r.get("category");
+                boolean isRead = getBool(r.get("is_read"));
+                Object deliveredAtObj = r.get("delivered_at");
+                String dateStr = deliveredAtObj != null ? deliveredAtObj.toString().substring(0, 10) : "TODAY";
+                String groupCat = getNotificationGroupCategory(code, cat);
+                String key = groupCat + "_" + dateStr + "_" + (isRead ? "READ" : "UNREAD");
 
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(querySql.toString(), queryParams.toArray());
-
-            for (Map<String, Object> r : rows) {
-                JSONObject item = new JSONObject();
-                int totalItems = r.get("total_items") != null ? ((Number) r.get("total_items")).intValue() : 1;
-                
-                String originalTitle = (String) r.get("title");
-                String originalMessage = (String) r.get("message");
-                String groupedEntities = (String) r.get("entity_id");
-                
-                if (totalItems > 1) {
-                    item.put("title", "Bạn có " + totalItems + " thông báo cùng loại");
-                    if ("KPI_ASSIGNMENT".equals(r.get("entity_type")) || "KPI_DATA".equals(r.get("entity_type"))) {
-                        item.put("message", "Danh sách các KPIs: " + groupedEntities);
-                    } else {
-                        item.put("message", "Các mục: " + groupedEntities);
-                    }
-                    item.put("action_url", "/dashboard");
+                if (isPersonalNotification(title, message)) {
+                    personalBuckets.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
                 } else {
-                    item.put("title", originalTitle);
-                    item.put("message", originalMessage);
-                    item.put("action_url", r.get("action_url"));
+                    groupBuckets.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
                 }
-                
-                item.put("delivery_id", r.get("delivery_ids")); // Override with comma-separated IDs
-                item.put("notification_id", r.get("notification_id"));
-                item.put("code", r.get("notification_code"));
-                item.put("category", r.get("category"));
-                item.put("severity", r.get("severity"));
-                item.put("target_role", r.get("target_role"));
-                item.put("target_dept_id", r.get("target_dept_id"));
-                item.put("entity_type", r.get("entity_type"));
-                item.put("entity_id", r.get("entity_id"));
-                item.put("is_read", getBool(r.get("is_read")));
-                item.put("read_at", r.get("read_at") != null ? r.get("read_at").toString() : JSONObject.NULL);
-                item.put("delivered_at", r.get("delivered_at") != null ? r.get("delivered_at").toString() : JSONObject.NULL);
-                
-                list.put(item);
+            }
+
+            List<JSONObject> processedItems = new ArrayList<>();
+
+            // 1. Process personal notifications (Group if count > 1 for same category & date, keep single if count == 1)
+            for (List<Map<String, Object>> pGroup : personalBuckets.values()) {
+                if (pGroup.isEmpty()) continue;
+                Map<String, Object> top = pGroup.get(0);
+                if (pGroup.size() == 1) {
+                    JSONObject item = new JSONObject();
+                    item.put("delivery_id", String.valueOf(top.get("delivery_id")));
+                    item.put("notification_id", top.get("notification_id"));
+                    item.put("code", top.get("notification_code"));
+                    item.put("category", top.get("category"));
+                    item.put("severity", top.get("severity"));
+                    item.put("title", top.get("title"));
+                    item.put("message", top.get("message"));
+                    item.put("target_role", top.get("target_role"));
+                    item.put("target_dept_id", top.get("target_dept_id"));
+                    item.put("entity_type", top.get("entity_type"));
+                    item.put("entity_id", top.get("entity_id"));
+                    item.put("action_url", top.get("action_url"));
+                    item.put("is_read", getBool(top.get("is_read")));
+                    item.put("read_at", top.get("read_at") != null ? top.get("read_at").toString() : JSONObject.NULL);
+                    item.put("delivered_at", top.get("delivered_at") != null ? top.get("delivered_at").toString() : JSONObject.NULL);
+                    item.put("total_items", 1);
+                    processedItems.add(item);
+                } else {
+                    int count = pGroup.size();
+                    String groupCat = getNotificationGroupCategory((String) top.get("notification_code"), (String) top.get("category"));
+                    String pTitle = getPersonalGroupTitle(groupCat, count);
+
+                    Set<String> uniqueLines = new LinkedHashSet<>();
+                    List<String> deliveryIds = new ArrayList<>();
+                    for (Map<String, Object> itemRow : pGroup) {
+                        uniqueLines.add(formatNotificationLineItem(itemRow));
+                        if (itemRow.get("delivery_id") != null) {
+                            deliveryIds.add(String.valueOf(itemRow.get("delivery_id")));
+                        }
+                    }
+
+                    String groupMessage = String.join("\n", uniqueLines);
+
+                    JSONObject item = new JSONObject();
+                    item.put("delivery_id", String.join(",", deliveryIds));
+                    item.put("notification_id", top.get("notification_id"));
+                    item.put("code", top.get("notification_code"));
+                    item.put("category", top.get("category"));
+                    item.put("severity", top.get("severity"));
+                    item.put("title", pTitle);
+                    item.put("message", groupMessage);
+                    item.put("target_role", top.get("target_role"));
+                    item.put("target_dept_id", top.get("target_dept_id"));
+                    item.put("entity_type", top.get("entity_type"));
+                    item.put("entity_id", top.get("entity_id"));
+                    item.put("action_url", top.get("action_url") != null ? top.get("action_url") : "/dashboard");
+                    item.put("is_read", getBool(top.get("is_read")));
+                    item.put("read_at", top.get("read_at") != null ? top.get("read_at").toString() : JSONObject.NULL);
+                    item.put("delivered_at", top.get("delivered_at") != null ? top.get("delivered_at").toString() : JSONObject.NULL);
+                    item.put("total_items", count);
+                    processedItems.add(item);
+                }
+            }
+
+            // Add merged notification groups
+            for (List<Map<String, Object>> group : groupBuckets.values()) {
+                if (group.isEmpty()) continue;
+                Map<String, Object> top = group.get(0);
+                if (group.size() == 1) {
+                    JSONObject item = new JSONObject();
+                    item.put("delivery_id", String.valueOf(top.get("delivery_id")));
+                    item.put("notification_id", top.get("notification_id"));
+                    item.put("code", top.get("notification_code"));
+                    item.put("category", top.get("category"));
+                    item.put("severity", top.get("severity"));
+                    item.put("title", top.get("title"));
+                    item.put("message", top.get("message"));
+                    item.put("target_role", top.get("target_role"));
+                    item.put("target_dept_id", top.get("target_dept_id"));
+                    item.put("entity_type", top.get("entity_type"));
+                    item.put("entity_id", top.get("entity_id"));
+                    item.put("action_url", top.get("action_url"));
+                    item.put("is_read", getBool(top.get("is_read")));
+                    item.put("read_at", top.get("read_at") != null ? top.get("read_at").toString() : JSONObject.NULL);
+                    item.put("delivered_at", top.get("delivered_at") != null ? top.get("delivered_at").toString() : JSONObject.NULL);
+                    item.put("total_items", 1);
+                    processedItems.add(item);
+                } else {
+                    int count = group.size();
+                    String groupCat = getNotificationGroupCategory((String) top.get("notification_code"), (String) top.get("category"));
+                    String groupTitle = getGroupTitle(groupCat, count);
+
+                    Set<String> uniqueLines = new LinkedHashSet<>();
+                    List<String> deliveryIds = new ArrayList<>();
+                    for (Map<String, Object> itemRow : group) {
+                        uniqueLines.add(formatNotificationLineItem(itemRow));
+                        if (itemRow.get("delivery_id") != null) {
+                            deliveryIds.add(String.valueOf(itemRow.get("delivery_id")));
+                        }
+                    }
+
+                    String groupMessage = String.join("\n", uniqueLines);
+
+                    JSONObject item = new JSONObject();
+                    item.put("delivery_id", String.join(",", deliveryIds));
+                    item.put("notification_id", top.get("notification_id"));
+                    item.put("code", top.get("notification_code"));
+                    item.put("category", top.get("category"));
+                    item.put("severity", top.get("severity"));
+                    item.put("title", groupTitle);
+                    item.put("message", groupMessage);
+                    item.put("target_role", top.get("target_role"));
+                    item.put("target_dept_id", top.get("target_dept_id"));
+                    item.put("entity_type", top.get("entity_type"));
+                    item.put("entity_id", top.get("entity_id"));
+                    item.put("action_url", top.get("action_url") != null ? top.get("action_url") : "/dashboard");
+                    item.put("is_read", getBool(top.get("is_read")));
+                    item.put("read_at", top.get("read_at") != null ? top.get("read_at").toString() : JSONObject.NULL);
+                    item.put("delivered_at", top.get("delivered_at") != null ? top.get("delivered_at").toString() : JSONObject.NULL);
+                    item.put("total_items", count);
+                    processedItems.add(item);
+                }
+            }
+
+            int totalCount = processedItems.size();
+            int pagedEnd = Math.min(offset + pageSize, totalCount);
+
+            if (offset < totalCount) {
+                for (int i = offset; i < pagedEnd; i++) {
+                    list.put(processedItems.get(i));
+                }
             }
 
             int unreadCount = getUnreadCountInternal(userId, retentionDays);
 
             res.put("code", 200);
             res.put("notifications", list);
-            res.put("total", totalCount != null ? totalCount : 0);
+            res.put("total", totalCount);
             res.put("unread_count", unreadCount);
             res.put("page", page);
             res.put("page_size", pageSize);
-            res.put("has_more", (offset + list.length()) < (totalCount != null ? totalCount : 0));
+            res.put("has_more", pagedEnd < totalCount);
         } catch (Exception e) {
             res.put("code", 500);
             res.put("description", "Error fetching notifications: " + e.getMessage());
