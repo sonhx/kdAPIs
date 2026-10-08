@@ -81,6 +81,8 @@ public class CtExtend {
                 params.add(loaiHinhId);
             }
         }
+        
+        System.out.println("listNganhDT sql: " + sql);
 
         List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, params.toArray());
 
@@ -102,6 +104,57 @@ public class CtExtend {
         }
         return jsaCTKds;
     }
+    
+    public JSONArray listNganhDT_mod(int loaiHinhId) {
+        JSONArray jsaCTKds = new JSONArray();
+        String sql = "SELECT a.* FROM TBL_Nganh_daotao a "
+        		+ " INNER JOIN TBL_Kiemdinh b on b.CT_ID = a.ID "
+                + " where (a.IsDeleted is null or a.IsDeleted=0) "
+                + " and (b.IsDeleted is null or b.IsDeleted=0) and (b.loai_hinh_id = ?)";
+        List<Object> params = new ArrayList<>();
+		/*if (loaiHinhId != -1) {
+		    if (loaiHinhId == 0) {
+		        sql += " and (a.ID in (SELECT DISTINCT ct.CT_ID FROM TBL_KIEMDINH_CT ct "
+		            + " INNER JOIN TBL_KIEMDINH kd ON kd.ID = ct.KD_ID "
+		            + " WHERE (ct.IsDeleted is null or ct.IsDeleted = 0) "
+		            + " AND (kd.IsDeleted is null or kd.IsDeleted = 0) "
+		            + " AND (kd.loai_hinh_id = 0 or kd.loai_hinh_id is null))"
+		            + " or a.ID not in (SELECT DISTINCT ct.CT_ID FROM TBL_KIEMDINH_CT ct "
+		            + " WHERE (ct.IsDeleted is null or ct.IsDeleted = 0)))";
+		    } else {
+		        sql += " and a.ID in (SELECT DISTINCT ct.CT_ID FROM TBL_KIEMDINH_CT ct "
+		            + " INNER JOIN TBL_KIEMDINH kd ON kd.ID = ct.KD_ID "
+		            + " WHERE (ct.IsDeleted is null or ct.IsDeleted = 0) "
+		            + " AND (kd.IsDeleted is null or kd.IsDeleted = 0) "
+		            + " AND kd.loai_hinh_id = ?)";
+		        params.add(loaiHinhId);
+		    }
+		}*/
+        
+        params.add(loaiHinhId);
+        System.out.println("listNganhDT sql: " + sql);
+
+        List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, params.toArray());
+
+        Set<String> creatorIds = new HashSet<>();
+        for (Map<String, Object> r : rows) {
+            if (r.get("CreatedBy") != null) creatorIds.add(r.get("CreatedBy").toString().trim());
+        }
+        Map<String, String> creatorNames = getCreatorNames(creatorIds);
+
+        for (Map<String, Object> row : rows) {
+            JSONObject jo = new JSONObject();
+            jo.put("id", row.get("ID"));
+            jo.put("ten", row.get("ten"));
+            jo.put("abbr", row.get("abbr"));
+            String cbStr = row.get("CreatedBy") != null ? row.get("CreatedBy").toString().trim() : "";
+            jo.put("creator", creatorNames.getOrDefault(cbStr, ""));
+            jo.put("created_time", row.get("CreatedTime") != null ? row.get("CreatedTime").toString() : "");
+            jsaCTKds.put(jo);
+        }
+        return jsaCTKds;
+    }
+    
 
     public boolean isCtExisted(String ten) {
         String sql = "select count(*) from TBL_Nganh_daotao where ten = ? and (IsDeleted is null or IsDeleted=0)";

@@ -31,7 +31,8 @@ public class CtService {
                 loai_hinh_id = jin.getInt("loai_hinh_id");
             }
 
-            JSONArray jsaCts = ctExtend.listNganhDT(loai_hinh_id);
+//            JSONArray jsaCts = ctExtend.listNganhDT(loai_hinh_id);
+            JSONArray jsaCts = ctExtend.listNganhDT_mod(loai_hinh_id);
             jout.put("list_ct", jsaCts);
             jout.put("code", 200);
         } catch (JSONException e) {
