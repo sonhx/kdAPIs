@@ -51,7 +51,8 @@ public class SurveySyncScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 5 * * *")
+    // Daily survey list metadata sync at 1:00 AM
+    @Scheduled(cron = "0 0 1 * * *")
     public void syncSurveys() {
         System.out.println("Starting Slink Survey Sync...");
         try {
@@ -381,7 +382,8 @@ public class SurveySyncScheduler {
         }
     }
 
-    @Scheduled(fixedDelay = 5*60*60*1000, initialDelay = 5*60*60*1000)
+    // Daily detailed responses sync at 2:00 AM
+    @Scheduled(cron = "0 0 2 * * *")
     public void syncOngoingSurveyDetails() {
         System.out.println("Starting Slink Survey Details Sync...");
         try {

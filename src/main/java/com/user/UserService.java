@@ -44,6 +44,170 @@ public class UserService {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
+	public static Map<String, List<String>> customRoleRightsMap = new ConcurrentHashMap<>();
+
+	private void ensureRoleRightsMatrixTable() {
+		try {
+			String sql = "IF OBJECT_ID('dbo.qa_role_rights_matrix', 'U') IS NULL " +
+					"BEGIN " +
+					"    CREATE TABLE dbo.qa_role_rights_matrix ( " +
+					"        role_code VARCHAR(50) NOT NULL PRIMARY KEY, " +
+					"        rights_json NVARCHAR(MAX) NOT NULL, " +
+					"        updated_at DATETIME DEFAULT GETDATE() " +
+					"    ); " +
+					"END";
+			jdbcTemplate.execute(sql);
+		} catch (Exception e) {
+			System.err.println("Warning ensuring qa_role_rights_matrix table: " + e.getMessage());
+		}
+	}
+
+	private synchronized void loadRoleRightsFromDb() {
+		try {
+			ensureRoleRightsMatrixTable();
+			String sql = "SELECT role_code, rights_json FROM dbo.qa_role_rights_matrix WITH (NOLOCK)";
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
+			for (Map<String, Object> r : rows) {
+				String rc = r.get("role_code") != null ? r.get("role_code").toString().toUpperCase().trim() : "";
+				String jsonStr = r.get("rights_json") != null ? r.get("rights_json").toString() : "[]";
+				if (!rc.isEmpty()) {
+					JSONArray ja = new JSONArray(jsonStr);
+					List<String> list = new java.util.ArrayList<>();
+					for (int i = 0; i < ja.length(); i++) {
+						list.add(ja.getString(i));
+					}
+					customRoleRightsMap.put(rc, list);
+				}
+			}
+		} catch (Exception e) {
+			System.err.println("Error loading custom role rights from DB: " + e.getMessage());
+		}
+	}
+
+	public JSONObject getGroupedUserRights(Set<String> rights) {
+		JSONObject grouped = new JSONObject();
+		JSONArray kpi = new JSONArray();
+		JSONArray capa = new JSONArray();
+		JSONArray proof = new JSONArray();
+		JSONArray kdgd = new JSONArray();
+		JSONArray survey = new JSONArray();
+		JSONArray user = new JSONArray();
+
+		for (String r : rights) {
+			if (r.startsWith("kpi_")) {
+				kpi.put(r);
+			} else if (r.startsWith("capa_")) {
+				capa.put(r);
+			} else if (r.startsWith("proof_")) {
+				proof.put(r);
+			} else if (r.startsWith("kd_") || r.equals("raci_view")) {
+				kdgd.put(r);
+			} else if (r.startsWith("survey_")) {
+				survey.put(r);
+			} else if (r.startsWith("user_") || r.equals("rights_matrix_edit")) {
+				user.put(r);
+			}
+		}
+
+		grouped.put("kpi_management", kpi);
+		grouped.put("capa_management", capa);
+		grouped.put("proof_management", proof);
+		grouped.put("kdgd_management", kdgd);
+		grouped.put("survey_management", survey);
+		grouped.put("user_management", user);
+
+		return grouped;
+	}
+
+	public Set<String> getUserRightsSet(String roleCode, String email, boolean isLanhDaoHocVien, boolean isOrgLeader) {
+		if (customRoleRightsMap.isEmpty()) {
+			loadRoleRightsFromDb();
+		}
+
+		Set<String> rights = new HashSet<>();
+		String userEmail = email != null ? email.toLowerCase().trim() : "";
+		String rCodeParam = roleCode != null ? roleCode.toUpperCase().trim() : "CHUYEN_VIEN";
+
+		boolean isAdmin = "ADMIN".equals(rCodeParam) || "sonhx@ptit.edu.vn".equals(userEmail) || "admin@ptit.edu.vn".equals(userEmail);
+
+		if (isAdmin) {
+			rights.addAll(List.of(
+				"kpi_view", "kpi_define", "kpi_assign_org", "kpi_assign_emp", "kpi_input", "kpi_approve", "kpi_config_deadline",
+				"proof_view", "proof_create", "proof_map_criteria", "proof_verify", "proof_lock", "proof_archive",
+				"capa_view", "capa_create", "capa_assign", "capa_update", "capa_approve", "capa_extend",
+				"kd_view", "kd_approve_tdg", "kd_config",
+				"survey_view", "survey_manage",
+				"user_view", "user_manage", "rights_matrix_edit"
+			));
+		} else {
+			String[] parts = rCodeParam.split(",");
+			for (String p : parts) {
+				String rCode = p.trim();
+				List<String> customList = customRoleRightsMap.get(rCode);
+				if (customList != null && !customList.isEmpty()) {
+					rights.addAll(customList);
+				} else if ("ADMIN".equals(rCode)) {
+					rights.addAll(List.of(
+						"kpi_view", "kpi_define", "kpi_assign_org", "kpi_assign_emp", "kpi_input", "kpi_approve", "kpi_config_deadline",
+						"proof_view", "proof_create", "proof_map_criteria", "proof_verify", "proof_lock", "proof_archive",
+						"capa_view", "capa_create", "capa_assign", "capa_update", "capa_approve", "capa_extend",
+						"kd_view", "kd_approve_tdg", "kd_config",
+						"survey_view", "survey_manage",
+						"user_view", "user_manage", "rights_matrix_edit"
+					));
+				} else if ("LANH_DAO_HV".equals(rCode) || isLanhDaoHocVien) {
+					rights.addAll(List.of(
+						"kpi_view", "kpi_approve",
+						"proof_view", "proof_verify",
+						"capa_view", "capa_create", "capa_approve", "capa_extend",
+						"kd_view", "kd_approve_tdg",
+						"survey_view", "user_view"
+					));
+				} else if ("TRUONG_DON_VI".equals(rCode) || isOrgLeader) {
+					rights.addAll(List.of(
+						"kpi_view", "kpi_assign_emp", "kpi_input", "kpi_approve",
+						"proof_view", "proof_create", "proof_verify", "proof_archive",
+						"capa_view", "capa_create", "capa_assign", "capa_update", "capa_approve",
+						"kd_view", "survey_view", "user_view"
+					));
+				} else if ("CAN_BO_DBCL".equals(rCode)) {
+					rights.addAll(List.of(
+						"kpi_view", "kpi_define", "kpi_assign_org", "kpi_assign_emp", "kpi_input", "kpi_approve", "kpi_config_deadline",
+						"proof_view", "proof_create", "proof_map_criteria", "proof_verify", "proof_lock", "proof_archive",
+						"capa_view", "capa_create", "capa_assign", "capa_update", "capa_approve", "capa_extend",
+						"kd_view", "kd_approve_tdg", "kd_config",
+						"survey_view", "survey_manage", "user_view"
+					));
+				} else if ("NHOM_TDG".equals(rCode)) {
+					rights.addAll(List.of(
+						"kpi_view",
+						"proof_view", "proof_create", "proof_map_criteria",
+						"capa_view",
+						"kd_view", "kd_write_tdg",
+						"raci_view", "survey_view"
+					));
+				} else { // CHUYEN_VIEN
+					rights.addAll(List.of(
+						"kpi_view", "kpi_input",
+						"proof_view", "proof_create",
+						"capa_view", "capa_update",
+						"kd_view", "raci_view", "survey_view"
+					));
+				}
+			}
+		}
+		return rights;
+	}
+
+	public JSONArray getUserRights(String roleCode, String email, boolean isLanhDaoHocVien, boolean isOrgLeader) {
+		Set<String> rights = getUserRightsSet(roleCode, email, isLanhDaoHocVien, isOrgLeader);
+		JSONArray arr = new JSONArray();
+		for (String rightKey : rights) {
+			arr.put(rightKey);
+		}
+		return arr;
+	}
+
 	// =====================LOGIN===============================
 	@PostMapping(value = "/login", produces = "application/json; charset=UTF-8")
 	public String Login(@RequestBody String sReq) {
@@ -212,6 +376,9 @@ public class UserService {
 				jout.put("is_org_leader", isOrgLeader ? 1 : 0);
 				jout.put("leader_of_dept_id",   leaderOfDeptId   != null ? leaderOfDeptId   : JSONObject.NULL);
 				jout.put("leader_of_dept_name", leaderOfDeptName != null ? leaderOfDeptName : JSONObject.NULL);
+				Set<String> userRightsSet = getUserRightsSet(roleCode, userEmail, isLanhDaoHocVien, isOrgLeader);
+				jout.put("rights", new JSONArray(userRightsSet));
+				jout.put("grouped_rights", getGroupedUserRights(userRightsSet));
 
 				jout.put("code", 200);
 			} else {
@@ -927,6 +1094,9 @@ public class UserService {
 				jout.put("dept_id", finalDpId != null ? finalDpId : JSONObject.NULL);
 				jout.put("dept_name", finalDpName != null ? finalDpName : JSONObject.NULL);
 				jout.put("dept_code", finalDpCode != null ? finalDpCode : JSONObject.NULL);
+				Set<String> userRightsSet = getUserRightsSet(roleCode, email, false, false);
+				jout.put("rights", new JSONArray(userRightsSet));
+				jout.put("grouped_rights", getGroupedUserRights(userRightsSet));
 
 				jout.put("code", 200);
 			} else {
@@ -1064,6 +1234,29 @@ public class UserService {
 				jout.put("dept_id", finalDpId != null ? finalDpId : JSONObject.NULL);
 				jout.put("dept_name", finalDpName != null ? finalDpName : JSONObject.NULL);
 				jout.put("dept_code", finalDpCode != null ? finalDpCode : JSONObject.NULL);
+
+				boolean isLanhDaoHocVienSlink = false;
+				try {
+					String ldCheckSql =
+						"SELECT COUNT(*) FROM personnel p WITH (NOLOCK) WHERE (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?)) " +
+						"AND (p.donViChinhId IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d') " +
+						"  OR p.donViL3Id   IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d'))";
+					Integer cnt = jdbcTemplate.queryForObject(ldCheckSql, Integer.class, user_id != null ? user_id.toString() : "", userEmail, userEmail);
+					if (cnt != null && cnt > 0) isLanhDaoHocVienSlink = true;
+				} catch (Exception ldEx) {}
+
+				boolean isOrgLeaderSlink = false;
+				try {
+					String leaderCheckSql =
+						"SELECT COUNT(*) FROM orgs o WITH (NOLOCK) INNER JOIN personnel p WITH (NOLOCK) ON o.leaderId = p.id " +
+						"WHERE (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?)) AND (o.isDeleted IS NULL OR o.isDeleted = 0)";
+					Integer cntL = jdbcTemplate.queryForObject(leaderCheckSql, Integer.class, user_id != null ? user_id.toString() : "", userEmail, userEmail);
+					if (cntL != null && cntL > 0) isOrgLeaderSlink = true;
+				} catch (Exception leaderEx) {}
+
+				Set<String> userRightsSet = getUserRightsSet(roleCode, userEmail, isLanhDaoHocVienSlink, isOrgLeaderSlink);
+				jout.put("rights", new JSONArray(userRightsSet));
+				jout.put("grouped_rights", getGroupedUserRights(userRightsSet));
 
 				jout.put("code", 200);
 			} else {
@@ -1250,6 +1443,194 @@ public class UserService {
 		} catch (Exception e) {
 			e.printStackTrace();
 			return "{\"code\": 500, \"description\": \"Lỗi xử lý hệ thống: " + e.getMessage() + "\"}";
+		}
+		return jout.toString();
+	}
+
+	@PostMapping(value = "/profile", produces = "application/json; charset=UTF-8")
+	public String getUserProfile(@RequestBody String sReq) {
+		System.out.println("----------getUserProfile:" + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jsonobjReq = new JSONObject(sReq);
+			String session_id = (jsonobjReq.has("session_id") && !jsonobjReq.isNull("session_id")) ? jsonobjReq.getString("session_id") : null;
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null) {
+				return "{\"code\":" + 700 + ", \"description\":\"" + "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại." + "\"}";
+			}
+
+			String userId = (sst.sUserId != null && !sst.sUserId.trim().isEmpty()) ? sst.sUserId.trim() : String.valueOf(sst.UserID);
+			String sql = "SELECT TOP 1 u.ID, u.Email, u.Status, u.role_code, u.IsAdmin, u.LockDoc, u.LockUser, u.Avatar "
+					+ "FROM dbo.users u WITH (NOLOCK) "
+					+ "WHERE u.ID = ? AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
+			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, userId);
+			if (users.isEmpty()) {
+				return "{\"code\":" + 404 + ", \"description\":\"Không tìm thấy thông tin người dùng\"}";
+			}
+
+			Map<String, Object> user = users.get(0);
+			String userEmail = user.get("Email") != null ? user.get("Email").toString().trim() : "";
+
+			String fullName = "";
+			String mobile = "";
+			try {
+				String pSql = "SELECT TOP 1 p.fullname AS FullName, p.sdtCaNhan AS Mobile "
+						+ "FROM dbo.personnel p WITH (NOLOCK) "
+						+ "WHERE p.isDeleted = 0 AND (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?))";
+				List<Map<String, Object>> pRows = jdbcTemplate.queryForList(pSql, userId, userEmail, userEmail);
+				if (!pRows.isEmpty()) {
+					fullName = pRows.get(0).get("FullName") != null ? pRows.get(0).get("FullName").toString() : "";
+					mobile = pRows.get(0).get("Mobile") != null ? pRows.get(0).get("Mobile").toString() : "";
+				}
+			} catch (Exception ex) {}
+
+			Object roleCodeObj = user.get("role_code");
+			String roleCode = roleCodeObj != null ? roleCodeObj.toString() : "CHUYEN_VIEN";
+			int type = "ADMIN".equalsIgnoreCase(roleCode) ? 1 : ("LANH_DAO_HV".equalsIgnoreCase(roleCode) ? 2 : ("TRUONG_DON_VI".equalsIgnoreCase(roleCode) ? 3 : 0));
+
+			JSONObject DpInfo = userExtend.getUserDepartmentInfo(userId);
+			Object finalDpId = (DpInfo != null && DpInfo.has("dept_id")) ? DpInfo.get("dept_id") : null;
+			Object finalDpName = (DpInfo != null && DpInfo.has("dept_name")) ? DpInfo.get("dept_name") : null;
+			Object finalDpCode = (DpInfo != null && DpInfo.has("dept_code")) ? DpInfo.get("dept_code") : null;
+
+			boolean isLanhDaoHocVien = false;
+			try {
+				String ldCheckSql =
+					"SELECT COUNT(*) FROM personnel p WITH (NOLOCK) WHERE (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?)) " +
+					"AND (p.donViChinhId IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d') " +
+					"  OR p.donViL3Id   IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d'))";
+				Integer cnt = jdbcTemplate.queryForObject(ldCheckSql, Integer.class, userId, userEmail, userEmail);
+				if (cnt != null && cnt > 0) isLanhDaoHocVien = true;
+			} catch (Exception ldEx) {}
+
+			boolean isOrgLeader = false;
+			String leaderOfDeptId = null;
+			String leaderOfDeptName = null;
+			try {
+				String leaderCheckSql =
+					"SELECT TOP 1 o.id AS orgId, o.ten AS orgName " +
+					"FROM orgs o WITH (NOLOCK) " +
+					"INNER JOIN personnel p WITH (NOLOCK) ON o.leaderId = p.id " +
+					"WHERE (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?)) AND (o.isDeleted IS NULL OR o.isDeleted = 0)";
+				List<Map<String, Object>> leaderRows = jdbcTemplate.queryForList(leaderCheckSql, userId, userEmail, userEmail);
+				if (!leaderRows.isEmpty()) {
+					isOrgLeader = true;
+					leaderOfDeptId = leaderRows.get(0).get("orgId") != null ? leaderRows.get(0).get("orgId").toString() : null;
+					leaderOfDeptName = leaderRows.get(0).get("orgName") != null ? leaderRows.get(0).get("orgName").toString() : null;
+				}
+			} catch (Exception leaderEx) {}
+
+			jout.put("user_id", userId);
+			jout.put("email", userEmail);
+			jout.put("full_name", fullName);
+			jout.put("mobile", mobile);
+			jout.put("role_code", roleCode);
+			jout.put("type", type);
+			jout.put("is_admin", user.get("IsAdmin") != null ? user.get("IsAdmin") : 0);
+			jout.put("is_lanh_dao_hoc_vien", isLanhDaoHocVien ? 1 : 0);
+			jout.put("is_org_leader", isOrgLeader ? 1 : 0);
+			jout.put("leader_of_dept_id", leaderOfDeptId != null ? leaderOfDeptId : JSONObject.NULL);
+			jout.put("leader_of_dept_name", leaderOfDeptName != null ? leaderOfDeptName : JSONObject.NULL);
+			jout.put("dept_id", finalDpId != null ? finalDpId : JSONObject.NULL);
+			jout.put("dept_name", finalDpName != null ? finalDpName : JSONObject.NULL);
+			jout.put("dept_code", finalDpCode != null ? finalDpCode : JSONObject.NULL);
+			Set<String> userRightsSet = getUserRightsSet(roleCode, userEmail, isLanhDaoHocVien, isOrgLeader);
+			jout.put("rights", new JSONArray(userRightsSet));
+			jout.put("grouped_rights", getGroupedUserRights(userRightsSet));
+			jout.put("code", 200);
+
+		} catch (Exception e) {
+			e.printStackTrace();
+			return "{\"code\":" + 500 + ", \"description\":\"Lỗi máy chủ: " + e.getMessage() + "\"}";
+		}
+		return jout.toString();
+	}
+
+	@PostMapping(value = "/rights", produces = "application/json; charset=UTF-8")
+	public String getUserRightsEndpoint(@RequestBody String sReq) {
+		return getUserProfile(sReq);
+	}
+
+	@PostMapping(value = "/get-rights-matrix", produces = "application/json; charset=UTF-8")
+	public String getRightsMatrix(@RequestBody String sReq) {
+		JSONObject jout = new JSONObject();
+		try {
+			if (customRoleRightsMap.isEmpty()) {
+				loadRoleRightsFromDb();
+			}
+			JSONObject matrixJson = new JSONObject();
+			Map<String, List<String>> defaults = Map.of(
+				"ADMIN", List.of("kpi_view", "kpi_define", "kpi_assign_org", "kpi_assign_emp", "kpi_input", "kpi_approve", "kpi_config_deadline", "proof_view", "proof_create", "proof_map_criteria", "proof_verify", "proof_lock", "proof_archive", "capa_view", "capa_create", "capa_assign", "capa_update", "capa_approve", "capa_extend", "kd_view", "kd_approve_tdg", "kd_config", "survey_view", "survey_manage", "user_view", "user_manage", "rights_matrix_edit"),
+				"LANH_DAO_HV", List.of("kpi_view", "kpi_approve", "proof_view", "proof_verify", "capa_view", "capa_create", "capa_approve", "capa_extend", "kd_view", "kd_approve_tdg", "survey_view", "user_view"),
+				"TRUONG_DON_VI", List.of("kpi_view", "kpi_assign_emp", "kpi_input", "kpi_approve", "proof_view", "proof_create", "proof_verify", "proof_archive", "capa_view", "capa_create", "capa_assign", "capa_update", "capa_approve", "kd_view", "survey_view", "user_view"),
+				"CAN_BO_DBCL", List.of("kpi_view", "kpi_define", "kpi_assign_org", "kpi_assign_emp", "kpi_input", "kpi_approve", "kpi_config_deadline", "proof_view", "proof_create", "proof_map_criteria", "proof_verify", "proof_lock", "proof_archive", "capa_view", "capa_create", "capa_assign", "capa_update", "capa_approve", "capa_extend", "kd_view", "kd_approve_tdg", "kd_config", "survey_view", "survey_manage", "user_view"),
+				"NHOM_TDG", List.of("kpi_view", "proof_view", "proof_create", "proof_map_criteria", "capa_view", "kd_view", "kd_write_tdg", "raci_view", "survey_view"),
+				"CHUYEN_VIEN", List.of("kpi_view", "kpi_input", "proof_view", "proof_create", "capa_view", "capa_update", "kd_view", "raci_view", "survey_view")
+			);
+
+			for (String role : defaults.keySet()) {
+				List<String> rightsList = customRoleRightsMap.get(role);
+				if (rightsList == null) {
+					rightsList = defaults.get(role);
+				}
+				matrixJson.put(role, new JSONArray(rightsList));
+			}
+
+			jout.put("matrix", matrixJson);
+			jout.put("code", 200);
+		} catch (Exception e) {
+			e.printStackTrace();
+			try {
+				jout.put("code", 500);
+				jout.put("description", "Lỗi lấy ma trận phân quyền: " + e.getMessage());
+			} catch (Exception ex) {}
+		}
+		return jout.toString();
+	}
+
+	@PostMapping(value = "/save-rights-matrix", produces = "application/json; charset=UTF-8")
+	public String saveRightsMatrix(@RequestBody String sReq) {
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jsonobjReq = new JSONObject(sReq);
+			String session_id = (jsonobjReq.has("session_id") && !jsonobjReq.isNull("session_id")) ? jsonobjReq.getString("session_id") : null;
+			struct_session sst = sessionService.getSessionInfo(session_id);
+			if (sst == null) {
+				return "{\"code\":" + 700 + ", \"description\":\"Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.\"}";
+			}
+
+			if (!jsonobjReq.has("matrix")) {
+				return "{\"code\":400, \"description\":\"Thiếu tham số matrix\"}";
+			}
+
+			ensureRoleRightsMatrixTable();
+			JSONObject matrixObj = jsonobjReq.getJSONObject("matrix");
+
+			for (String roleCode : matrixObj.keySet()) {
+				JSONArray rightsArr = matrixObj.getJSONArray(roleCode);
+				List<String> list = new java.util.ArrayList<>();
+				for (int i = 0; i < rightsArr.length(); i++) {
+					list.add(rightsArr.getString(i));
+				}
+				String jsonStr = rightsArr.toString();
+
+				String upsertSql = "IF EXISTS (SELECT 1 FROM dbo.qa_role_rights_matrix WHERE role_code = ?) " +
+						"UPDATE dbo.qa_role_rights_matrix SET rights_json = ?, updated_at = GETDATE() WHERE role_code = ? " +
+						"ELSE " +
+						"INSERT INTO dbo.qa_role_rights_matrix (role_code, rights_json, updated_at) VALUES (?, ?, GETDATE())";
+
+				jdbcTemplate.update(upsertSql, roleCode, jsonStr, roleCode, roleCode, jsonStr);
+				customRoleRightsMap.put(roleCode, list);
+			}
+
+			jout.put("code", 200);
+			jout.put("description", "Đã lưu ma trận phân quyền thành công");
+		} catch (Exception e) {
+			e.printStackTrace();
+			try {
+				jout.put("code", 500);
+				jout.put("description", "Lỗi lưu ma trận phân quyền: " + e.getMessage());
+			} catch (Exception ex) {}
 		}
 		return jout.toString();
 	}

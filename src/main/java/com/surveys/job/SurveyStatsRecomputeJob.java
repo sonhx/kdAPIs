@@ -29,8 +29,8 @@ public class SurveyStatsRecomputeJob {
     @Autowired
     private SurveyStatsService surveyStatsService;
 
-    // Run periodically every 5 hours
-    @Scheduled(cron = "0 0 */5 * * *")
+    // Run nightly at 3:00 AM (after 2:00 AM survey sync finishes)
+    @Scheduled(cron = "0 0 3 * * *")
     public void runIncrementalRecompute() {
         // Guard: skip if the app has not been running long enough.
         // This prevents the cron from firing immediately on startup when the app

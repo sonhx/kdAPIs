@@ -2,6 +2,8 @@ package com.surveys;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -390,7 +392,27 @@ public class SurveyController {
                           "JOIN survey_blocks b ON q.block_id = b.id " +
                           "WHERE b.survey_id = ?";
             List<Map<String, Object>> questions = jdbcTemplate.queryForList(qSql, id);
-            
+
+            Map<String, List<Map<String, Object>>> rowsByQuestion = new HashMap<>();
+            String rowsSql = "SELECT mr.question_id, mr.id, mr.content as text " +
+                             "FROM question_matrix_rows mr " +
+                             "JOIN survey_questions q ON mr.question_id = q.id " +
+                             "JOIN survey_blocks b ON q.block_id = b.id WHERE b.survey_id = ?";
+            for (Map<String, Object> r : jdbcTemplate.queryForList(rowsSql, id)) {
+                String qId = (String) r.get("question_id");
+                rowsByQuestion.computeIfAbsent(qId, k -> new ArrayList<>()).add(r);
+            }
+
+            Map<String, List<Map<String, Object>>> optsByQuestion = new HashMap<>();
+            String optsSql = "SELECT qo.question_id, qo.content as label, 0 as count " +
+                             "FROM question_options qo " +
+                             "JOIN survey_questions q ON qo.question_id = q.id " +
+                             "JOIN survey_blocks b ON q.block_id = b.id WHERE b.survey_id = ?";
+            for (Map<String, Object> o : jdbcTemplate.queryForList(optsSql, id)) {
+                String qId = (String) o.get("question_id");
+                optsByQuestion.computeIfAbsent(qId, k -> new ArrayList<>()).add(o);
+            }
+
             for (Map<String, Object> q : questions) {
                 String qId = (String) q.get("id");
                 String qType = (String) q.get("type");
@@ -407,16 +429,10 @@ public class SurveyController {
                     q.put("likertAverage", 0.0);
                 } else if ("GridSingleChoice".equalsIgnoreCase(qType) || "GridMultipleChoice".equalsIgnoreCase(qType)) {
                     q.put("type", "grid");
-                    List<Map<String, Object>> gridRows = jdbcTemplate.queryForList(
-                        "SELECT id, content as text FROM question_matrix_rows WHERE question_id = ?", qId
-                    );
-                    q.put("rows", gridRows);
+                    q.put("rows", rowsByQuestion.getOrDefault(qId, Collections.emptyList()));
                 } else {
                     q.put("type", "multiple-choice");
-                    List<Map<String, Object>> opts = jdbcTemplate.queryForList(
-                        "SELECT content as label, 0 as count FROM question_options WHERE question_id = ?", qId
-                    );
-                    q.put("options", opts);
+                    q.put("options", optsByQuestion.getOrDefault(qId, Collections.emptyList()));
                 }
             }
             

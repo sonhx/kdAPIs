@@ -32,6 +32,7 @@ public class SurveyStatsService {
 
     private static final Logger log = LoggerFactory.getLogger(SurveyStatsService.class);
     private final ConcurrentHashMap<String, Boolean> computeLocks = new ConcurrentHashMap<>();
+    private final Set<String> attemptedAutoComputes = ConcurrentHashMap.newKeySet();
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -74,6 +75,7 @@ public class SurveyStatsService {
             log.warn("Exception in recomputeCampaign for surveyId={}, campaignId={}: {}", surveyId, campaignId, e.getMessage());
         } finally {
             computeLocks.remove(key);
+            attemptedAutoComputes.remove(key);
         }
     }
     
@@ -163,7 +165,58 @@ public class SurveyStatsService {
             log.warn("Error fetching bulk option stats: {}", e.getMessage());
         }
 
-        // Stats will be recomputed by the scheduler if stale; read path returns cached data as-is.
+        // Stats auto-compute on demand if question stats are missing and survey has responses
+        boolean hasQuestionStats = numericMap.values().stream().anyMatch(n -> n.getTotalResponses() > 0)
+                || optionMap.values().stream().anyMatch(opts -> opts.stream().anyMatch(o -> o.getCount() > 0));
+
+        String computeKey = surveyId + "_" + (actualCampaignId == null ? "ALL" : actualCampaignId);
+        if (!hasQuestionStats && hasSurveyResponses(surveyId) && attemptedAutoComputes.add(computeKey)) {
+            log.info("Question stats not computed yet for surveyId={}, computing on demand...", surveyId);
+            recomputeCampaign(surveyId, actualCampaignId);
+
+            // Re-fetch overall
+            overall = getOverallStats(surveyId, actualCampaignId);
+
+            // Re-fetch blockMap
+            blockMap.clear();
+            try {
+                jdbcTemplate.query(blockSql, (rs, rowNum) -> {
+                    String bId = rs.getString("block_id");
+                    blockMap.put(bId, new BlockStatDto(bId, rs.getInt("total_responses"), rs.getBigDecimal("mean"), rs.getBigDecimal("std_dev")));
+                    return null;
+                }, blockParams);
+            } catch (Exception e) {
+                log.warn("Error re-fetching bulk block stats: {}", e.getMessage());
+            }
+
+            // Re-fetch numericMap
+            numericMap.clear();
+            try {
+                jdbcTemplate.query(numSql, (rs, rowNum) -> {
+                    String qId = rs.getString("question_id");
+                    numericMap.put(qId, new QuestionNumericStatDto(
+                        qId, rs.getInt("total_responses"), rs.getBigDecimal("mean"), rs.getBigDecimal("std_dev"),
+                        rs.getBigDecimal("min_value"), rs.getBigDecimal("max_value"), rs.getInt("text_count")
+                    ));
+                    return null;
+                }, numParams);
+            } catch (Exception e) {
+                log.warn("Error re-fetching bulk numeric stats: {}", e.getMessage());
+            }
+
+            // Re-fetch optionMap
+            optionMap.clear();
+            try {
+                jdbcTemplate.query(optSql, (rs, rowNum) -> {
+                    String qId = rs.getString("question_id");
+                    OptionStatDto dto = new OptionStatDto(rs.getString("option_id"), rs.getString("option_text"), rs.getInt("count"), rs.getBigDecimal("percentage"));
+                    optionMap.computeIfAbsent(qId, k -> new ArrayList<>()).add(dto);
+                    return null;
+                }, optParams);
+            } catch (Exception e) {
+                log.warn("Error re-fetching bulk option stats: {}", e.getMessage());
+            }
+        }
 
         // Combine into QuestionFullStatDto map
         Map<String, SurveyFullStatsDto.QuestionFullStatDto> questionMap = new HashMap<>();
@@ -183,7 +236,7 @@ public class SurveyStatsService {
     private boolean hasSurveyResponses(String surveyId) {
         try {
             Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM dbo.survey_responses WHERE survey_id = ?", 
+                "SELECT TOP 1 1 FROM dbo.survey_responses WHERE survey_id = ?", 
                 Integer.class, 
                 surveyId
             );

@@ -11,7 +11,7 @@ BEGIN
     campaign_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
     block_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
     question_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-    option_id varchar(24) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+    option_id varchar(100) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
     option_text nvarchar(500) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
     count int NOT NULL DEFAULT 0,
     percentage decimal(6,2) NULL,
@@ -133,7 +133,7 @@ BEGIN
 
   SELECT a.question_id, a.choices, a.response_id
   INTO #temp_active_answers
-  FROM dbo.survey_response_answers a WITH (NOLOCK)
+  FROM dbo.survey_response_answers a WITH (NOLOCK, INDEX(IX_answers_response_id))
   JOIN #temp_responses fa ON a.response_id = fa.response_id;
 
   CREATE CLUSTERED INDEX IX_temp_active_answers ON #temp_active_answers(question_id);
@@ -143,7 +143,7 @@ BEGIN
   
   CREATE TABLE #temp_exploded (
     target_question_id varchar(100) NOT NULL,
-    option_id varchar(100) NOT NULL,
+    option_id varchar(200) NOT NULL,
     response_id varchar(100) NOT NULL
   );
 
@@ -151,29 +151,51 @@ BEGIN
   INSERT INTO #temp_exploded (target_question_id, option_id, response_id)
   SELECT 
     q.id AS target_question_id,
-    opt.value AS option_id,
+    COALESCE(
+      qo.id,
+      CASE WHEN ISJSON(opt.value) = 1 THEN COALESCE(JSON_VALUE(opt.value, '$.idCot'), JSON_VALUE(opt.value, '$.id'), JSON_VALUE(opt.value, '$.value'), opt.value)
+           ELSE opt.value END
+    ) AS option_id,
     a.response_id
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) opt
+  LEFT JOIN dbo.question_options qo WITH (NOLOCK) ON qo.question_id = q.id AND (
+    qo.id = opt.value 
+    OR qo.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.value)), 2), 1, 24))
+    OR qo.content = opt.value
+  )
   WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
 
   -- grid choice answers
   INSERT INTO #temp_exploded (target_question_id, option_id, response_id)
   SELECT 
-    opt.idHang AS target_question_id,
-    opt.idCot AS option_id,
+    COALESCE(qmr.id, opt.idHang) AS target_question_id,
+    COALESCE(qmc.id, opt.idCot) AS option_id,
     a.response_id
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) WITH (
     idHang varchar(100) '$.idHang',
-    idCot varchar(100) '$.idCot'
+    idCot varchar(100) '$.idCot',
+    textHang nvarchar(500) '$.textHang',
+    textCot nvarchar(500) '$.textCot'
   ) opt
+  LEFT JOIN dbo.question_matrix_rows qmr WITH (NOLOCK) ON qmr.question_id = q.id AND (
+    qmr.id = opt.idHang 
+    OR qmr.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idHang)), 2), 1, 24))
+    OR qmr.content = opt.textHang
+  )
+  LEFT JOIN dbo.question_matrix_cols qmc WITH (NOLOCK) ON qmc.question_id = q.id AND (
+    qmc.id = opt.idCot 
+    OR qmc.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idCot)), 2), 1, 24))
+    OR qmc.content = opt.textCot
+  )
   WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idHang IS NOT NULL AND opt.idCot IS NOT NULL;
+    AND (opt.idHang IS NOT NULL OR opt.textHang IS NOT NULL)
+    AND (opt.idCot IS NOT NULL OR opt.textCot IS NOT NULL);
 
   CREATE CLUSTERED INDEX IX_temp_exploded ON #temp_exploded(target_question_id, option_id);
 
@@ -284,7 +306,7 @@ BEGIN
 
   SELECT a.question_id, a.choices, a.response_id, a.other_answer
   INTO #temp_active_answers
-  FROM dbo.survey_response_answers a WITH (NOLOCK)
+  FROM dbo.survey_response_answers a WITH (NOLOCK, INDEX(IX_answers_response_id))
   JOIN #temp_responses fa ON a.response_id = fa.response_id;
 
   CREATE CLUSTERED INDEX IX_temp_active_answers ON #temp_active_answers(question_id);
@@ -297,46 +319,71 @@ BEGIN
     target_question_id varchar(100) NOT NULL,
     block_id varchar(100) NOT NULL,
     response_id varchar(100) NOT NULL,
-    option_id varchar(100) NULL,
+    option_id varchar(200) NULL,
     other_answer nvarchar(max) NULL,
-    question_type varchar(50) NOT NULL
+    question_type varchar(50) NOT NULL,
+    raw_text nvarchar(500) NULL
   );
 
   -- standard choice/text answers
-  INSERT INTO #temp_exploded (original_question_id, target_question_id, block_id, response_id, option_id, other_answer, question_type)
+  INSERT INTO #temp_exploded (original_question_id, target_question_id, block_id, response_id, option_id, other_answer, question_type, raw_text)
   SELECT 
     q.id AS original_question_id,
     q.id AS target_question_id,
     q.block_id,
     a.response_id,
-    opt.value AS option_id,
+    COALESCE(
+      qo.id,
+      CASE WHEN ISJSON(opt.value) = 1 THEN COALESCE(JSON_VALUE(opt.value, '$.idCot'), JSON_VALUE(opt.value, '$.id'), JSON_VALUE(opt.value, '$.value'), opt.value)
+           ELSE opt.value END
+    ) AS option_id,
     a.other_answer,
-    q.question_type
+    q.question_type,
+    COALESCE(qo.content, opt.value) AS raw_text
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   OUTER APPLY OPENJSON(a.choices) opt
+  LEFT JOIN dbo.question_options qo WITH (NOLOCK) ON qo.question_id = q.id AND (
+    qo.id = opt.value 
+    OR qo.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.value)), 2), 1, 24))
+    OR qo.content = opt.value
+  )
   WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
     AND ((a.choices IS NOT NULL AND ISJSON(a.choices) = 1) OR a.other_answer IS NOT NULL);
 
   -- grid single/multiple choice answers
-  INSERT INTO #temp_exploded (original_question_id, target_question_id, block_id, response_id, option_id, other_answer, question_type)
+  INSERT INTO #temp_exploded (original_question_id, target_question_id, block_id, response_id, option_id, other_answer, question_type, raw_text)
   SELECT 
     q.id AS original_question_id,
-    opt.idHang AS target_question_id,
+    COALESCE(qmr.id, opt.idHang) AS target_question_id,
     q.block_id,
     a.response_id,
-    opt.idCot AS option_id,
+    COALESCE(qmc.id, opt.idCot) AS option_id,
     NULL AS other_answer,
-    q.question_type
+    q.question_type,
+    COALESCE(qmc.content, opt.textCot) AS raw_text
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) WITH (
     idHang varchar(100) '$.idHang',
-    idCot varchar(100) '$.idCot'
+    idCot varchar(100) '$.idCot',
+    textHang nvarchar(500) '$.textHang',
+    textCot nvarchar(500) '$.textCot'
   ) opt
+  LEFT JOIN dbo.question_matrix_rows qmr WITH (NOLOCK) ON qmr.question_id = q.id AND (
+    qmr.id = opt.idHang 
+    OR qmr.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idHang)), 2), 1, 24))
+    OR qmr.content = opt.textHang
+  )
+  LEFT JOIN dbo.question_matrix_cols qmc WITH (NOLOCK) ON qmc.question_id = q.id AND (
+    qmc.id = opt.idCot 
+    OR qmc.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idCot)), 2), 1, 24))
+    OR qmc.content = opt.textCot
+  )
   WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idHang IS NOT NULL AND opt.idCot IS NOT NULL;
+    AND (opt.idHang IS NOT NULL OR opt.textHang IS NOT NULL)
+    AND (opt.idCot IS NOT NULL OR opt.textCot IS NOT NULL);
 
   CREATE CLUSTERED INDEX IX_temp_exploded ON #temp_exploded(target_question_id, option_id);
 
@@ -348,19 +395,19 @@ BEGIN
       ea.response_id,
       COALESCE(
         CASE 
-          WHEN COALESCE(qo.content, qmc.content) LIKE '5 =%' OR COALESCE(qo.content, qmc.content) LIKE '5=%' THEN 5.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '4 =%' OR COALESCE(qo.content, qmc.content) LIKE '4=%' THEN 4.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '3 =%' OR COALESCE(qo.content, qmc.content) LIKE '3=%' THEN 3.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '2 =%' OR COALESCE(qo.content, qmc.content) LIKE '2=%' THEN 2.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '1 =%' OR COALESCE(qo.content, qmc.content) LIKE '1=%' THEN 1.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất hài lòng', N'Rất tốt', N'Xuất sắc', N'Rất sẵn sàng', N'Rất phù hợp', N'Hoàn toàn đồng ý') THEN 5.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '5 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '5=%' THEN 5.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '4 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '4=%' THEN 4.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '3 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '3=%' THEN 3.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '2 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '2=%' THEN 2.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '1 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '1=%' THEN 1.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Rất hài lòng', N'Rất tốt', N'Xuất sắc', N'Rất sẵn sàng', N'Rất phù hợp', N'Hoàn toàn đồng ý') THEN 5.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
           ELSE NULL
         END,
-        TRY_CAST(COALESCE(qo.content, qmc.content) AS decimal(9,4)),
+        TRY_CAST(COALESCE(qo.content, qmc.content, ea.raw_text) AS decimal(9,4)),
         TRY_CAST(ea.option_id AS decimal(9,4))
       ) AS score_val,
       CASE WHEN ea.other_answer IS NOT NULL AND RTRIM(LTRIM(ea.other_answer)) <> '' THEN 1 ELSE 0 END AS is_text
@@ -474,7 +521,7 @@ BEGIN
 
   SELECT a.question_id, a.choices, a.response_id
   INTO #temp_active_answers
-  FROM dbo.survey_response_answers a WITH (NOLOCK)
+  FROM dbo.survey_response_answers a WITH (NOLOCK, INDEX(IX_answers_response_id))
   JOIN #temp_responses fa ON a.response_id = fa.response_id;
 
   CREATE CLUSTERED INDEX IX_temp_active_answers ON #temp_active_answers(question_id);
@@ -484,39 +531,57 @@ BEGIN
   
   CREATE TABLE #temp_exploded (
     block_id varchar(100) NOT NULL,
-    option_id varchar(100) NOT NULL,
+    option_id varchar(200) NOT NULL,
     question_type varchar(50) NOT NULL,
-    response_id varchar(100) NOT NULL
+    response_id varchar(100) NOT NULL,
+    raw_text nvarchar(500) NULL
   );
 
   -- standard choice answers
-  INSERT INTO #temp_exploded (block_id, option_id, question_type, response_id)
+  INSERT INTO #temp_exploded (block_id, option_id, question_type, response_id, raw_text)
   SELECT 
     q.block_id,
-    opt.value AS option_id,
+    COALESCE(
+      qo.id,
+      CASE WHEN ISJSON(opt.value) = 1 THEN COALESCE(JSON_VALUE(opt.value, '$.idCot'), JSON_VALUE(opt.value, '$.id'), JSON_VALUE(opt.value, '$.value'), opt.value)
+           ELSE opt.value END
+    ) AS option_id,
     q.question_type,
-    a.response_id
+    a.response_id,
+    COALESCE(qo.content, opt.value) AS raw_text
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) opt
+  LEFT JOIN dbo.question_options qo WITH (NOLOCK) ON qo.question_id = q.id AND (
+    qo.id = opt.value 
+    OR qo.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.value)), 2), 1, 24))
+    OR qo.content = opt.value
+  )
   WHERE q.question_type NOT IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1;
 
   -- grid choice answers
-  INSERT INTO #temp_exploded (block_id, option_id, question_type, response_id)
+  INSERT INTO #temp_exploded (block_id, option_id, question_type, response_id, raw_text)
   SELECT 
     q.block_id,
-    opt.idCot AS option_id,
+    COALESCE(qmc.id, opt.idCot) AS option_id,
     q.question_type,
-    a.response_id
+    a.response_id,
+    COALESCE(qmc.content, opt.textCot) AS raw_text
   FROM #temp_active_answers a
   JOIN dbo.survey_questions q WITH (NOLOCK) ON a.question_id = q.id
   CROSS APPLY OPENJSON(a.choices) WITH (
-    idCot varchar(100) '$.idCot'
+    idCot varchar(100) '$.idCot',
+    textCot nvarchar(500) '$.textCot'
   ) opt
+  LEFT JOIN dbo.question_matrix_cols qmc WITH (NOLOCK) ON qmc.question_id = q.id AND (
+    qmc.id = opt.idCot 
+    OR qmc.id = LOWER(SUBSTRING(CONVERT(VARCHAR(32), HASHBYTES('MD5', CONCAT(@survey_id, '_', opt.idCot)), 2), 1, 24))
+    OR qmc.content = opt.textCot
+  )
   WHERE q.question_type IN ('GridSingleChoice', 'GridMultipleChoice')
     AND a.choices IS NOT NULL AND ISJSON(a.choices) = 1
-    AND opt.idCot IS NOT NULL;
+    AND (opt.idCot IS NOT NULL OR opt.textCot IS NOT NULL);
 
   CREATE CLUSTERED INDEX IX_temp_exploded ON #temp_exploded(block_id, option_id);
 
@@ -526,19 +591,19 @@ BEGIN
       ea.response_id,
       COALESCE(
         CASE 
-          WHEN COALESCE(qo.content, qmc.content) LIKE '5 =%' OR COALESCE(qo.content, qmc.content) LIKE '5=%' THEN 5.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '4 =%' OR COALESCE(qo.content, qmc.content) LIKE '4=%' THEN 4.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '3 =%' OR COALESCE(qo.content, qmc.content) LIKE '3=%' THEN 3.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '2 =%' OR COALESCE(qo.content, qmc.content) LIKE '2=%' THEN 2.0
-          WHEN COALESCE(qo.content, qmc.content) LIKE '1 =%' OR COALESCE(qo.content, qmc.content) LIKE '1=%' THEN 1.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất hài lòng', N'Rất tốt', N'Xuất sắc', N'Rất sẵn sàng', N'Rất phù hợp', N'Hoàn toàn đồng ý') THEN 5.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
-          WHEN COALESCE(qo.content, qmc.content) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '5 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '5=%' THEN 5.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '4 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '4=%' THEN 4.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '3 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '3=%' THEN 3.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '2 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '2=%' THEN 2.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '1 =%' OR COALESCE(qo.content, qmc.content, ea.raw_text) LIKE '1=%' THEN 1.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Rất hài lòng', N'Rất tốt', N'Xuất sắc', N'Rất sẵn sàng', N'Rất phù hợp', N'Hoàn toàn đồng ý') THEN 5.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Hài lòng', N'Tốt', N'Sẵn sàng', N'Phù hợp', N'Đồng ý') THEN 4.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Bình thường', N'Trung bình', N'Tương đối', N'Phân vân') THEN 3.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Không hài lòng', N'Kém', N'Ít sẵn sàng', N'Yếu', N'Ít phù hợp', N'Không đồng ý') THEN 2.0
+          WHEN COALESCE(qo.content, qmc.content, ea.raw_text) IN (N'Rất không hài lòng', N'Rất kém', N'Hoàn toàn không', N'Rất yếu', N'Hoàn toàn không đồng ý') THEN 1.0
           ELSE NULL
         END,
-        TRY_CAST(COALESCE(qo.content, qmc.content) AS decimal(9,4)),
+        TRY_CAST(COALESCE(qo.content, qmc.content, ea.raw_text) AS decimal(9,4)),
         TRY_CAST(ea.option_id AS decimal(9,4))
       ) AS score_val
     FROM #temp_exploded ea
@@ -586,8 +651,8 @@ END;
 GO
 
 CREATE OR ALTER PROCEDURE dbo.sp_compute_survey_overall_stats 
-  @survey_id varchar(24), 
-  @campaign_id varchar(24) = NULL
+  @survey_id varchar(100), 
+  @campaign_id varchar(100) = NULL
 AS
 BEGIN
   SET NOCOUNT ON;
@@ -635,8 +700,8 @@ END;
 GO
 
 CREATE OR ALTER PROCEDURE dbo.sp_recompute_campaign 
-  @survey_id varchar(24), 
-  @campaign_id varchar(24) = NULL
+  @survey_id varchar(100), 
+  @campaign_id varchar(100) = NULL
 AS
 BEGIN
   SET NOCOUNT ON;
@@ -662,3 +727,4 @@ BEGIN
   EXEC dbo.sp_compute_survey_overall_stats @survey_id, @campaign_id;
 END;
 GO
+
