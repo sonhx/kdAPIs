@@ -60,6 +60,9 @@ public class kpiServices {
 	@Autowired
 	private KpiD807CalculationService kpiD807CalculationService;
 
+	@Autowired
+	private KpiD804CalculationService kpiD804CalculationService;
+
 	// TODO change table name departments as it does not exist in the database
 	private Integer resolveKpiId(String kpiCode) {
 		if (kpiCode == null || kpiCode.isEmpty())
@@ -1275,6 +1278,16 @@ public class kpiServices {
 	public String calculateD807() {
 		System.out.println("-------calculateD807 requested");
 		JSONObject result = kpiD807CalculationService.calculateAndSaveD807(null);
+		return result.toString();
+	}
+
+	/**
+	 * POST / GET /kpi/calculate/d804 - Manually trigger calculation for KPI D8.04
+	 */
+	@RequestMapping(value = {"/calculate/d804", "/calculate-d804", "/calculate/d8.04"})
+	public String calculateD804() {
+		System.out.println("-------calculateD804 requested");
+		JSONObject result = kpiD804CalculationService.calculateAndSaveD804(null);
 		return result.toString();
 	}
 

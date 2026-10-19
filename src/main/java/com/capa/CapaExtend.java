@@ -785,7 +785,7 @@ public class CapaExtend {
             "       CONVERT(VARCHAR(19), created_at, 120) AS created_at, " +
             "       CONVERT(VARCHAR(19), updated_at, 120) AS updated_at " +
             "FROM dbo.capa_actions " +
-            "WHERE capa_id = ? AND (is_deleted = 0 OR is_deleted IS NULL) " +
+            "WHERE capa_id = ? " +
             "ORDER BY sort_order ASC, created_at ASC";
 
         return jdbcTemplate.query(sql, (rs, rowNum) -> {

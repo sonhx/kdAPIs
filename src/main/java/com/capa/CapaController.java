@@ -705,6 +705,12 @@ public class CapaController {
         obj.put("source_ref", dto.getSourceRef() != null ? dto.getSourceRef() : JSONObject.NULL);
         obj.put("root_cause", dto.getRootCause() != null ? dto.getRootCause() : JSONObject.NULL);
         obj.put("action_plan", dto.getActionPlan() != null ? dto.getActionPlan() : JSONObject.NULL);
+        obj.put("created_by", dto.getCreatedBy() != null ? dto.getCreatedBy() : JSONObject.NULL);
+        obj.put("createdBy", dto.getCreatedBy() != null ? dto.getCreatedBy() : JSONObject.NULL);
+        obj.put("assignee", dto.getAssignedToName() != null ? dto.getAssignedToName() : JSONObject.NULL);
+        obj.put("assigned_to_name", dto.getAssignedToName() != null ? dto.getAssignedToName() : JSONObject.NULL);
+        obj.put("verified_by", dto.getVerifiedBy() != null ? dto.getVerifiedBy() : JSONObject.NULL);
+        obj.put("verified_date", dto.getVerifiedDate() != null ? dto.getVerifiedDate() : JSONObject.NULL);
         obj.put("created_at", dto.getCreatedAt());
         obj.put("updated_at", dto.getUpdatedAt());
         return obj;

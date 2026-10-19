@@ -1363,7 +1363,7 @@ public class kpiExtend {
 				}
 			}
 
-			java.util.Map<Integer, java.sql.Date> cycleEndDates = new java.util.HashMap<>();
+			java.util.Map<Integer, java.util.Map<String, Object>> cyclePeriodMap = new java.util.HashMap<>();
 			java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd-MM-yyyy");
 			java.util.Date refDate = new java.util.Date();
 
@@ -1436,11 +1436,13 @@ public class kpiExtend {
 						else if ("G2.05".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "OPENALEX_PERSONNEL"; }
 						else if ("K6.05".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "KIEMDINH_TBL_MINHCHUNG"; }
 						else if ("D8.07".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "KIEMDINH_TBL_MINHCHUNG"; }
+						else if ("D8.04".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_DASHBOARD"; }
 					}
 
 					joAssign.put("update_mode", updateMode);
 					joAssign.put("source_system", sourceSystem != null ? sourceSystem : JSONObject.NULL);
-					joAssign.put("sync_frequency", row.containsKey("sync_frequency") && row.get("sync_frequency") != null ? row.get("sync_frequency").toString().trim() : ("AUTOMATED".equals(updateMode) ? "MONTHLY" : JSONObject.NULL));
+					String defaultFreq = "D8.04".equalsIgnoreCase(kCode) ? "DAILY" : "MONTHLY";
+					joAssign.put("sync_frequency", row.containsKey("sync_frequency") && row.get("sync_frequency") != null ? row.get("sync_frequency").toString().trim() : ("AUTOMATED".equals(updateMode) ? defaultFreq : JSONObject.NULL));
 					joAssign.put("last_synced_at", row.containsKey("last_synced_at") && row.get("last_synced_at") != null ? row.get("last_synced_at").toString() : JSONObject.NULL);
 					joAssign.put("sync_status", row.containsKey("sync_status") && row.get("sync_status") != null ? row.get("sync_status").toString().trim() : ("AUTOMATED".equals(updateMode) ? "SUCCESS" : JSONObject.NULL));
 					Object overrideObj = row.get("allow_manual_override");
@@ -1609,35 +1611,75 @@ public class kpiExtend {
 
 				Integer cycleId = kpiRow.get("cycle_id") != null ? ((Number) kpiRow.get("cycle_id")).intValue() : null;
 				String cycleType = (String) kpiRow.get("cycle_type");
-				java.util.Date currDeadline = null;
+				java.util.Date targetDeadline = null;
+				Integer targetPeriodId = null;
+				String targetPeriodCode = null;
 
 				if (cycleId != null && cycleType != null) {
-					java.sql.Date currEndDate = cycleEndDates.get(cycleId);
-					if (currEndDate == null) {
-						int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, refDate);
-						List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WITH (NOLOCK) WHERE period_id = ?", currPeriodId);
-						if (!currPeriodDetail.isEmpty()) {
-							currEndDate = (java.sql.Date) currPeriodDetail.get(0).get("end_date");
-							cycleEndDates.put(cycleId, currEndDate);
+					Map<String, Object> cInfo = cyclePeriodMap.get(cycleId);
+					if (cInfo == null) {
+						cInfo = new java.util.HashMap<>();
+						int currPid = getOrCreatePeriodInstance(cycleId, cycleType, refDate);
+						List<Map<String, Object>> currPDetail = jdbcTemplate.queryForList("SELECT period_code, start_date, end_date FROM period_instances WITH (NOLOCK) WHERE period_id = ?", currPid);
+						java.sql.Date cEndDate = null;
+						java.sql.Date cStart = null;
+						String cCode = null;
+						if (!currPDetail.isEmpty()) {
+							cCode = (String) currPDetail.get(0).get("period_code");
+							cStart = (java.sql.Date) currPDetail.get(0).get("start_date");
+							cEndDate = (java.sql.Date) currPDetail.get(0).get("end_date");
 						}
+
+						Calendar prevCal = Calendar.getInstance();
+						if (cStart != null) {
+							prevCal.setTime(cStart);
+						} else {
+							prevCal.setTime(refDate);
+						}
+						prevCal.add(Calendar.DAY_OF_YEAR, -1);
+						int prevPid = getOrCreatePeriodInstance(cycleId, cycleType, prevCal.getTime());
+						List<Map<String, Object>> prevPDetail = jdbcTemplate.queryForList("SELECT period_code, start_date, end_date FROM period_instances WITH (NOLOCK) WHERE period_id = ?", prevPid);
+						java.sql.Date pEndDate = null;
+						java.sql.Date pStart = null;
+						String pCode = null;
+						if (!prevPDetail.isEmpty()) {
+							pCode = (String) prevPDetail.get(0).get("period_code");
+							pStart = (java.sql.Date) prevPDetail.get(0).get("start_date");
+							pEndDate = (java.sql.Date) prevPDetail.get(0).get("end_date");
+						}
+
+						cInfo.put("currPid", currPid);
+						cInfo.put("cCode", cCode);
+						cInfo.put("cEndDate", cEndDate);
+						cInfo.put("prevPid", prevPid);
+						cInfo.put("pCode", pCode);
+						cInfo.put("pEndDate", pEndDate);
+						cyclePeriodMap.put(cycleId, cInfo);
 					}
 
-					if (currEndDate != null) {
-						if (kpiRow.get("override_absolute_deadline_date") != null) {
-							currDeadline = (java.sql.Date) kpiRow.get("override_absolute_deadline_date");
-						} else {
-							int offsetDays = kpiRow.get("override_deadline_offset_days") != null ? ((Number) kpiRow.get("override_deadline_offset_days")).intValue() : 
-								(kpiRow.get("default_deadline_offset_days") != null ? ((Number) kpiRow.get("default_deadline_offset_days")).intValue() : 0);
-							int offsetWeeks = kpiRow.get("override_deadline_offset_weeks") != null ? ((Number) kpiRow.get("override_deadline_offset_weeks")).intValue() : 
-								(kpiRow.get("default_deadline_offset_weeks") != null ? ((Number) kpiRow.get("default_deadline_offset_weeks")).intValue() : 0);
-							String deadlineType = kpiRow.get("deadline_type") != null ? (String) kpiRow.get("deadline_type") : "CALENDAR";
-							
-							currDeadline = calculateDeadline(currEndDate, offsetDays, offsetWeeks, deadlineType);
-						}
+					java.sql.Date cEndDate = (java.sql.Date) cInfo.get("cEndDate");
+					java.sql.Date pEndDate = (java.sql.Date) cInfo.get("pEndDate");
+					boolean isCurrInProgress = (cEndDate != null && refDate.before(cEndDate));
+					targetPeriodId = isCurrInProgress ? (Integer) cInfo.get("prevPid") : (Integer) cInfo.get("currPid");
+					targetPeriodCode = isCurrInProgress ? (String) cInfo.get("pCode") : (String) cInfo.get("cCode");
+					java.sql.Date effectiveEndDate = isCurrInProgress ? pEndDate : cEndDate;
+
+					if (kpiRow.get("override_absolute_deadline_date") != null) {
+						targetDeadline = (java.sql.Date) kpiRow.get("override_absolute_deadline_date");
+					} else if (effectiveEndDate != null) {
+						int offsetDays = kpiRow.get("override_deadline_offset_days") != null ? ((Number) kpiRow.get("override_deadline_offset_days")).intValue() : 
+							(kpiRow.get("default_deadline_offset_days") != null ? ((Number) kpiRow.get("default_deadline_offset_days")).intValue() : 0);
+						int offsetWeeks = kpiRow.get("override_deadline_offset_weeks") != null ? ((Number) kpiRow.get("override_deadline_offset_weeks")).intValue() : 
+							(kpiRow.get("default_deadline_offset_weeks") != null ? ((Number) kpiRow.get("default_deadline_offset_weeks")).intValue() : 0);
+						String deadlineType = kpiRow.get("deadline_type") != null ? (String) kpiRow.get("deadline_type") : "CALENDAR";
+						
+						targetDeadline = calculateDeadline(effectiveEndDate, offsetDays, offsetWeeks, deadlineType);
 					}
 				}
 				
-				joKpi.put("deadline", currDeadline != null ? sdf.format(currDeadline) : JSONObject.NULL);
+				joKpi.put("deadline", targetDeadline != null ? sdf.format(targetDeadline) : JSONObject.NULL);
+				joKpi.put("period_id", targetPeriodId != null ? targetPeriodId : JSONObject.NULL);
+				joKpi.put("period", targetPeriodCode != null ? targetPeriodCode : JSONObject.NULL);
 
 				List<JSONObject> assignments = assignmentsMap.get(kpiId);
 				if (assignments == null || assignments.isEmpty()) {
@@ -2264,15 +2306,20 @@ public class kpiExtend {
 
 			int targetPeriodId;
 			boolean isLocked = false;
-			if (prevDeadline != null && !refDate.after(prevDeadline)) {
+			List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
+			java.sql.Date currEndDate = !currPeriodDetail.isEmpty() ? (java.sql.Date) currPeriodDetail.get(0).get("end_date") : null;
+
+			if (currEndDate != null && refDate.before(currEndDate)) {
+				// Current period is in progress; reporting applies to the finished previous period
 				targetPeriodId = prevPeriodId;
+				if (prevDeadline != null && refDate.after(prevDeadline)) {
+					isLocked = true;
+				}
 			} else {
+				// Current period has finished; reporting applies to current period
 				targetPeriodId = currPeriodId;
-				
-				List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
-				java.sql.Date currEndDate = (java.sql.Date) currPeriodDetail.get(0).get("end_date");
 				Date currDeadline = null;
-				if (!deadlineConfig.isEmpty()) {
+				if (!deadlineConfig.isEmpty() && currEndDate != null) {
 					Map<String, Object> conf = deadlineConfig.get(0);
 					if (conf.get("override_absolute_deadline_date") != null) {
 						currDeadline = (java.sql.Date) conf.get("override_absolute_deadline_date");
@@ -2288,10 +2335,6 @@ public class kpiExtend {
 				if (currDeadline != null && refDate.after(currDeadline)) {
 					isLocked = true;
 				}
-			}
-
-			if (targetPeriodId == prevPeriodId && prevDeadline != null && refDate.after(prevDeadline)) {
-				isLocked = true;
 			}
 
 			if (isLocked && !isAdmin) {

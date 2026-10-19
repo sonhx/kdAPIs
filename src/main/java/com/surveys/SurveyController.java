@@ -197,11 +197,28 @@ public class SurveyController {
     @GetMapping("/list")
     public String getSurveyList() {
         try {
+            boolean hasFocusCol = false;
+            try {
+                Integer colExists = jdbcTemplate.queryForObject(
+                    "SELECT CASE WHEN COL_LENGTH('dbo.surveys', 'is_institutional_focus') IS NOT NULL THEN 1 ELSE 0 END", 
+                    Integer.class
+                );
+                if (colExists == null || colExists == 0) {
+                    jdbcTemplate.execute("ALTER TABLE dbo.surveys ADD is_institutional_focus BIT NOT NULL DEFAULT 0;");
+                    hasFocusCol = true;
+                } else {
+                    hasFocusCol = true;
+                }
+            } catch (Exception e) {
+                System.out.println("Notice checking/adding is_institutional_focus: " + e.getMessage());
+            }
+
             String sql = "SELECT s.id, " +
                          "s.title as name, " +
                          "s.survey_type as target, " +
                          "s.is_active, " +
                          "ISNULL(s.is_ignored, 0) as is_ignored, " +
+                         (hasFocusCol ? "ISNULL(s.is_institutional_focus, 0) as is_institutional_focus, " : "0 as is_institutional_focus, ") +
                          "CONVERT(VARCHAR(10), c.min_start, 120) as startDate, " +
                          "CONVERT(VARCHAR(10), c.max_end, 120) as endDate, " +
                          "ISNULL(r.response_count, 0) as responses " +
@@ -239,6 +256,15 @@ public class SurveyController {
                     isIgnored = ((Number) isIgnoredObj).intValue() == 1;
                 }
                 map.put("is_ignored", isIgnored);
+
+                Object isFocusObj = map.get("is_institutional_focus");
+                boolean isInstitutionalFocus = false;
+                if (isFocusObj instanceof Boolean) {
+                    isInstitutionalFocus = (Boolean) isFocusObj;
+                } else if (isFocusObj instanceof Number) {
+                    isInstitutionalFocus = ((Number) isFocusObj).intValue() == 1;
+                }
+                map.put("is_institutional_focus", isInstitutionalFocus);
                 
                 if (map.get("startDate") == null) {
                     map.put("startDate", "N/A");
@@ -255,7 +281,47 @@ public class SurveyController {
             return arr.toString();
         } catch (Exception e) {
             e.printStackTrace();
-            return "{\"error\":\"" + e.getMessage() + "\"}";
+            return "[]";
+        }
+    }
+
+    @RequestMapping(value = {"/{id}/toggle-focus", "/{id}/focus"}, method = {org.springframework.web.bind.annotation.RequestMethod.POST, org.springframework.web.bind.annotation.RequestMethod.PUT})
+    public String toggleFocusSurvey(@PathVariable("id") String id, @RequestBody(required = false) String body) {
+        JSONObject jout = new JSONObject();
+        try {
+            try {
+                jdbcTemplate.execute("IF COL_LENGTH('dbo.surveys', 'is_institutional_focus') IS NULL ALTER TABLE dbo.surveys ADD is_institutional_focus BIT NOT NULL DEFAULT 0;");
+            } catch (Exception colEx) {
+                // Ignore if column already exists or table cannot be altered directly
+            }
+
+            Boolean targetState = null;
+            if (body != null && !body.trim().isEmpty()) {
+                try {
+                    JSONObject req = new JSONObject(body);
+                    if (req.has("is_institutional_focus")) {
+                        targetState = req.getBoolean("is_institutional_focus");
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            if (targetState != null) {
+                jdbcTemplate.update("UPDATE surveys SET is_institutional_focus = ? WHERE id = ?", targetState ? 1 : 0, id);
+            } else {
+                jdbcTemplate.update("UPDATE surveys SET is_institutional_focus = CASE WHEN ISNULL(is_institutional_focus, 0) = 1 THEN 0 ELSE 1 END WHERE id = ?", id);
+            }
+
+            Integer currentState = jdbcTemplate.queryForObject("SELECT ISNULL(is_institutional_focus, 0) FROM surveys WHERE id = ?", Integer.class, id);
+            jout.put("code", 200);
+            jout.put("message", "Cập nhật tiêu điểm trường thành công");
+            jout.put("id", id);
+            jout.put("is_institutional_focus", currentState != null && currentState == 1);
+            return jout.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("error", "Lỗi khi cập nhật tiêu điểm trường: " + e.getMessage());
+            return jout.toString();
         }
     }
 
