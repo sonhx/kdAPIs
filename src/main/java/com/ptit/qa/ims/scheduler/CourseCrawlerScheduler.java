@@ -15,8 +15,8 @@ public class CourseCrawlerScheduler {
     @Autowired
     private CourseCrawlerService courseCrawlerService;
 
-//    @Scheduled(cron = "0 0 2 1 * ?")
-    @Scheduled(fixedRate = 300000) // 300,000 ms = 5 phút
+    @Scheduled(cron = "0 0 2 1 * ?")
+//    @Scheduled(fixedRate = 300000) // 300,000 ms = 5 phút
     public void runMonthlyCourseCrawler() {
         log.info("[Scheduler] Bắt đầu chạy tiến trình cào dữ liệu chương trình và học phần định kỳ hàng tháng...");
         try {
