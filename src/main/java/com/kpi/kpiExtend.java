@@ -1437,12 +1437,25 @@ public class kpiExtend {
 						else if ("K6.05".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "KIEMDINH_TBL_MINHCHUNG"; }
 						else if ("D8.07".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "KIEMDINH_TBL_MINHCHUNG"; }
 						else if ("D8.04".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_DASHBOARD"; }
+						else if ("C5.01".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_CAPA"; }
+						else if ("C5.02".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_CAPA"; }
+						else if ("C5.03".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_CAPA"; }
+					}
+
+					KpiSyncScheduleInfo sched = getKpiSyncScheduleInfo(kCode);
+					if (sched != null) {
+						updateMode = "AUTOMATED";
+						sourceSystem = sched.sourceSystem;
 					}
 
 					joAssign.put("update_mode", updateMode);
 					joAssign.put("source_system", sourceSystem != null ? sourceSystem : JSONObject.NULL);
-					String defaultFreq = "D8.04".equalsIgnoreCase(kCode) ? "DAILY" : "MONTHLY";
-					joAssign.put("sync_frequency", row.containsKey("sync_frequency") && row.get("sync_frequency") != null ? row.get("sync_frequency").toString().trim() : ("AUTOMATED".equals(updateMode) ? defaultFreq : JSONObject.NULL));
+					String syncFreq = sched != null ? sched.frequency : (row.containsKey("sync_frequency") && row.get("sync_frequency") != null ? row.get("sync_frequency").toString().trim() : ("AUTOMATED".equals(updateMode) ? "MONTHLY" : null));
+					String syncFreqLabel = sched != null ? sched.frequencyLabel : (syncFreq != null ? ("DAILY".equalsIgnoreCase(syncFreq) ? "Hằng ngày (01:00 AM)" : ("MONTHLY".equalsIgnoreCase(syncFreq) ? "Hằng tháng (ngày 01)" : syncFreq)) : null);
+					joAssign.put("sync_frequency", syncFreq != null ? syncFreq : JSONObject.NULL);
+					joAssign.put("sync_frequency_label", syncFreqLabel != null ? syncFreqLabel : JSONObject.NULL);
+					joAssign.put("sync_cron", sched != null ? sched.cron : JSONObject.NULL);
+					joAssign.put("source_system_label", sched != null ? sched.sourceLabel : (sourceSystem != null ? sourceSystem : JSONObject.NULL));
 					joAssign.put("last_synced_at", row.containsKey("last_synced_at") && row.get("last_synced_at") != null ? row.get("last_synced_at").toString() : JSONObject.NULL);
 					joAssign.put("sync_status", row.containsKey("sync_status") && row.get("sync_status") != null ? row.get("sync_status").toString().trim() : ("AUTOMATED".equals(updateMode) ? "SUCCESS" : JSONObject.NULL));
 					Object overrideObj = row.get("allow_manual_override");
@@ -1615,6 +1628,20 @@ public class kpiExtend {
 				Integer targetPeriodId = null;
 				String targetPeriodCode = null;
 
+				String currentKpiCode = kpiRow.get("kpi_code") != null ? kpiRow.get("kpi_code").toString().trim().toUpperCase() : "";
+				boolean isKpiAutomated = isAutomatedKpi(currentKpiCode, null);
+				if (!isKpiAutomated && assignmentsMap.containsKey(kpiId)) {
+					List<JSONObject> aList = assignmentsMap.get(kpiId);
+					if (aList != null) {
+						for (JSONObject aObj : aList) {
+							if ("AUTOMATED".equalsIgnoreCase(aObj.optString("update_mode"))) {
+								isKpiAutomated = true;
+								break;
+							}
+						}
+					}
+				}
+
 				if (cycleId != null && cycleType != null) {
 					Map<String, Object> cInfo = cyclePeriodMap.get(cycleId);
 					if (cInfo == null) {
@@ -1659,10 +1686,18 @@ public class kpiExtend {
 
 					java.sql.Date cEndDate = (java.sql.Date) cInfo.get("cEndDate");
 					java.sql.Date pEndDate = (java.sql.Date) cInfo.get("pEndDate");
+
 					boolean isCurrInProgress = (cEndDate != null && refDate.before(cEndDate));
-					targetPeriodId = isCurrInProgress ? (Integer) cInfo.get("prevPid") : (Integer) cInfo.get("currPid");
-					targetPeriodCode = isCurrInProgress ? (String) cInfo.get("pCode") : (String) cInfo.get("cCode");
-					java.sql.Date effectiveEndDate = isCurrInProgress ? pEndDate : cEndDate;
+					if (isKpiAutomated) {
+						// Note: For KPIs automatically updated from other systems, period of getting data is the CURRENT period
+						targetPeriodId = (Integer) cInfo.get("currPid");
+						targetPeriodCode = (String) cInfo.get("cCode");
+					} else {
+						// For manual KPIs, period of reporting is the PREVIOUS completed period
+						targetPeriodId = isCurrInProgress ? (Integer) cInfo.get("prevPid") : (Integer) cInfo.get("currPid");
+						targetPeriodCode = isCurrInProgress ? (String) cInfo.get("pCode") : (String) cInfo.get("cCode");
+					}
+					java.sql.Date effectiveEndDate = (isKpiAutomated || !isCurrInProgress) ? cEndDate : pEndDate;
 
 					if (kpiRow.get("override_absolute_deadline_date") != null) {
 						targetDeadline = (java.sql.Date) kpiRow.get("override_absolute_deadline_date");
@@ -1680,8 +1715,48 @@ public class kpiExtend {
 				joKpi.put("deadline", targetDeadline != null ? sdf.format(targetDeadline) : JSONObject.NULL);
 				joKpi.put("period_id", targetPeriodId != null ? targetPeriodId : JSONObject.NULL);
 				joKpi.put("period", targetPeriodCode != null ? targetPeriodCode : JSONObject.NULL);
+				joKpi.put("update_mode", isKpiAutomated ? "AUTOMATED" : "MANUAL");
+
+				KpiSyncScheduleInfo kpiSched = getKpiSyncScheduleInfo(currentKpiCode);
+				if (kpiSched != null) {
+					joKpi.put("sync_frequency", kpiSched.frequency);
+					joKpi.put("sync_frequency_label", kpiSched.frequencyLabel);
+					joKpi.put("sync_cron", kpiSched.cron);
+					joKpi.put("source_system", kpiSched.sourceSystem);
+					joKpi.put("source_system_label", kpiSched.sourceLabel);
+				} else {
+					joKpi.put("sync_frequency", JSONObject.NULL);
+					joKpi.put("sync_frequency_label", JSONObject.NULL);
+					joKpi.put("sync_cron", JSONObject.NULL);
+					joKpi.put("source_system", JSONObject.NULL);
+					joKpi.put("source_system_label", JSONObject.NULL);
+				}
 
 				List<JSONObject> assignments = assignmentsMap.get(kpiId);
+				String lastSyncedAt = null;
+				String syncStatus = null;
+				if (assignments != null && !assignments.isEmpty()) {
+					for (JSONObject aObj : assignments) {
+						if (!aObj.isNull("last_synced_at")) {
+							lastSyncedAt = aObj.getString("last_synced_at");
+						}
+						if (!aObj.isNull("sync_status")) {
+							syncStatus = aObj.getString("sync_status");
+						}
+					}
+				}
+
+				List<JSONObject> dataPoints = dpMap.get(kpiId);
+				if (lastSyncedAt == null && dataPoints != null && !dataPoints.isEmpty()) {
+					for (JSONObject dpObj : dataPoints) {
+						if (!dpObj.isNull("updated_at")) {
+							lastSyncedAt = dpObj.getString("updated_at");
+							break;
+						}
+					}
+				}
+				joKpi.put("last_synced_at", lastSyncedAt != null ? lastSyncedAt : JSONObject.NULL);
+				joKpi.put("sync_status", syncStatus != null ? syncStatus : (isKpiAutomated ? "SUCCESS" : JSONObject.NULL));
 				if (assignments == null || assignments.isEmpty()) {
 					joKpi.put("assignment_status", "unassigned");
 					joKpi.put("assignments", new JSONArray());
@@ -1694,7 +1769,7 @@ public class kpiExtend {
 					joKpi.put("assignments", jsaAssigns);
 				}
 
-				List<JSONObject> dataPoints = dpMap.get(kpiId);
+				// dataPoints already fetched above
 				JSONArray jsaDps = new JSONArray();
 				if (dataPoints != null) {
 					for (JSONObject joDp : dataPoints) {
@@ -2227,6 +2302,64 @@ public class kpiExtend {
 		return cp;
 	}
 
+	public static class KpiSyncScheduleInfo {
+		public final String frequency;
+		public final String frequencyLabel;
+		public final String cron;
+		public final String sourceSystem;
+		public final String sourceLabel;
+
+		public KpiSyncScheduleInfo(String frequency, String frequencyLabel, String cron, String sourceSystem, String sourceLabel) {
+			this.frequency = frequency;
+			this.frequencyLabel = frequencyLabel;
+			this.cron = cron;
+			this.sourceSystem = sourceSystem;
+			this.sourceLabel = sourceLabel;
+		}
+	}
+
+	public static KpiSyncScheduleInfo getKpiSyncScheduleInfo(String kpiCode) {
+		if (kpiCode == null) return null;
+		String code = kpiCode.trim().toUpperCase();
+		switch (code) {
+			case "D8.04":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:00 AM)", "0 0 1 * * ?", "QA_DASHBOARD", "Dashboard QA (Hệ thống dữ liệu QA)");
+			case "C5.01":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:00 AM)", "0 0 1 * * ?", "QA_CAPA", "Hệ thống QA CAPA");
+			case "C5.02":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:00 AM)", "0 0 1 * * ?", "QA_CAPA", "Hệ thống QA CAPA");
+			case "C5.03":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:00 AM)", "0 0 1 * * ?", "QA_CAPA", "Hệ thống QA CAPA");
+			case "N3.03":
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:20)", "0 20 0 1 * ?", "OPENALEX_SCOPUS_WOS", "OpenAlex + Scopus/WoS");
+			case "N3.06":
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:10)", "0 10 0 1 * ?", "OPENALEX_PERSONNEL", "OpenAlex + Nhân sự");
+			case "N3.08":
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:15)", "0 15 0 1 * ?", "OPENALEX_SCIMAGO", "OpenAlex + SCImago");
+			case "G2.01":
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:15)", "0 15 0 1 * ?", "PERSONNEL_DB", "Hệ thống Nhân sự (Personnel DB)");
+			case "G2.05":
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:20)", "0 20 0 1 * ?", "OPENALEX_PERSONNEL", "OpenAlex + Nhân sự");
+			case "K6.05":
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:25)", "0 25 0 1 * ?", "KIEMDINH_TBL_MINHCHUNG", "Kiểm định (TBL_Minhchung)");
+			case "D8.07":
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:30)", "0 30 0 1 * ?", "KIEMDINH_TBL_MINHCHUNG", "Kiểm định (TBL_Minhchung)");
+			default:
+				return null;
+		}
+	}
+
+	public static boolean isAutomatedKpi(String kpiCode, String updateMode) {
+		if ("AUTOMATED".equalsIgnoreCase(updateMode)) return true;
+		if (kpiCode == null) return false;
+		String code = kpiCode.trim().toUpperCase();
+		return code.equals("N3.03") || code.equals("N3.06") || code.equals("N3.08")
+			|| code.equals("G2.01") || code.equals("G2.05")
+			|| code.equals("K6.05") || code.equals("D8.07")
+			|| code.equals("D8.04")
+			|| code.equals("C5.01") || code.equals("C5.02") || code.equals("C5.03");
+	}
+
 	public int getOrCreatePeriodInstance(int cycleId, String cycleType, Date date) {
 		String sql = "SELECT period_id FROM period_instances WHERE cycle_id = ? AND ? BETWEEN start_date AND end_date";
 		List<Integer> ids = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getInt("period_id"), cycleId, new java.sql.Date(date.getTime()));
@@ -2309,7 +2442,28 @@ public class kpiExtend {
 			List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
 			java.sql.Date currEndDate = !currPeriodDetail.isEmpty() ? (java.sql.Date) currPeriodDetail.get(0).get("end_date") : null;
 
-			if (currEndDate != null && refDate.before(currEndDate)) {
+			String saveKpiCode = !kpiRows.isEmpty() && kpiRows.get(0).get("kpi_code") != null ? kpiRows.get(0).get("kpi_code").toString().trim().toUpperCase() : "";
+			boolean isSaveKpiAutomated = isAutomatedKpi(saveKpiCode, null);
+			if (!isSaveKpiAutomated) {
+				try {
+					Integer autoCount = jdbcTemplate.queryForObject(
+						"SELECT COUNT(*) FROM kpi_assignments WHERE kpi_id = ? AND update_mode = 'AUTOMATED'",
+						Integer.class, kpiId
+					);
+					if (autoCount != null && autoCount > 0) {
+						isSaveKpiAutomated = true;
+					}
+				} catch (Exception ignored) {}
+			}
+
+			if (isSaveKpiAutomated) {
+				// Automated KPIs use CURRENT period and are not locked
+				targetPeriodId = currPeriodId;
+				isLocked = false;
+				try {
+					jdbcTemplate.update("UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = ?", kpiId);
+				} catch (Exception ignored) {}
+			} else if (currEndDate != null && refDate.before(currEndDate)) {
 				// Current period is in progress; reporting applies to the finished previous period
 				targetPeriodId = prevPeriodId;
 				if (prevDeadline != null && refDate.after(prevDeadline)) {

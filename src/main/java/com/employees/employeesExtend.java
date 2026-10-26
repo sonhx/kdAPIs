@@ -1291,7 +1291,7 @@ public class employeesExtend {
 	public JSONObject saveKpiValue(int kpiId, Integer deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
 		JSONObject response = new JSONObject();
 		try {
-			String kpiQuery = "SELECT k.cycle_id, c.cycle_type FROM kpi_definitions k JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
+			String kpiQuery = "SELECT k.kpi_code, k.cycle_id, c.cycle_type FROM kpi_definitions k JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
 			System.out.println("Executing KPI Query: " + kpiQuery);
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiQuery, kpiId);
 			
@@ -1338,9 +1338,29 @@ public class employeesExtend {
 				}
 			}
 
+			String saveKpiCode = !kpiRows.isEmpty() && kpiRows.get(0).get("kpi_code") != null ? kpiRows.get(0).get("kpi_code").toString().trim().toUpperCase() : "";
+			boolean isSaveKpiAutomated = com.kpi.kpiExtend.isAutomatedKpi(saveKpiCode, null);
+			if (!isSaveKpiAutomated) {
+				try {
+					Integer autoCount = jdbcTemplate.queryForObject(
+						"SELECT COUNT(*) FROM kpi_assignments WHERE kpi_id = ? AND update_mode = 'AUTOMATED'",
+						Integer.class, kpiId
+					);
+					if (autoCount != null && autoCount > 0) {
+						isSaveKpiAutomated = true;
+					}
+				} catch (Exception ignored) {}
+			}
+
 			int targetPeriodId;
 			boolean isLocked = false;
-			if (prevDeadline != null && !refDate.after(prevDeadline)) {
+			if (isSaveKpiAutomated) {
+				targetPeriodId = currPeriodId;
+				isLocked = false;
+				try {
+					jdbcTemplate.update("UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = ?", kpiId);
+				} catch (Exception ignored) {}
+			} else if (prevDeadline != null && !refDate.after(prevDeadline)) {
 				targetPeriodId = prevPeriodId;
 			} else {
 				targetPeriodId = currPeriodId;

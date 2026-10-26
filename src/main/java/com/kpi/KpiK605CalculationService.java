@@ -81,7 +81,6 @@ public class KpiK605CalculationService {
      * @param referenceDate Optional date reference for target period (defaults to current date if null).
      * @return JSONObject containing status, totalProofs, digitizedProofs, actualValue, notes, etc.
      */
-    @Transactional
     public JSONObject calculateAndSaveK605(Date referenceDate) {
         JSONObject result = new JSONObject();
         try {
@@ -140,14 +139,12 @@ public class KpiK605CalculationService {
             // Get or create period_instance ID for current period
             int periodId = kpiExtendService.getOrCreatePeriodInstance(cycleId, cycleType, refDate);
 
-            // 2. Query kiemdinh.TBL_Minhchung for total proofs and digitized proofs (path != null and non-empty)
-            String totalProofsSql = "SELECT COUNT(*) FROM TBL_Minhchung WHERE (IsDeleted = 0 OR IsDeleted IS NULL)";
-            Integer totalCount = evidenceJdbcTemplate.queryForObject(totalProofsSql, Integer.class);
-            int totalProofs = totalCount != null ? totalCount : 0;
-
-            String digitizedProofsSql = "SELECT COUNT(*) FROM TBL_Minhchung WHERE (IsDeleted = 0 OR IsDeleted IS NULL) AND (path IS NOT NULL AND LTRIM(RTRIM(CAST(path AS NVARCHAR(MAX)))) <> '')";
-            Integer digitizedCount = evidenceJdbcTemplate.queryForObject(digitizedProofsSql, Integer.class);
-            int digitizedProofs = digitizedCount != null ? digitizedCount : 0;
+            // 2. Query kiemdinh.TBL_Minhchung with NOLOCK for total proofs and digitized proofs (path != null and non-empty)
+            String combinedSql = "SELECT COUNT(*) as total, COUNT(CASE WHEN path IS NOT NULL AND LTRIM(RTRIM(CAST(path AS NVARCHAR(MAX)))) <> '' THEN 1 END) as digitized " +
+                                 "FROM TBL_Minhchung WITH (NOLOCK) WHERE (IsDeleted = 0 OR IsDeleted IS NULL)";
+            Map<String, Object> counts = evidenceJdbcTemplate.queryForMap(combinedSql);
+            int totalProofs = counts.get("total") != null ? ((Number) counts.get("total")).intValue() : 0;
+            int digitizedProofs = counts.get("digitized") != null ? ((Number) counts.get("digitized")).intValue() : 0;
 
             // 3. Calculate percentage ratio (digitizedProofs / totalProofs * 100) rounded to 1 decimal place
             double ratio = totalProofs > 0 ? ((digitizedProofs * 100.0) / totalProofs) : 0.0;
@@ -173,6 +170,13 @@ public class KpiK605CalculationService {
                 jdbcTemplate.update(insertSql, kpiId, periodId, actualValue, toNVarChar(notes));
                 dataId = jdbcTemplate.queryForObject(checkExistSql, Integer.class, kpiId, periodId);
                 log.info("Inserted new kpi_data_points (data_id: {}) for KPI K6.05: {}%", dataId, actualValue);
+            }
+
+            // Also update any existing department-specific data points for this KPI and period so all UI cards show the new calculation
+            try {
+                jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), notes = ? WHERE kpi_id = ? AND period_id = ?", actualValue, toNVarChar(notes), kpiId, periodId);
+            } catch (Exception ex) {
+                log.warn("Could not batch update department rows for K6.05: {}", ex.getMessage());
             }
 
             result.put("status", "SUCCESS");

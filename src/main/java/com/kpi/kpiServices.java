@@ -1211,6 +1211,18 @@ public class kpiServices {
 		return jout.toString();
 	}
 
+	private void onKpiSyncCompleted(String kpiCode) {
+		try {
+			String safeCode = kpiCode != null ? kpiCode.replace("'", "''") : "";
+			jdbcTemplate.execute("SET QUOTED_IDENTIFIER ON; UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = (SELECT TOP 1 kpi_id FROM kpi_definitions WHERE kpi_code = '" + safeCode + "' AND (is_deleted = 0 OR is_deleted IS NULL));");
+		} catch (Exception e) {
+			System.err.println("Error updating kpi_assignments last_synced_at for " + kpiCode + ": " + e.getMessage());
+		}
+		try {
+			kpiExtend.invalidateKpisWithAssignmentsCache();
+		} catch (Exception ignored) {}
+	}
+
 	/**
 	 * POST / GET /kpi/calculate/n306 - Manually trigger calculation for KPI N3.06
 	 */
@@ -1218,6 +1230,7 @@ public class kpiServices {
 	public String calculateN306() {
 		System.out.println("-------calculateN306 requested");
 		JSONObject result = kpiN306CalculationService.calculateAndSaveN306(null);
+		onKpiSyncCompleted("N3.06");
 		return result.toString();
 	}
 
@@ -1228,6 +1241,7 @@ public class kpiServices {
 	public String calculateN308() {
 		System.out.println("-------calculateN308 requested");
 		JSONObject result = kpiN308CalculationService.calculateAndSaveN308(null);
+		onKpiSyncCompleted("N3.08");
 		return result.toString();
 	}
 
@@ -1238,6 +1252,7 @@ public class kpiServices {
 	public String calculateG205() {
 		System.out.println("-------calculateG205 requested");
 		JSONObject result = kpiG205CalculationService.calculateAndSaveG205(null);
+		onKpiSyncCompleted("G2.05");
 		return result.toString();
 	}
 
@@ -1248,6 +1263,7 @@ public class kpiServices {
 	public String calculateN303() {
 		System.out.println("-------calculateN303 requested");
 		JSONObject result = kpiN303CalculationService.calculateAndSaveN303(null);
+		onKpiSyncCompleted("N3.03");
 		return result.toString();
 	}
 
@@ -1258,6 +1274,7 @@ public class kpiServices {
 	public String calculateG201() {
 		System.out.println("-------calculateG201 requested");
 		JSONObject result = kpiG201CalculationService.calculateAndSaveG201(null);
+		onKpiSyncCompleted("G2.01");
 		return result.toString();
 	}
 
@@ -1268,6 +1285,7 @@ public class kpiServices {
 	public String calculateK605() {
 		System.out.println("-------calculateK605 requested");
 		JSONObject result = kpiK605CalculationService.calculateAndSaveK605(null);
+		onKpiSyncCompleted("K6.05");
 		return result.toString();
 	}
 
@@ -1278,6 +1296,7 @@ public class kpiServices {
 	public String calculateD807() {
 		System.out.println("-------calculateD807 requested");
 		JSONObject result = kpiD807CalculationService.calculateAndSaveD807(null);
+		onKpiSyncCompleted("D8.07");
 		return result.toString();
 	}
 
@@ -1288,7 +1307,32 @@ public class kpiServices {
 	public String calculateD804() {
 		System.out.println("-------calculateD804 requested");
 		JSONObject result = kpiD804CalculationService.calculateAndSaveD804(null);
+		onKpiSyncCompleted("D8.04");
 		return result.toString();
+	}
+
+	/**
+	 * Generic trigger by KPI code (e.g. /kpi/sync/K6.05 or /kpi/sync/k605)
+	 */
+	@RequestMapping(value = {"/sync/{code}"})
+	public String syncKpiByCode(@PathVariable("code") String code) {
+		if (code == null) return "{\"status\":\"ERROR\",\"message\":\"Missing code\"}";
+		String c = code.trim().toUpperCase().replace(".", "");
+		switch (c) {
+			case "K605": return calculateK605();
+			case "D807": return calculateD807();
+			case "D804": return calculateD804();
+			case "G201": return calculateG201();
+			case "G205": return calculateG205();
+			case "N303": return calculateN303();
+			case "N306": return calculateN306();
+			case "N308": return calculateN308();
+			default:
+				JSONObject err = new JSONObject();
+				err.put("status", "ERROR");
+				err.put("message", "Chưa hỗ trợ đồng bộ tự động cho mã KPI: " + code);
+				return err.toString();
+		}
 	}
 
 	@PostMapping("/approve")

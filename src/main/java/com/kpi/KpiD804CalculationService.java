@@ -214,6 +214,11 @@ public class KpiD804CalculationService {
                 log.info("Inserted new kpi_data_points (data_id: {}) for KPI D8.04: {}%", dataId, actualValue);
             }
 
+            // 4b. Update last_synced_at on kpi_assignments
+            try {
+                jdbcTemplate.update("UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = ?", kpiId);
+            } catch (Exception ignored) {}
+
             // 5. Invalidate cache so UI fetches latest value immediately
             kpiExtendService.invalidateKpisWithAssignmentsCache();
 
