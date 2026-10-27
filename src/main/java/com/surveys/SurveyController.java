@@ -219,8 +219,8 @@ public class SurveyController {
                          "s.is_active, " +
                          "ISNULL(s.is_ignored, 0) as is_ignored, " +
                          (hasFocusCol ? "ISNULL(s.is_institutional_focus, 0) as is_institutional_focus, " : "0 as is_institutional_focus, ") +
-                         "CONVERT(VARCHAR(10), c.min_start, 120) as startDate, " +
-                         "CONVERT(VARCHAR(10), c.max_end, 120) as endDate, " +
+                         "CONVERT(VARCHAR(10), COALESCE(c.min_start, r.min_resp, s.created_at), 120) as startDate, " +
+                         "CONVERT(VARCHAR(10), COALESCE(c.max_end, r.max_resp, s.updated_at, s.created_at), 120) as endDate, " +
                          "ISNULL(r.response_count, 0) as responses " +
                          "FROM surveys s " +
                          "LEFT JOIN (" +
@@ -229,7 +229,8 @@ public class SurveyController {
                          "    GROUP BY survey_id" +
                          ") c ON s.id = c.survey_id " +
                          "LEFT JOIN (" +
-                         "    SELECT survey_id, COUNT(*) as response_count " +
+                         "    SELECT survey_id, COUNT(*) as response_count, " +
+                         "           MIN(created_at) as min_resp, MAX(created_at) as max_resp " +
                          "    FROM survey_responses " +
                          "    GROUP BY survey_id" +
                          ") r ON s.id = r.survey_id " +
@@ -422,14 +423,57 @@ public class SurveyController {
         }
     }
 
+    @GetMapping("/{id}/daily-traffic")
+    public String getSurveyDailyTraffic(
+            @PathVariable("id") String id,
+            @RequestParam(value = "campaignId", required = false) String campaignId) {
+        try {
+            String sql;
+            List<Map<String, Object>> list;
+            if (campaignId != null && !campaignId.trim().isEmpty() && !"all".equalsIgnoreCase(campaignId)) {
+                sql = "SELECT CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) as [date], COUNT(*) as [count] " +
+                      "FROM survey_responses " +
+                      "WHERE survey_id = ? AND campaign_id = ? AND (created_at IS NOT NULL OR started_at IS NOT NULL OR updated_at IS NOT NULL) " +
+                      "GROUP BY CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) " +
+                      "ORDER BY [date] ASC";
+                list = jdbcTemplate.queryForList(sql, id, campaignId);
+            } else {
+                sql = "SELECT CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) as [date], COUNT(*) as [count] " +
+                      "FROM survey_responses " +
+                      "WHERE survey_id = ? AND (created_at IS NOT NULL OR started_at IS NOT NULL OR updated_at IS NOT NULL) " +
+                      "GROUP BY CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) " +
+                      "ORDER BY [date] ASC";
+                list = jdbcTemplate.queryForList(sql, id);
+            }
+            JSONArray arr = new JSONArray(list);
+            return arr.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "[]";
+        }
+    }
+
     @GetMapping("/{id}")
     public String getSurveyDetail(@PathVariable("id") String id) {
         try {
             List<Map<String, Object>> list = jdbcTemplate.queryForList(
-                "SELECT id, title as name, survey_type as target, is_active, " +
-                "CONVERT(VARCHAR(10), created_at, 120) as startDate, " +
-                "CONVERT(VARCHAR(10), updated_at, 120) as endDate " +
-                "FROM surveys WHERE id = ?", id
+                "SELECT s.id, s.title as name, s.survey_type as target, s.is_active, " +
+                "CONVERT(VARCHAR(10), COALESCE(c.min_start, r.min_resp, s.created_at), 120) as startDate, " +
+                "CONVERT(VARCHAR(10), COALESCE(c.max_end, r.max_resp, s.updated_at, s.created_at), 120) as endDate " +
+                "FROM surveys s " +
+                "LEFT JOIN (" +
+                "    SELECT survey_id, MIN(start_time) as min_start, MAX(end_time) as max_end " +
+                "    FROM survey_campaigns " +
+                "    WHERE survey_id = ? " +
+                "    GROUP BY survey_id" +
+                ") c ON s.id = c.survey_id " +
+                "LEFT JOIN (" +
+                "    SELECT survey_id, MIN(created_at) as min_resp, MAX(created_at) as max_resp " +
+                "    FROM survey_responses " +
+                "    WHERE survey_id = ? " +
+                "    GROUP BY survey_id" +
+                ") r ON s.id = r.survey_id " +
+                "WHERE s.id = ?", id, id, id
             );
             
             if (list.isEmpty()) {
