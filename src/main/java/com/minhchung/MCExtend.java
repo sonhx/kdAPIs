@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -489,50 +490,223 @@ public class MCExtend {
         return jsaResults;
     }
 
+    public static Set<String> extractTokens(String text) {
+        Set<String> tokens = new HashSet<>();
+        if (text == null || text.trim().isEmpty()) return tokens;
+        String[] words = text.toLowerCase().split("[^\\p{L}\\p{N}]+");
+        for (String w : words) {
+            String trimmed = w.trim();
+            if (trimmed.length() >= 2 && trimmed.length() <= 50) {
+                tokens.add(trimmed);
+            }
+        }
+        return tokens;
+    }
+
+    public void indexOcrDocument(int mcId, int kdId, String content) {
+        if (content == null || content.trim().isEmpty()) return;
+        Set<String> tokens = extractTokens(content);
+        if (tokens.isEmpty()) return;
+        try {
+            evidenceJdbcTemplate.update("DELETE FROM TBL_MC_OCR_INDEX WHERE mc_id = ?", mcId);
+            List<Object[]> batch = new ArrayList<>();
+            for (String t : tokens) {
+                batch.add(new Object[] { t, mcId, kdId });
+            }
+            evidenceJdbcTemplate.batchUpdate("INSERT INTO TBL_MC_OCR_INDEX (word, mc_id, kd_id) VALUES (?, ?, ?)", batch);
+        } catch (Exception e) {
+            System.err.println("Error indexing OCR for mc_id " + mcId + ": " + e.getMessage());
+        }
+    }
+
+    public JSONObject buildOcrIndex(int limit) {
+        JSONObject res = new JSONObject();
+        long startTime = System.currentTimeMillis();
+        try {
+            int lastId = 0;
+            int totalProcessed = 0;
+            int totalTokens = 0;
+            boolean hasMore = true;
+            int maxDocs = limit > 0 ? limit : Integer.MAX_VALUE;
+
+            while (hasMore && totalProcessed < maxDocs) {
+                int fetchBatch = Math.min(200, maxDocs - totalProcessed);
+                String sql = "SELECT TOP " + fetchBatch + " a.ID, a.kd_id, a.content FROM TBL_MINHCHUNG a WHERE a.content IS NOT NULL AND a.ID > ? ORDER BY a.ID ASC";
+                List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql, lastId);
+                if (rows.isEmpty()) {
+                    hasMore = false;
+                    break;
+                }
+
+                List<Object[]> allBatchTokens = new ArrayList<>();
+                List<Integer> batchDocIds = new ArrayList<>();
+
+                for (Map<String, Object> r : rows) {
+                    int mcId = ((Number) r.get("ID")).intValue();
+                    lastId = mcId;
+                    int kdId = r.get("kd_id") != null ? ((Number) r.get("kd_id")).intValue() : -1;
+                    String content = r.get("content") != null ? r.get("content").toString() : "";
+                    if (!content.isEmpty()) {
+                        Set<String> tokens = extractTokens(content);
+                        if (!tokens.isEmpty()) {
+                            batchDocIds.add(mcId);
+                            for (String t : tokens) {
+                                allBatchTokens.add(new Object[] { t, mcId, kdId });
+                            }
+                        }
+                    }
+                    totalProcessed++;
+                }
+
+                if (!batchDocIds.isEmpty()) {
+                    String inClause = batchDocIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+                    evidenceJdbcTemplate.update("DELETE FROM TBL_MC_OCR_INDEX WHERE mc_id IN (" + inClause + ")");
+                }
+
+                if (!allBatchTokens.isEmpty()) {
+                    evidenceJdbcTemplate.batchUpdate("INSERT INTO TBL_MC_OCR_INDEX (word, mc_id, kd_id) VALUES (?, ?, ?)", allBatchTokens);
+                    totalTokens += allBatchTokens.size();
+                }
+            }
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            res.put("code", 200);
+            res.put("processed_docs", totalProcessed);
+            res.put("total_tokens", totalTokens);
+            res.put("elapsed_ms", elapsed);
+            res.put("description", "ÄÃ£ Ä‘Ã¡nh chá»‰ má»¥c OCR thÃ nh cÃ´ng " + totalProcessed + " tÃ i liá»‡u (" + totalTokens + " tokens) trong " + elapsed + " ms.");
+        } catch (Exception e) {
+            e.printStackTrace();
+            res.put("code", 500);
+            res.put("description", "Lá»—i: " + e.getMessage());
+        }
+        return res;
+    }
+
     public JSONArray searchAllLite(String searchKey, int kdId) {
         JSONArray jsaResults = new JSONArray();
         if (searchKey == null || searchKey.trim().isEmpty()) return jsaResults;
         try {
-            StringBuilder sql = new StringBuilder();
-            sql.append("SELECT TOP 100 a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.kd_id, a.content, ")
-               .append("CASE WHEN a.content IS NOT NULL THEN 1 ELSE 0 END as has_ocr ")
-               .append("FROM TBL_MINHCHUNG a ")
-               .append("WHERE (a.IsDeleted IS NULL OR a.IsDeleted = 0) ");
+            String trimmedKey = searchKey.trim();
+            String pattern = "%" + trimmedKey + "%";
 
-            List<Object> params = new ArrayList<>();
-            if (kdId > 0) {
-                sql.append(" AND a.kd_id = ?");
-                params.add(kdId);
+            // Map to track unique results by ID and preserve priority:
+            // Priority 1: OCR content matches (from filtered index IX_MINHCHUNG_HAS_OCR)
+            // Priority 2: Title matches (from IX_MINHCHUNG_KD_ID / IX_MINHCHUNG_TEN_MC)
+            Map<Integer, JSONObject> resultMap = new java.util.LinkedHashMap<>();
+
+            // Stream 1: Search OCR documents via filtered index (only touches the ~4,300 OCR rows!)
+            try {
+                StringBuilder ocrSql = new StringBuilder();
+                List<Object> ocrParams = new ArrayList<>();
+                if (kdId > 0) {
+                    ocrSql.append("SELECT TOP 30 a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.kd_id, 1 as has_ocr ")
+                          .append("FROM TBL_MINHCHUNG a WITH (INDEX(IX_MINHCHUNG_HAS_OCR)) ")
+                          .append("WHERE a.kd_id = ? AND a.content IS NOT NULL AND a.CONTENT LIKE ? ")
+                          .append("AND (a.IsDeleted IS NULL OR a.IsDeleted = 0) ")
+                          .append("ORDER BY a.ID DESC");
+                    ocrParams.add(kdId);
+                    ocrParams.add(pattern);
+                } else {
+                    ocrSql.append("SELECT TOP 30 a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.kd_id, 1 as has_ocr ")
+                          .append("FROM TBL_MINHCHUNG a WITH (INDEX(IX_MINHCHUNG_OCR_ID)) ")
+                          .append("WHERE a.content IS NOT NULL AND a.CONTENT LIKE ? ")
+                          .append("AND (a.IsDeleted IS NULL OR a.IsDeleted = 0) ")
+                          .append("ORDER BY a.ID DESC");
+                    ocrParams.add(pattern);
+                }
+                List<Map<String, Object>> ocrRows = evidenceJdbcTemplate.queryForList(ocrSql.toString(), ocrParams.toArray());
+                for (Map<String, Object> row : ocrRows) {
+                    int rowId = ((Number) row.get("ID")).intValue();
+                    JSONObject jo = new JSONObject();
+                    jo.put("id", rowId);
+                    jo.put("ma_mc", row.get("ma_mc") != null ? row.get("ma_mc") : "");
+                    jo.put("ten_mc", row.get("ten_mc") != null ? row.get("ten_mc") : "");
+                    jo.put("path", row.get("path") != null ? row.get("path") : "");
+                    jo.put("ten_file", row.get("ten_file") != null ? row.get("ten_file") : "");
+                    jo.put("kd_id", row.get("kd_id") != null ? row.get("kd_id") : -1);
+                    jo.put("has_ocr", true);
+                    resultMap.put(rowId, jo);
+                }
+            } catch (Exception exOcr) {
+                System.err.println("OCR stream notice: " + exOcr.getMessage());
             }
 
-            sql.append(" AND (a.TEN_MC LIKE ? OR (a.content IS NOT NULL AND a.CONTENT LIKE ?))");
-            String pattern = "%" + searchKey.trim() + "%";
-            params.add(pattern);
-            params.add(pattern);
-
-            sql.append(" ORDER BY a.ID DESC");
-
-            List<Map<String, Object>> rows = evidenceJdbcTemplate.queryForList(sql.toString(), params.toArray());
-            for (Map<String, Object> row : rows) {
-                JSONObject joO = new JSONObject();
-                joO.put("id", row.get("ID"));
-                joO.put("ma_mc", row.get("ma_mc") != null ? row.get("ma_mc") : "");
-                joO.put("ten_mc", row.get("ten_mc") != null ? row.get("ten_mc") : "");
-                joO.put("path", row.get("path") != null ? row.get("path") : "");
-                joO.put("ten_file", row.get("ten_file") != null ? row.get("ten_file") : "");
-                joO.put("kd_id", row.get("kd_id") != null ? row.get("kd_id") : -1);
-                boolean hasOcr = row.get("has_ocr") != null && ((Number) row.get("has_ocr")).intValue() == 1;
-                joO.put("has_ocr", hasOcr);
-
-                String content = row.get("content") != null ? row.get("content").toString() : "";
-                if (hasOcr && !content.isEmpty()) {
-                    JSONArray occurrences = OcrExtend.occurrences(content, searchKey.trim());
-                    if (occurrences != null && occurrences.length() > 0) {
-                        joO.put("occurrences", occurrences);
+            // Stream 2: Search Title matches
+            try {
+                StringBuilder titleSql = new StringBuilder();
+                List<Object> titleParams = new ArrayList<>();
+                if (kdId > 0) {
+                    titleSql.append("SELECT TOP 30 a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.kd_id, ")
+                            .append("CASE WHEN a.content IS NOT NULL THEN 1 ELSE 0 END as has_ocr ")
+                            .append("FROM TBL_MINHCHUNG a WITH (INDEX(IX_MINHCHUNG_KD_ID)) ")
+                            .append("WHERE a.kd_id = ? AND a.TEN_MC LIKE ? ")
+                            .append("AND (a.IsDeleted IS NULL OR a.IsDeleted = 0) ")
+                            .append("ORDER BY a.ID DESC");
+                    titleParams.add(kdId);
+                    titleParams.add(pattern);
+                } else {
+                    titleSql.append("SELECT TOP 30 a.ID, a.ma_mc, a.ten_mc, a.ten_file, a.path, a.kd_id, ")
+                            .append("CASE WHEN a.content IS NOT NULL THEN 1 ELSE 0 END as has_ocr ")
+                            .append("FROM TBL_MINHCHUNG a ")
+                            .append("WHERE a.TEN_MC LIKE ? ")
+                            .append("AND (a.IsDeleted IS NULL OR a.IsDeleted = 0) ")
+                            .append("ORDER BY a.ID DESC");
+                    titleParams.add(pattern);
+                }
+                List<Map<String, Object>> titleRows = evidenceJdbcTemplate.queryForList(titleSql.toString(), titleParams.toArray());
+                for (Map<String, Object> row : titleRows) {
+                    int rowId = ((Number) row.get("ID")).intValue();
+                    if (!resultMap.containsKey(rowId)) {
+                        JSONObject jo = new JSONObject();
+                        jo.put("id", rowId);
+                        jo.put("ma_mc", row.get("ma_mc") != null ? row.get("ma_mc") : "");
+                        jo.put("ten_mc", row.get("ten_mc") != null ? row.get("ten_mc") : "");
+                        jo.put("path", row.get("path") != null ? row.get("path") : "");
+                        jo.put("ten_file", row.get("ten_file") != null ? row.get("ten_file") : "");
+                        jo.put("kd_id", row.get("kd_id") != null ? row.get("kd_id") : -1);
+                        boolean hasOcr = row.get("has_ocr") != null && ((Number) row.get("has_ocr")).intValue() == 1;
+                        jo.put("has_ocr", hasOcr);
+                        resultMap.put(rowId, jo);
                     }
                 }
-                jsaResults.put(joO);
+            } catch (Exception exTitle) {
+                System.err.println("Title stream notice: " + exTitle.getMessage());
             }
+
+            // Step 3: Lazy loading of occurrences:
+            // Compute occurrences for ONLY the top 5 OCR results (takes ~15ms total!)
+            List<Integer> snippetIds = new ArrayList<>();
+            int countSnippets = 0;
+            for (JSONObject jo : resultMap.values()) {
+                if (jo.optBoolean("has_ocr", false) && countSnippets < 5) {
+                    snippetIds.add(jo.getInt("id"));
+                    countSnippets++;
+                }
+            }
+
+            if (!snippetIds.isEmpty()) {
+                String snipIn = snippetIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+                String snipSql = "SELECT a.ID, a.content FROM TBL_MINHCHUNG a WHERE a.ID IN (" + snipIn + ")";
+                List<Map<String, Object>> contentRows = evidenceJdbcTemplate.queryForList(snipSql);
+                for (Map<String, Object> cr : contentRows) {
+                    int cId = ((Number) cr.get("ID")).intValue();
+                    String cText = cr.get("content") != null ? cr.get("content").toString() : "";
+                    if (!cText.isEmpty()) {
+                        JSONArray occs = OcrExtend.occurrences(cText, trimmedKey);
+                        if (occs != null && occs.length() > 0) {
+                            if (resultMap.containsKey(cId)) {
+                                resultMap.get(cId).put("occurrences", occs);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (JSONObject jo : resultMap.values()) {
+                jsaResults.put(jo);
+            }
+
         } catch (Exception e) {
             e.printStackTrace();
         }

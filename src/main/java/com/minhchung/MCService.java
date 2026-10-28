@@ -749,6 +749,24 @@ public class MCService {
         return jout.toString();
     }
 
+    @PostMapping("/reindex_ocr")
+    public String reindexOcrApi(@RequestBody(required = false) String sReq) {
+        JSONObject jout = new JSONObject();
+        try {
+            int limit = 0;
+            if (sReq != null && !sReq.trim().isEmpty()) {
+                try {
+                    JSONObject jin = new JSONObject(sReq);
+                    if (jin.has("limit")) limit = jin.getInt("limit");
+                } catch (Exception ignore) {}
+            }
+            return mcExtend.buildOcrIndex(limit).toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "{\"code\":500, \"description\":\"" + e.getMessage() + "\"}";
+        }
+    }
+
     @PostMapping("/search_all_lite")
     public String SearchAllLiteApi(@RequestBody String sReq) {
         JSONObject jout = new JSONObject();
