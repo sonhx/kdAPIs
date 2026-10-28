@@ -733,20 +733,13 @@ public class MCService {
             JSONObject jin = new JSONObject(sReq);
             String session_id = jin.getString("session_id");
             struct_session sst = sessionService.getSessionInfo(session_id);
-            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
+            if (sst == null) return "{\"code\":700, \"description\":\"ChÆ°a Ä‘Äƒng nháº­p\"}";
 
             String search_key = jin.getString("search_key");
             int kd_id = jin.has("kd_id") ? jin.getInt("kd_id") : -1;
 
-            JSONArray jsaResults = new JSONArray();
-            // Fallback search logic using metadata matches
-            String sql = "SELECT * FROM TBL_MINHCHUNG WHERE (IsDeleted IS NULL OR IsDeleted = 0) "
-                       + " AND (TEN_MC LIKE ? OR so_ngay_thang LIKE ? OR noi_ban_hanh LIKE ?)";
-            if (kd_id != -1) sql += " AND kd_id = " + kd_id;
-            
-            // Handled safely in MCExtend or helper
-            // For now query directly or via helper. Let's execute safe search using list files
-            jout.put("description", "Thành công");
+            JSONArray jsaResults = mcExtend.searchMeta(search_key, kd_id);
+            jout.put("description", "ThÃ nh cÃ´ng");
             jout.put("code", 200);
             jout.put("results", jsaResults);
         } catch (JSONException e) {
@@ -763,15 +756,15 @@ public class MCService {
             JSONObject jin = new JSONObject(sReq);
             String session_id = jin.getString("session_id");
             struct_session sst = sessionService.getSessionInfo(session_id);
-            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
+            if (sst == null) return "{\"code\":700, \"description\":\"ChÆ°a Ä‘Äƒng nháº­p\"}";
 
             String search_key = jin.getString("search_key");
             int kd_id = jin.has("kd_id") ? jin.getInt("kd_id") : -1;
 
-            // Simple search lite implementation
-            jout.put("description", "Thành công");
+            JSONArray jsaResults = mcExtend.searchAllLite(search_key, kd_id);
+            jout.put("description", "ThÃ nh cÃ´ng");
             jout.put("code", 200);
-            jout.put("results", new JSONArray());
+            jout.put("results", jsaResults);
         } catch (JSONException e) {
             e.printStackTrace();
             return "{\"code\":800, \"description\":\"JSON error\"}";
@@ -786,14 +779,15 @@ public class MCService {
             JSONObject jin = new JSONObject(sReq);
             String session_id = jin.getString("session_id");
             struct_session sst = sessionService.getSessionInfo(session_id);
-            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
+            if (sst == null) return "{\"code\":700, \"description\":\"ChÆ°a Ä‘Äƒng nháº­p\"}";
 
             String search_key = jin.getString("search_key");
             int kd_id = jin.has("kd_id") ? jin.getInt("kd_id") : -1;
 
-            jout.put("description", "Thành công");
+            JSONArray jsaResults = mcExtend.searchAllLite(search_key, kd_id);
+            jout.put("description", "ThÃ nh cÃ´ng");
             jout.put("code", 200);
-            jout.put("result", new JSONArray());
+            jout.put("result", jsaResults);
         } catch (JSONException e) {
             e.printStackTrace();
             return "{\"code\":800, \"description\":\"JSON error\"}";

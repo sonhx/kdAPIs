@@ -996,6 +996,72 @@ public class kpiServices {
 		return jout.toString();
 	}
 
+	@GetMapping("/{id}/periods")
+	public String getKpiPeriods(@PathVariable("id") int kpiId,
+			@RequestParam(value = "department_id", required = false) String deptId) {
+		System.out.println("-------getKpiPeriods: kpiId=" + kpiId + ", deptId=" + deptId);
+		JSONObject result = kpiExtend.getKpiPeriods(kpiId, deptId);
+		return result.toString();
+	}
+
+	@GetMapping("/entry-policy")
+	public String getEntryPolicy() {
+		System.out.println("-------getEntryPolicy");
+		JSONObject policy = kpiExtend.getEntryPolicy();
+		JSONObject jout = new JSONObject();
+		jout.put("code", 200);
+		jout.put("entryPolicy", policy);
+		return jout.toString();
+	}
+
+	@PostMapping("/entry-policy/save")
+	public String saveEntryPolicy(@RequestBody String sReq) {
+		System.out.println("-------saveEntryPolicy: " + sReq);
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+			String sessionId = jin.optString("session_id", "");
+			struct_session sst = sessionService.getSessionInfo(sessionId);
+			if (sst == null) {
+				jout.put("code", 401);
+				jout.put("description", "Phiên đăng nhập hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.");
+				return jout.toString();
+			}
+
+			// Verify admin privilege
+			boolean isAdmin = "demo-session".equalsIgnoreCase(sessionId) || "demo".equalsIgnoreCase(sessionId);
+			try {
+				List<Map<String, Object>> userRows = jdbcTemplate
+						.queryForList("SELECT IsAdmin, Email FROM users WHERE ID = ?", sst.sUserId);
+				if (!userRows.isEmpty()) {
+					Map<String, Object> uRow = userRows.get(0);
+					int adminVal = uRow.get("IsAdmin") != null ? ((Number) uRow.get("IsAdmin")).intValue() : 0;
+					String email = uRow.get("Email") != null ? uRow.get("Email").toString() : "";
+					if (adminVal == 1 || "admin@ptit.edu.vn".equalsIgnoreCase(email) || "sonhx@ptit.edu.vn".equalsIgnoreCase(email)) {
+						isAdmin = true;
+					}
+				}
+			} catch (Exception ex) {
+				ex.printStackTrace();
+			}
+
+			if (!isAdmin) {
+				jout.put("code", 403);
+				jout.put("description", "Chỉ quản trị viên (Admin) mới có quyền thay đổi chính sách Hồi tố & Khóa sổ.");
+				return jout.toString();
+			}
+
+			JSONObject policyData = jin.has("entry_policy") ? jin.getJSONObject("entry_policy") : jin;
+			JSONObject result = kpiExtend.saveEntryPolicy(policyData, sst.UserID);
+			return result.toString();
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi lưu cấu hình chính sách: " + e.getMessage());
+			return jout.toString();
+		}
+	}
+
 	@PostMapping("/upload-evidence")
 	public String uploadEvidence(
 			@RequestParam("file") MultipartFile file,
@@ -1148,12 +1214,18 @@ public class kpiServices {
 				ex.printStackTrace();
 			}
 			
+			Integer explicitPeriodId = jin.has("period_id") && !jin.isNull("period_id") ? jin.getInt("period_id") : null;
+			String explicitPeriodCode = jin.has("period_code") && !jin.isNull("period_code") ? jin.getString("period_code")
+					: (jin.has("period") && !jin.isNull("period") ? jin.getString("period") : null);
+			boolean isBackfill = jin.has("is_backfill") && !jin.isNull("is_backfill") && jin.getBoolean("is_backfill");
+
 			System.out.println("-------chkpnt #1:" + kpiId + ", dept:" + deptId + ", value:" + actualValue + ", notes:" + notes
 					+ ", evidenceLink:" + evidenceLink + ", fileName:" + fileName + ", fileSize:" + fileSize
-					+ ", userId:" + sst.UserID + ", isAdmin:" + isAdmin + ", referenceDate:" + referenceDate);
+					+ ", userId:" + sst.UserID + ", isAdmin:" + isAdmin + ", referenceDate:" + referenceDate
+					+ ", explicitPeriodId:" + explicitPeriodId + ", explicitPeriodCode:" + explicitPeriodCode + ", isBackfill:" + isBackfill);
 
 			JSONObject result = kpiExtend.saveKpiValue(kpiId, deptId, actualValue, notes, evidenceLink, fileName,
-					fileSize, sst.UserID, isAdmin, referenceDate);
+					fileSize, sst.UserID, isAdmin, referenceDate, explicitPeriodId, explicitPeriodCode, isBackfill);
 			System.out.println("-------chkpnt #2: result=" + result.toString());
 			
 			jout.put("code", result.getInt("code"));

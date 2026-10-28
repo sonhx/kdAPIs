@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/admissions")
-@CrossOrigin(origins = "*")
 public class AdmissionsController {
 
     @Autowired

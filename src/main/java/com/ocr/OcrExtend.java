@@ -9,11 +9,16 @@ public class OcrExtend {
 
     public static JSONArray occurrences(String content, String search_key) {
         JSONArray jsaOutputFiles = new JSONArray();
+        if (content == null || search_key == null || search_key.trim().isEmpty()) {
+            return jsaOutputFiles;
+        }
         try {
-            Pattern p = Pattern.compile(search_key);
+            String trimmedKey = search_key.trim();
+            Pattern p = Pattern.compile(Pattern.quote(trimmedKey), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
             Matcher m = p.matcher(content);
             int previousline_end = 0;
-            while (m.find()) {
+            int count = 0;
+            while (m.find() && count < 20) {
                 JSONObject joOccurence = new JSONObject();
                 int start = m.start();
                 int end = m.end();
@@ -23,23 +28,29 @@ public class OcrExtend {
                 if (start < previousline_end) continue;
                 int newline_pos_start = content.substring(0, start).lastIndexOf("\n");
                 if (newline_pos_start < 0) {
-                    if (start > 100) {
-                        newline_pos_start = start - 100;
+                    if (start > 120) {
+                        newline_pos_start = start - 120;
                     } else {
                         newline_pos_start = 0;
                     }
+                } else {
+                    newline_pos_start += 1;
                 }
-                int newline_pos_end = end + content.substring(end).indexOf("\n");
+                
+                int relEnd = content.substring(end).indexOf("\n");
+                int newline_pos_end = (relEnd >= 0) ? (end + relEnd) : Math.min(end + 120, content.length());
                 previousline_end = newline_pos_end;
-                if (newline_pos_end < 0) newline_pos_end = end;
-                String occurence = content.substring(newline_pos_start, newline_pos_end)
-                        .replaceAll(search_key, "<b>" + search_key + "</b>");
+
+                String snippet = content.substring(newline_pos_start, newline_pos_end).trim();
+                Matcher sm = p.matcher(snippet);
+                String occurence = sm.replaceAll("<b>$0</b>");
                 joOccurence.put("text", occurence);
                 jsaOutputFiles.put(joOccurence);
+                count++;
             }
         } catch (Exception e) {
             e.printStackTrace();
-            return null;
+            return new JSONArray();
         }
         return jsaOutputFiles;
     }

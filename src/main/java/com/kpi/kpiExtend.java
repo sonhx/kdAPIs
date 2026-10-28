@@ -2042,6 +2042,7 @@ public class kpiExtend {
 
 			response.put("globalDefault", joGlobalDefault);
 			response.put("cycleDefaults", jsaCycleDefaults);
+			response.put("entryPolicy", getEntryPolicy());
 
 			// 2. Fetch KPIs and deadline settings
 			JSONArray jsaKpis = new JSONArray();
@@ -2387,6 +2388,11 @@ public class kpiExtend {
 
 	@Transactional
 	public JSONObject saveKpiValue(int kpiId, Object deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
+		return saveKpiValue(kpiId, deptId, actualValue, notes, evidenceLink, fileName, fileSize, userId, isAdmin, referenceDate, null, null, false);
+	}
+
+	@Transactional
+	public JSONObject saveKpiValue(int kpiId, Object deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate, Integer explicitPeriodId, String explicitPeriodCode, Boolean isBackfill) {
 		invalidateKpisWithAssignmentsCache();
 		JSONObject response = new JSONObject();
 		try {
@@ -2437,7 +2443,29 @@ public class kpiExtend {
 				}
 			}
 
-			int targetPeriodId;
+			int targetPeriodId = 0;
+			boolean isHistoricalEntry = Boolean.TRUE.equals(isBackfill);
+
+			// Step A: Check explicit period ID if provided
+			if (explicitPeriodId != null && explicitPeriodId > 0) {
+				List<Map<String, Object>> pRows = jdbcTemplate.queryForList(
+					"SELECT period_id FROM period_instances WHERE period_id = ?", explicitPeriodId
+				);
+				if (!pRows.isEmpty()) {
+					targetPeriodId = explicitPeriodId;
+					isHistoricalEntry = true;
+				}
+			}
+
+			// Step B: Check explicit period code if provided
+			if (targetPeriodId == 0 && explicitPeriodCode != null && !explicitPeriodCode.trim().isEmpty()) {
+				int resolvedPid = resolveOrCreatePeriodInstanceByCode(cycleId, cycleType, explicitPeriodCode.trim());
+				if (resolvedPid > 0) {
+					targetPeriodId = resolvedPid;
+					isHistoricalEntry = true;
+				}
+			}
+
 			boolean isLocked = false;
 			List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
 			java.sql.Date currEndDate = !currPeriodDetail.isEmpty() ? (java.sql.Date) currPeriodDetail.get(0).get("end_date") : null;
@@ -2456,39 +2484,45 @@ public class kpiExtend {
 				} catch (Exception ignored) {}
 			}
 
-			if (isSaveKpiAutomated) {
-				// Automated KPIs use CURRENT period and are not locked
-				targetPeriodId = currPeriodId;
-				isLocked = false;
-				try {
-					jdbcTemplate.update("UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = ?", kpiId);
-				} catch (Exception ignored) {}
-			} else if (currEndDate != null && refDate.before(currEndDate)) {
-				// Current period is in progress; reporting applies to the finished previous period
-				targetPeriodId = prevPeriodId;
-				if (prevDeadline != null && refDate.after(prevDeadline)) {
-					isLocked = true;
-				}
-			} else {
-				// Current period has finished; reporting applies to current period
-				targetPeriodId = currPeriodId;
-				Date currDeadline = null;
-				if (!deadlineConfig.isEmpty() && currEndDate != null) {
-					Map<String, Object> conf = deadlineConfig.get(0);
-					if (conf.get("override_absolute_deadline_date") != null) {
-						currDeadline = (java.sql.Date) conf.get("override_absolute_deadline_date");
-					} else {
-						int offsetDays = conf.get("override_deadline_offset_days") != null ? ((Number) conf.get("override_deadline_offset_days")).intValue() : 
-							(conf.get("default_deadline_offset_days") != null ? ((Number) conf.get("default_deadline_offset_days")).intValue() : 0);
-						int offsetWeeks = conf.get("override_deadline_offset_weeks") != null ? ((Number) conf.get("override_deadline_offset_weeks")).intValue() : 
-							(conf.get("default_deadline_offset_weeks") != null ? ((Number) conf.get("default_deadline_offset_weeks")).intValue() : 0);
-						String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type") : "CALENDAR";
-						currDeadline = calculateDeadline(currEndDate, offsetDays, offsetWeeks, deadlineType);
+			// Step C: Fall back to cycle-based resolution if no explicit period was specified
+			if (targetPeriodId == 0) {
+				if (isSaveKpiAutomated) {
+					// Automated KPIs use CURRENT period and are not locked
+					targetPeriodId = currPeriodId;
+					isLocked = false;
+					try {
+						jdbcTemplate.update("UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = ?", kpiId);
+					} catch (Exception ignored) {}
+				} else if (currEndDate != null && refDate.before(currEndDate)) {
+					// Current period is in progress; reporting applies to the finished previous period
+					targetPeriodId = prevPeriodId;
+					if (prevDeadline != null && refDate.after(prevDeadline)) {
+						isLocked = true;
+					}
+				} else {
+					// Current period has finished; reporting applies to current period
+					targetPeriodId = currPeriodId;
+					Date currDeadline = null;
+					if (!deadlineConfig.isEmpty() && currEndDate != null) {
+						Map<String, Object> conf = deadlineConfig.get(0);
+						if (conf.get("override_absolute_deadline_date") != null) {
+							currDeadline = (java.sql.Date) conf.get("override_absolute_deadline_date");
+						} else {
+							int offsetDays = conf.get("override_deadline_offset_days") != null ? ((Number) conf.get("override_deadline_offset_days")).intValue() : 
+								(conf.get("default_deadline_offset_days") != null ? ((Number) conf.get("default_deadline_offset_days")).intValue() : 0);
+							int offsetWeeks = conf.get("override_deadline_offset_weeks") != null ? ((Number) conf.get("override_deadline_offset_weeks")).intValue() : 
+								(conf.get("default_deadline_offset_weeks") != null ? ((Number) conf.get("default_deadline_offset_weeks")).intValue() : 0);
+							String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type") : "CALENDAR";
+							currDeadline = calculateDeadline(currEndDate, offsetDays, offsetWeeks, deadlineType);
+						}
+					}
+					if (currDeadline != null && refDate.after(currDeadline)) {
+						isLocked = true;
 					}
 				}
-				if (currDeadline != null && refDate.after(currDeadline)) {
-					isLocked = true;
-				}
+			} else {
+				// Targeted specific historical period: deadline lock does NOT apply to backfill
+				isLocked = false;
 			}
 
 			if (isLocked && !isAdmin) {
@@ -2737,6 +2771,262 @@ public class kpiExtend {
 			logger.error("Error unapproving KPI data", e);
 			response.put("code", 500);
 			response.put("description", "Lỗi khi hủy phê duyệt: " + e.getMessage());
+		}
+		return response;
+	}
+
+	public int resolveOrCreatePeriodInstanceByCode(int cycleId, String cycleType, String periodCode) {
+		if (periodCode == null || periodCode.trim().isEmpty()) return 0;
+		String pCode = periodCode.trim();
+
+		// 1. Exact match
+		List<Integer> ids = jdbcTemplate.query(
+			"SELECT period_id FROM period_instances WHERE cycle_id = ? AND period_code = ?",
+			(rs, rowNum) -> rs.getInt("period_id"), cycleId, pCode
+		);
+		if (!ids.isEmpty()) return ids.get(0);
+
+		// 2. Fuzzy match variants (e.g. 2024-2025 vs SCHOOLYEAR_2024-2025, 2024 vs ANNUAL_2024)
+		String stripped = pCode.replaceAll("^(SCHOOLYEAR_|ANNUAL_|TERM_|QUARTERLY_|MONTHLY_)", "");
+		List<Integer> fuzzyIds = jdbcTemplate.query(
+			"SELECT period_id FROM period_instances WHERE cycle_id = ? AND (period_code LIKE ? OR period_code LIKE ?)",
+			(rs, rowNum) -> rs.getInt("period_id"), cycleId, "%" + stripped, "%" + pCode + "%"
+		);
+		if (!fuzzyIds.isEmpty()) return fuzzyIds.get(0);
+
+		// 3. Fallback: Parse date boundaries and insert new period_instance
+		java.sql.Date startDate = null;
+		java.sql.Date endDate = null;
+		String normalizedCode = pCode;
+
+		java.util.regex.Matcher mTerm = java.util.regex.Pattern.compile("(\\d{4})[-_](\\d{4})_HK(\\d)").matcher(pCode);
+		java.util.regex.Matcher mSy = java.util.regex.Pattern.compile("(\\d{4})[-_](\\d{4})").matcher(pCode);
+		java.util.regex.Matcher mQuarter = java.util.regex.Pattern.compile("(\\d{4})[-_]Q(\\d)").matcher(pCode);
+		java.util.regex.Matcher mYear = java.util.regex.Pattern.compile("^\\D*(\\d{4})\\D*$").matcher(pCode);
+
+		if (mTerm.find()) {
+			int y1 = Integer.parseInt(mTerm.group(1));
+			int y2 = Integer.parseInt(mTerm.group(2));
+			int hk = Integer.parseInt(mTerm.group(3));
+			normalizedCode = "TERM_" + y1 + "-" + y2 + "_HK" + hk;
+			if (hk == 1) {
+				startDate = java.sql.Date.valueOf(y1 + "-09-01");
+				endDate = java.sql.Date.valueOf(y2 + "-01-31");
+			} else if (hk == 2) {
+				startDate = java.sql.Date.valueOf(y2 + "-02-01");
+				endDate = java.sql.Date.valueOf(y2 + "-05-31");
+			} else {
+				startDate = java.sql.Date.valueOf(y2 + "-06-01");
+				endDate = java.sql.Date.valueOf(y2 + "-08-31");
+			}
+		} else if (mSy.find()) {
+			int y1 = Integer.parseInt(mSy.group(1));
+			int y2 = Integer.parseInt(mSy.group(2));
+			normalizedCode = "SCHOOLYEAR_" + y1 + "-" + y2;
+			startDate = java.sql.Date.valueOf(y1 + "-09-01");
+			endDate = java.sql.Date.valueOf(y2 + "-08-31");
+		} else if (mQuarter.find()) {
+			int y = Integer.parseInt(mQuarter.group(1));
+			int q = Integer.parseInt(mQuarter.group(2));
+			normalizedCode = "QUARTERLY_" + y + "_Q" + q;
+			if (q == 1) { startDate = java.sql.Date.valueOf(y + "-01-01"); endDate = java.sql.Date.valueOf(y + "-03-31"); }
+			else if (q == 2) { startDate = java.sql.Date.valueOf(y + "-04-01"); endDate = java.sql.Date.valueOf(y + "-06-30"); }
+			else if (q == 3) { startDate = java.sql.Date.valueOf(y + "-07-01"); endDate = java.sql.Date.valueOf(y + "-09-30"); }
+			else { startDate = java.sql.Date.valueOf(y + "-10-01"); endDate = java.sql.Date.valueOf(y + "-12-31"); }
+		} else if (mYear.find()) {
+			int y = Integer.parseInt(mYear.group(1));
+			normalizedCode = "ANNUAL_" + y;
+			startDate = java.sql.Date.valueOf(y + "-01-01");
+			endDate = java.sql.Date.valueOf(y + "-12-31");
+		}
+
+		if (startDate != null && endDate != null) {
+			try {
+				jdbcTemplate.update(
+					"INSERT INTO period_instances (cycle_id, period_code, start_date, end_date) VALUES (?, ?, ?, ?)",
+					cycleId, normalizedCode, startDate, endDate
+				);
+				return jdbcTemplate.queryForObject(
+					"SELECT TOP 1 period_id FROM period_instances WHERE cycle_id = ? AND period_code = ? ORDER BY period_id DESC",
+					Integer.class, cycleId, normalizedCode
+				);
+			} catch (Exception e) {
+				System.err.println("Error creating period_instance: " + e.getMessage());
+			}
+		}
+
+		return 0;
+	}
+
+	public JSONObject getKpiPeriods(int kpiId, Object deptId) {
+		JSONObject response = new JSONObject();
+		try {
+			// 1. Fetch KPI basic info
+			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name, k.cycle, k.cycle_id, c.cycle_type, k.target, k.unit " +
+							"FROM kpi_definitions k " +
+							"LEFT JOIN cycle_definitions c ON k.cycle_id = c.cycle_id " +
+							"WHERE k.kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
+			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql, kpiId);
+			if (kpiRows.isEmpty()) {
+				response.put("code", 404);
+				response.put("description", "Không tìm thấy chỉ số KPI.");
+				return response;
+			}
+			Map<String, Object> kpi = kpiRows.get(0);
+			int cycleId = kpi.get("cycle_id") != null ? ((Number) kpi.get("cycle_id")).intValue() : 7;
+			String cycleType = kpi.get("cycle_type") != null ? (String) kpi.get("cycle_type") : "schoolyear";
+			String kpiCode = (String) kpi.get("kpi_code");
+
+			// 2. Determine current period instance
+			int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, new Date());
+
+			// 3. Query all period instances for this cycle, sorted newest to oldest
+			String pSql = "SELECT TOP 12 period_id, period_code, start_date, end_date " +
+						  "FROM period_instances WHERE cycle_id = ? ORDER BY start_date DESC";
+			List<Map<String, Object>> periods = jdbcTemplate.queryForList(pSql, cycleId);
+
+			// 4. Query data points for this KPI (and specific dept if provided)
+			String sDeptId = deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim())
+					? deptId.toString().trim() : null;
+			String dpSql = "SELECT dp.data_id, dp.period_id, dp.actual_value, dp.notes, dp.evidence_link, " +
+						   "dp.evidence_file_name, dp.evidence_file_size, dp.is_approved, dp.approved_by, dp.approved_at, " +
+						   "u.Email AS approved_by_name, dp.updated_at " +
+						   "FROM kpi_data_points dp " +
+						   "LEFT JOIN users u ON dp.approved_by = u.ID " +
+						   "WHERE dp.kpi_id = ? AND (CAST(dp.department_id AS VARCHAR(100)) = ? OR (dp.department_id IS NULL AND ? IS NULL))";
+			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql, kpiId, sDeptId, sDeptId);
+
+			Map<Integer, Map<String, Object>> dpByPeriod = new java.util.HashMap<>();
+			for (Map<String, Object> dp : dpRows) {
+				if (dp.get("period_id") != null) {
+					dpByPeriod.put(((Number) dp.get("period_id")).intValue(), dp);
+				}
+			}
+
+			JSONArray jsaPeriods = new JSONArray();
+			for (Map<String, Object> pRow : periods) {
+				int pid = ((Number) pRow.get("period_id")).intValue();
+				String pCode = (String) pRow.get("period_code");
+				JSONObject joP = new JSONObject();
+				joP.put("period_id", pid);
+				joP.put("period_code", pCode);
+				joP.put("period_name", formatPeriodDisplay(pCode));
+				joP.put("start_date", pRow.get("start_date") != null ? pRow.get("start_date").toString() : "");
+				joP.put("end_date", pRow.get("end_date") != null ? pRow.get("end_date").toString() : "");
+				joP.put("is_current", pid == currPeriodId);
+
+				if (dpByPeriod.containsKey(pid)) {
+					Map<String, Object> dp = dpByPeriod.get(pid);
+					joP.put("has_data", true);
+					joP.put("data_id", dp.get("data_id"));
+					joP.put("actual_value", dp.get("actual_value"));
+					joP.put("notes", dp.get("notes") != null ? dp.get("notes").toString() : "");
+					joP.put("evidence_link", dp.get("evidence_link") != null ? dp.get("evidence_link").toString() : "");
+					joP.put("evidence_file_name", dp.get("evidence_file_name") != null ? dp.get("evidence_file_name").toString() : "");
+					joP.put("evidence_file_size", dp.get("evidence_file_size") != null ? dp.get("evidence_file_size").toString() : "");
+					int isApp = dp.get("is_approved") != null ? ((Number) dp.get("is_approved")).intValue() : 0;
+					joP.put("is_approved", isApp == 1);
+					joP.put("approved_by_name", dp.get("approved_by_name") != null ? dp.get("approved_by_name").toString() : null);
+					joP.put("updated_at", dp.get("updated_at") != null ? dp.get("updated_at").toString() : null);
+				} else {
+					joP.put("has_data", false);
+					joP.put("actual_value", JSONObject.NULL);
+					joP.put("is_approved", false);
+				}
+				jsaPeriods.put(joP);
+			}
+
+			response.put("code", 200);
+			response.put("kpi_id", kpiId);
+			response.put("kpi_code", kpiCode);
+			response.put("cycle_id", cycleId);
+			response.put("cycle_type", cycleType);
+			response.put("current_period_id", currPeriodId);
+			response.put("periods", jsaPeriods);
+		} catch (Exception e) {
+			e.printStackTrace();
+			response.put("code", 500);
+			response.put("description", "Lỗi lấy danh sách kỳ: " + e.getMessage());
+		}
+		return response;
+	}
+
+	public static String formatPeriodDisplay(String codeStr) {
+		if (codeStr == null || codeStr.trim().isEmpty()) return "";
+		String s = codeStr.trim();
+		// Term pattern e.g. TERM_2024-2025_HK1 -> Học kỳ 1 (Năm học 2024-2025)
+		java.util.regex.Matcher mTerm = java.util.regex.Pattern.compile("TERM_(\\d{4}-\\d{4})_HK(\\d)").matcher(s);
+		if (mTerm.find()) {
+			return "Học kỳ " + mTerm.group(2) + " (Năm học " + mTerm.group(1) + ")";
+		}
+		// Schoolyear pattern e.g. SCHOOLYEAR_2024-2025 or 2024-2025 -> Năm học 2024-2025
+		if (s.startsWith("SCHOOLYEAR_")) {
+			return "Năm học " + s.substring(11);
+		}
+		if (s.matches("^\\d{4}-\\d{4}$")) {
+			return "Năm học " + s;
+		}
+		// Annual pattern e.g. ANNUAL_2025 or 2025 -> Năm 2025
+		if (s.startsWith("ANNUAL_")) {
+			return "Năm " + s.substring(7);
+		}
+		if (s.matches("^\\d{4}$")) {
+			return "Năm " + s;
+		}
+		// Quarterly pattern e.g. QUARTERLY_2025_Q1 -> Quý 1 năm 2025
+		java.util.regex.Matcher mQ = java.util.regex.Pattern.compile("QUARTERLY_(\\d{4})_Q(\\d)").matcher(s);
+		if (mQ.find()) {
+			return "Quý " + mQ.group(2) + "/" + mQ.group(1);
+		}
+		return s;
+	}
+
+	public JSONObject getEntryPolicy() {
+		try {
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+				"SELECT setting_value FROM kpi_system_settings WHERE setting_key = 'kpi_entry_policy'"
+			);
+			if (!rows.isEmpty() && rows.get(0).get("setting_value") != null) {
+				return new JSONObject((String) rows.get(0).get("setting_value"));
+			}
+		} catch (Exception e) {
+			System.err.println("Error reading kpi_entry_policy: " + e.getMessage());
+		}
+		JSONObject defaultPolicy = new JSONObject();
+		defaultPolicy.put("allowHistoricalBackfill", false);
+		defaultPolicy.put("allowLateSubmission", true);
+		defaultPolicy.put("activeCurrentPeriod", "2025-2026");
+		defaultPolicy.put("requireLateReason", true);
+		defaultPolicy.put("gracePeriodDays", 5);
+		return defaultPolicy;
+	}
+
+	public JSONObject saveEntryPolicy(JSONObject policy, int userId) {
+		JSONObject response = new JSONObject();
+		try {
+			String policyStr = policy.toString();
+			Integer exists = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM kpi_system_settings WHERE setting_key = 'kpi_entry_policy'",
+				Integer.class
+			);
+			if (exists != null && exists > 0) {
+				jdbcTemplate.update(
+					"UPDATE kpi_system_settings SET setting_value = ?, updated_at = GETDATE(), updated_by = ? WHERE setting_key = 'kpi_entry_policy'",
+					policyStr, userId
+				);
+			} else {
+				jdbcTemplate.update(
+					"INSERT INTO kpi_system_settings (setting_key, setting_value, updated_at, updated_by) VALUES ('kpi_entry_policy', ?, GETDATE(), ?)",
+					policyStr, userId
+				);
+			}
+			response.put("code", 200);
+			response.put("description", "Đã lưu chính sách nhập liệu và hồi tố thành công!");
+			response.put("entryPolicy", policy);
+		} catch (Exception e) {
+			e.printStackTrace();
+			response.put("code", 500);
+			response.put("description", "Lỗi lưu cấu hình chính sách: " + e.getMessage());
 		}
 		return response;
 	}
