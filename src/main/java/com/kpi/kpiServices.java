@@ -485,7 +485,7 @@ public class kpiServices {
 		return jout.toString();
 	}
 
-	@PostMapping("/definition/edit")
+	@PostMapping(value = "/definition/edit", produces = "application/json;charset=UTF-8")
 	public String editKpiDefinition(@RequestBody String sReq) {
 		System.out.println("-------editKpiDefinition:" + sReq);
 		JSONObject jout = new JSONObject();
@@ -529,7 +529,7 @@ public class kpiServices {
 	/**
 	 * GET /kpi/definition/history/{kpiId} or GET /kpi/definition/history
 	 */
-	@GetMapping(value = {"/definition/history/{kpiId}", "/definition/history"})
+	@GetMapping(value = {"/definition/history/{kpiId}", "/definition/history"}, produces = "application/json;charset=UTF-8")
 	public String getKpiDefinitionHistory(@PathVariable(required = false) Integer kpiId,
 	                                      @RequestParam(required = false) Integer kpi_id,
 	                                      @RequestParam(required = false) String code,
