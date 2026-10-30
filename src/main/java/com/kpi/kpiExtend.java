@@ -501,6 +501,22 @@ public class kpiExtend {
 				"        modified_by NVARCHAR(100), " +
 				"        modified_at DATETIME DEFAULT GETDATE() " +
 				"    ); " +
+				"END " +
+				"ELSE BEGIN " +
+				"    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_definition_logs') AND name = 'field_label') " +
+				"        ALTER TABLE kpi_definition_logs ADD field_label NVARCHAR(100) NULL; " +
+				"    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_definition_logs') AND name = 'kpi_code') " +
+				"        ALTER TABLE kpi_definition_logs ADD kpi_code NVARCHAR(50) NULL; " +
+				"    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_definition_logs') AND name = 'field_name') " +
+				"        ALTER TABLE kpi_definition_logs ADD field_name NVARCHAR(100) NULL; " +
+				"    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_definition_logs') AND name = 'old_value') " +
+				"        ALTER TABLE kpi_definition_logs ADD old_value NVARCHAR(MAX) NULL; " +
+				"    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_definition_logs') AND name = 'new_value') " +
+				"        ALTER TABLE kpi_definition_logs ADD new_value NVARCHAR(MAX) NULL; " +
+				"    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_definition_logs') AND name = 'modified_by') " +
+				"        ALTER TABLE kpi_definition_logs ADD modified_by NVARCHAR(100) NULL; " +
+				"    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('kpi_definition_logs') AND name = 'modified_at') " +
+				"        ALTER TABLE kpi_definition_logs ADD modified_at DATETIME DEFAULT GETDATE(); " +
 				"END";
 			jdbcTemplate.execute(sql);
 		} catch (Exception e) {
