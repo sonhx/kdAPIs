@@ -531,12 +531,15 @@ public class kpiServices {
 	 */
 	@GetMapping(value = {"/definition/history/{kpiId}", "/definition/history"})
 	public String getKpiDefinitionHistory(@PathVariable(required = false) Integer kpiId,
-	                                      @RequestParam(required = false) Integer kpi_id) {
+	                                      @RequestParam(required = false) Integer kpi_id,
+	                                      @RequestParam(required = false) String code,
+	                                      @RequestParam(required = false) String kpi_code) {
 		int targetKpiId = kpiId != null ? kpiId : (kpi_id != null ? kpi_id : 0);
-		System.out.println("-------getKpiDefinitionHistory for kpiId: " + targetKpiId);
+		String targetCode = (code != null && !code.trim().isEmpty()) ? code.trim() : ((kpi_code != null && !kpi_code.trim().isEmpty()) ? kpi_code.trim() : null);
+		System.out.println("-------getKpiDefinitionHistory for kpiId: " + targetKpiId + ", code: " + targetCode);
 		JSONObject jout = new JSONObject();
 		try {
-			JSONArray history = kpiExtend.getKpiDefinitionHistory(targetKpiId);
+			JSONArray history = kpiExtend.getKpiDefinitionHistory(targetKpiId, targetCode);
 			jout.put("code", 200);
 			jout.put("description", "Thành công");
 			jout.put("history", history);

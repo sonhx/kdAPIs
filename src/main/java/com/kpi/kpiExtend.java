@@ -685,6 +685,38 @@ public class kpiExtend {
 				}
 			}
 
+			// 8. Reporting Cycle (cycle)
+			if (frequency != null && !frequency.trim().isEmpty()) {
+				String oldVal = oldData.get("cycle") != null ? oldData.get("cycle").toString().trim() : "";
+				String newVal = frequency.trim();
+				if (!oldVal.equalsIgnoreCase(newVal)) {
+					sql.append("cycle = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "cycle");
+					logItem.put("field_label", "Chu kỳ báo cáo");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// 9. Category (category)
+			if (category != null && !category.trim().isEmpty()) {
+				String oldVal = oldData.get("category") != null ? oldData.get("category").toString().trim() : "";
+				String newVal = category.trim();
+				if (!oldVal.equalsIgnoreCase(newVal)) {
+					sql.append("category = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "category");
+					logItem.put("field_label", "Danh mục KPI");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
 			// If no fields changed, return success with notice
 			if (changeLogs.isEmpty()) {
 				response.put("code", 200);
@@ -758,10 +790,14 @@ public class kpiExtend {
 		return editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource, frequency, null, null, "Admin");
 	}
 
-	/**
-	 * Get history of changes for a specific KPI definition.
-	 */
 	public JSONArray getKpiDefinitionHistory(int kpiId) {
+		return getKpiDefinitionHistory(kpiId, null);
+	}
+
+	/**
+	 * Get history of changes for a specific KPI definition, supporting ID, Code, or both.
+	 */
+	public JSONArray getKpiDefinitionHistory(int kpiId, String kpiCode) {
 		initKpiDefinitionLogsTable();
 		JSONArray historyList = new JSONArray();
 		try {
@@ -770,9 +806,16 @@ public class kpiExtend {
 				"FROM kpi_definition_logs ";
 			
 			List<Object> params = new ArrayList<>();
-			if (kpiId > 0) {
+			if (kpiId > 0 && kpiCode != null && !kpiCode.trim().isEmpty()) {
+				sql += "WHERE (kpi_id = ? OR kpi_code = ?) ";
+				params.add(kpiId);
+				params.add(kpiCode.trim());
+			} else if (kpiId > 0) {
 				sql += "WHERE kpi_id = ? ";
 				params.add(kpiId);
+			} else if (kpiCode != null && !kpiCode.trim().isEmpty()) {
+				sql += "WHERE kpi_code = ? ";
+				params.add(kpiCode.trim());
 			}
 			sql += "ORDER BY modified_at DESC, log_id DESC";
 
@@ -1959,9 +2002,13 @@ public class kpiExtend {
 		try {
 			String getKpiInfo = "SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?";
 			String getVertexId = "SELECT vertex_id FROM vertices_def WHERE vertex_code = ?";
+			initKpiDefinitionLogsTable();
+			String getOldWeight = "SELECT weight FROM vertex_members WHERE kpi_id = ?";
 			String checkExists = "SELECT COUNT(*) FROM vertex_members WHERE kpi_id = ?";
 			String updateSql = "UPDATE vertex_members SET weight = ? WHERE kpi_id = ?";
 			String insertSql = "INSERT INTO vertex_members (vertex_id, kpi_id, weight) VALUES (?, ?, ?)";
+			String logWeightSql = "INSERT INTO kpi_definition_logs (kpi_id, kpi_code, field_name, field_label, old_value, new_value, modified_by, modified_at) " +
+			                      "VALUES (?, ?, 'weight', N'Trọng số đóng góp', ?, ?, 'Admin', GETDATE())";
 			
 			for (int i = 0; i < weightsArray.length(); i++) {
 				JSONObject item = weightsArray.getJSONObject(i);
@@ -1981,12 +2028,24 @@ public class kpiExtend {
 					continue;
 				}
 				
-				// 3. Update or Insert
+				// 3. Update or Insert with change audit
 				Integer exists = jdbcTemplate.queryForObject(checkExists, Integer.class, kpiId);
 				if (exists != null && exists > 0) {
+					Double oldWeight = null;
+					try {
+						oldWeight = jdbcTemplate.queryForObject(getOldWeight, Double.class, kpiId);
+					} catch (Exception ignored) {}
 					jdbcTemplate.update(updateSql, weight, kpiId);
+					if (oldWeight != null && Math.abs(oldWeight - weight) > 0.001) {
+						try {
+							jdbcTemplate.update(logWeightSql, kpiId, kpiCode, String.valueOf(oldWeight), String.valueOf(weight));
+						} catch (Exception ignored) {}
+					}
 				} else {
 					jdbcTemplate.update(insertSql, vertexId, kpiId, weight);
+					try {
+						jdbcTemplate.update(logWeightSql, kpiId, kpiCode, "1.0", String.valueOf(weight));
+					} catch (Exception ignored) {}
 				}
 			}
 			response.put("code", 200);
