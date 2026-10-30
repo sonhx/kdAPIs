@@ -291,7 +291,7 @@ public class kpiServices {
 	 * "description": "KPI code is required"
 	 * }
 	 */
-	@PostMapping("/definition/add")
+	@PostMapping(value = "/definition/add", produces = "application/json;charset=UTF-8")
 	public String addKpiDefinition(@RequestBody String sReq) {
 		System.out.println("-------addKpiDefinition:" + sReq);
 		JSONObject jout = new JSONObject();
@@ -307,10 +307,11 @@ public class kpiServices {
 			String dataSource = jin.has("source") ? jin.getString("source").trim() : null;
 			String frequency = jin.has("cycle") ? jin.getString("cycle").trim() : null;
 			String target = jin.has("target") ? String.valueOf(jin.get("target")).trim() : null;
+			String targetRationale = jin.has("target_rationale") ? jin.getString("target_rationale").trim() : (jin.has("targetRationale") ? jin.getString("targetRationale").trim() : null);
 
 			// Call service to add KPI definition
 			JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, formula, dataSource,
-					frequency, target);
+					frequency, target, targetRationale);
 
 			jout.put("code", addResult.getInt("code"));
 			jout.put("description", addResult.getString("description"));
@@ -502,12 +503,13 @@ public class kpiServices {
 			String dataSource = jin.has("data_source") ? jin.getString("data_source").trim() : (jin.has("source") ? jin.getString("source").trim() : null);
 			String frequency = jin.has("frequency") ? jin.getString("frequency").trim() : (jin.has("cycle") ? jin.getString("cycle").trim() : null);
 			String target = jin.has("target") ? jin.getString("target").trim() : null;
+			String targetRationale = jin.has("target_rationale") ? jin.getString("target_rationale").trim() : (jin.has("targetRationale") ? jin.getString("targetRationale").trim() : null);
 			String description = jin.has("description") ? jin.getString("description").trim() : null;
 			String modifiedBy = jin.has("modified_by") ? jin.getString("modified_by").trim() : (jin.has("user_email") ? jin.getString("user_email").trim() : "Admin");
 
 			// Call service to update KPI definition with change auditing
 			JSONObject editResult = kpiExtend.editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource,
-					frequency, target, description, modifiedBy);
+					frequency, target, targetRationale, description, modifiedBy);
 
 			jout.put("code", editResult.getInt("code"));
 			jout.put("description", editResult.getString("description"));

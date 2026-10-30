@@ -268,7 +268,7 @@ public class kpiExtend {
 		JSONArray jsaDefinitions = new JSONArray();
 		try {
 			// Query KPI definitions from database using exact column names
-			String sql = "SELECT k.kpi_id, k.kpi_code, k.name, k.category, k.unit, k.measurement, k.source, k.cycle, k.target, k.description " +
+			String sql = "SELECT k.kpi_id, k.kpi_code, k.name, k.category, k.unit, k.measurement, k.source, k.cycle, k.target, k.target_rationale, k.description " +
 					"FROM kpi_definitions k " +
 					"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
 					"ORDER BY k.kpi_code ASC, k.kpi_id ASC";
@@ -289,6 +289,7 @@ public class kpiExtend {
 				joKpi.put("data_source", row.get("source"));
 				joKpi.put("cycle", row.get("cycle"));
 				joKpi.put("target", row.get("target"));
+				joKpi.put("target_rationale", row.get("target_rationale") != null ? row.get("target_rationale") : "");
 				joKpi.put("description", row.get("description"));
 				jsaDefinitions.put(joKpi);
 			}
@@ -309,7 +310,7 @@ public class kpiExtend {
 		JSONObject joKpi = new JSONObject();
 		try {
 			String sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, " +
-					"k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+					"k.category, k.unit, k.measurement, k.source, k.cycle, k.target, k.target_rationale, ISNULL(m.weight, 1.0) as weight " +
 					"FROM kpi_definitions k " +
 					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
 					"WHERE kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
@@ -325,6 +326,8 @@ public class kpiExtend {
 				joKpi.put("measurement", row.get("measurement"));
 				joKpi.put("source", row.get("source"));
 				joKpi.put("cycle", row.get("cycle"));
+				joKpi.put("target", row.get("target"));
+				joKpi.put("target_rationale", row.get("target_rationale") != null ? row.get("target_rationale") : "");
 				joKpi.put("weight", row.get("weight") != null ? ((Number) row.get("weight")).doubleValue() : 1.0);
 			}
 		} catch (Exception e) {
@@ -343,7 +346,7 @@ public class kpiExtend {
 		JSONArray jsaDefinitions = new JSONArray();
 		try {
 			String sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, " +
-					"k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight " +
+					"k.category, k.unit, k.measurement, k.source, k.cycle, k.target, k.target_rationale, ISNULL(m.weight, 1.0) as weight " +
 					"FROM kpi_definitions k " +
 					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
 					"WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
@@ -360,6 +363,8 @@ public class kpiExtend {
 				joKpi.put("measurement", row.get("measurement"));
 				joKpi.put("source", row.get("source"));
 				joKpi.put("cycle", row.get("cycle"));
+				joKpi.put("target", row.get("target"));
+				joKpi.put("target_rationale", row.get("target_rationale") != null ? row.get("target_rationale") : "");
 				joKpi.put("weight", row.get("weight") != null ? ((Number) row.get("weight")).doubleValue() : 1.0);
 				jsaDefinitions.put(joKpi);
 			}
@@ -384,7 +389,7 @@ public class kpiExtend {
 	 */
 	@Transactional
 	public JSONObject addKpiDefinition(String code, String name, String category, String unit, 
-										String measurement, String source, String cycle, String target) {
+										String measurement, String source, String cycle, String target, String targetRationale) {
 		JSONObject response = new JSONObject();
 		try {
 			// Validate inputs
@@ -434,10 +439,10 @@ public class kpiExtend {
 			}
 
 			// Insert into kpi_definitions table
-			String sql = "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle, target) "
-					+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+			String sql = "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle, target, target_rationale) "
+					+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 			
-			int rowsAffected = jdbcTemplate.update(sql, code, name, category, unit, measurement, source, cycle, target);
+			int rowsAffected = jdbcTemplate.update(sql, code, name, category, unit, measurement, source, cycle, target, targetRationale);
 			
 			if (rowsAffected > 0) {
 				// Get the inserted kpi_id
@@ -524,9 +529,14 @@ public class kpiExtend {
 		}
 	}
 
+	public JSONObject addKpiDefinition(String code, String name, String category, String unit, 
+										String measurement, String source, String cycle, String target) {
+		return addKpiDefinition(code, name, category, unit, measurement, source, cycle, target, null);
+	}
+
 	@Transactional
 	public JSONObject editKpiDefinition(int kpiId, String code, String name, String category, String unit, 
-										String formula, String dataSource, String frequency, String target, String description, String modifiedBy) {
+										String formula, String dataSource, String frequency, String target, String targetRationale, String description, String modifiedBy) {
 		JSONObject response = new JSONObject();
 		try {
 			initKpiDefinitionLogsTable();
@@ -540,7 +550,7 @@ public class kpiExtend {
 
 			// Fetch existing KPI definition
 			List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(
-				"SELECT kpi_id, kpi_code, name, category, unit, measurement, source, description, target " +
+				"SELECT kpi_id, kpi_code, name, category, unit, measurement, source, description, target, target_rationale " +
 				"FROM kpi_definitions WHERE kpi_id = ?", kpiId
 			);
 
@@ -647,6 +657,22 @@ public class kpiExtend {
 					Map<String, String> logItem = new HashMap<>();
 					logItem.put("field_name", "target");
 					logItem.put("field_label", "Mục tiêu chỉ số");
+					logItem.put("old_value", oldVal);
+					logItem.put("new_value", newVal);
+					changeLogs.add(logItem);
+				}
+			}
+
+			// 5b. Target Rationale (target_rationale)
+			if (targetRationale != null) {
+				String oldVal = oldData.get("target_rationale") != null ? oldData.get("target_rationale").toString().trim() : "";
+				String newVal = targetRationale.trim();
+				if (!oldVal.equals(newVal)) {
+					sql.append("target_rationale = ?, ");
+					parameters.add(newVal);
+					Map<String, String> logItem = new HashMap<>();
+					logItem.put("field_name", "target_rationale");
+					logItem.put("field_label", "Căn cứ xác định mục tiêu");
 					logItem.put("old_value", oldVal);
 					logItem.put("new_value", newVal);
 					changeLogs.add(logItem);
@@ -786,8 +812,13 @@ public class kpiExtend {
 	}
 
 	public JSONObject editKpiDefinition(int kpiId, String code, String name, String category, String unit, 
+										String formula, String dataSource, String frequency, String target, String description, String modifiedBy) {
+		return editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource, frequency, target, null, description, modifiedBy);
+	}
+
+	public JSONObject editKpiDefinition(int kpiId, String code, String name, String category, String unit, 
 										String formula, String dataSource, String frequency) {
-		return editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource, frequency, null, null, "Admin");
+		return editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource, frequency, null, null, null, "Admin");
 	}
 
 	public JSONArray getKpiDefinitionHistory(int kpiId) {
@@ -1401,7 +1432,7 @@ public class kpiExtend {
 		try {
 			// 1. Fetch all active KPI definitions
 			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight, " +
-							"k.cycle_id, c.cycle_type, k.target, " +
+							"k.cycle_id, c.cycle_type, k.target, k.target_rationale, " +
 							"k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date, " +
 							"c.default_deadline_offset_days, c.default_deadline_offset_weeks, c.deadline_type, v.vertex_name " +
 							"FROM kpi_definitions k WITH (NOLOCK) " +
@@ -1680,6 +1711,7 @@ public class kpiExtend {
 					}
 				}
 				joKpi.put("target", targetVal);
+				joKpi.put("target_rationale", kpiRow.get("target_rationale") != null ? kpiRow.get("target_rationale").toString() : "");
 
 				Integer cycleId = kpiRow.get("cycle_id") != null ? ((Number) kpiRow.get("cycle_id")).intValue() : null;
 				String cycleType = (String) kpiRow.get("cycle_type");
