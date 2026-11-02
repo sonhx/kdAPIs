@@ -454,6 +454,9 @@ public class kpiExtend {
 				response.put("kpi_id", kpiId);
 				response.put("kpi_code", code);
 
+				invalidateKpisWithAssignmentsCache();
+				recalculateVertexValues(kpiId, code, category);
+
 				try {
 					if (notificationExtend != null) {
 						notificationExtend.dispatchNotification(
@@ -775,8 +778,17 @@ public class kpiExtend {
 					);
 				}
 
+				invalidateKpisWithAssignmentsCache();
+
+				// Recalculate vertex values when KPI definition/target is updated
+				String categoryForVertex = category != null ? category : (oldData.get("category") != null ? oldData.get("category").toString() : null);
+				JSONObject recalculatedVertices = recalculateVertexValues(kpiId, currentKpiCode, categoryForVertex);
+				if (recalculatedVertices != null) {
+					response.put("recalculated_vertices", recalculatedVertices);
+				}
+
 				response.put("code", 200);
-				response.put("description", "Cập nhật định nghĩa KPI và ghi lịch sử thay đổi thành công.");
+				response.put("description", "Cập nhật định nghĩa KPI, tính toán lại các đỉnh chiều (Vertices) và ghi lịch sử thay đổi thành công.");
 				response.put("changed_fields_count", changeLogs.size());
 
 				try {
@@ -2080,6 +2092,8 @@ public class kpiExtend {
 					} catch (Exception ignored) {}
 				}
 			}
+			invalidateKpisWithAssignmentsCache();
+			recalculateAllVertexValues();
 			response.put("code", 200);
 			response.put("description", "Thành công");
 		} catch (Exception e) {
@@ -2088,6 +2102,181 @@ public class kpiExtend {
 			response.put("description", "Database error: " + e.getMessage());
 		}
 		return response;
+	}
+
+	/**
+	 * Recalculate and synchronize vertex (dimension) target values, actual values,
+	 * and completion scores whenever KPI target values or definitions are updated.
+	 *
+	 * @param kpiId Optional KPI ID
+	 * @param kpiCode Optional KPI Code (e.g. "T1.03")
+	 * @param category Optional KPI Category (e.g. "T – Đào tạo & Người học")
+	 * @return JSONObject containing summary of recalculated vertices
+	 */
+	@Transactional
+	public JSONObject recalculateVertexValues(Integer kpiId, String kpiCode, String category) {
+		JSONObject result = new JSONObject();
+		try {
+			// 1. Resolve vertex code ('T', 'G', 'N', 'H', 'C', 'K', 'Q', 'D')
+			String vertexCode = null;
+			if (kpiCode != null && !kpiCode.trim().isEmpty()) {
+				vertexCode = kpiCode.trim().substring(0, 1).toUpperCase();
+			} else if (category != null && !category.trim().isEmpty()) {
+				vertexCode = category.trim().substring(0, 1).toUpperCase();
+			} else if (kpiId != null && kpiId > 0) {
+				try {
+					String resolvedCode = jdbcTemplate.queryForObject(
+						"SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId
+					);
+					if (resolvedCode != null && !resolvedCode.trim().isEmpty()) {
+						vertexCode = resolvedCode.trim().substring(0, 1).toUpperCase();
+					}
+				} catch (Exception ignored) {}
+			}
+
+			if (vertexCode == null || vertexCode.isEmpty()) {
+				return recalculateAllVertexValues();
+			}
+
+			// 2. Ensure member KPIs are mapped in vertex_members
+			String ensureMembersSql = 
+				"INSERT INTO dbo.vertex_members (vertex_id, kpi_id, weight) " +
+				"SELECT v.vertex_id, k.kpi_id, 1.0 " +
+				"FROM dbo.kpi_definitions k " +
+				"JOIN dbo.vertices_def v ON UPPER(SUBSTRING(k.kpi_code, 1, 1)) = v.vertex_code " +
+				"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+				"  AND v.vertex_code = ? " +
+				"  AND NOT EXISTS (SELECT 1 FROM dbo.vertex_members vm WHERE vm.kpi_id = k.kpi_id)";
+			try {
+				jdbcTemplate.update(ensureMembersSql, vertexCode);
+			} catch (Exception ex) {
+				logger.warn("Could not auto-populate vertex_members for {}: {}", vertexCode, ex.getMessage());
+			}
+
+			// 3. Recalculate vertex target value for kpi_vertex_threshold_zones
+			Map<String, String> primaryKpiMap = new HashMap<>();
+			primaryKpiMap.put("T", "T1.03");
+			primaryKpiMap.put("G", "G2.01");
+			primaryKpiMap.put("N", "N3.03");
+			primaryKpiMap.put("H", "H4.08");
+			primaryKpiMap.put("C", "C5.02");
+			primaryKpiMap.put("K", "K6.01");
+			primaryKpiMap.put("Q", "Q7.02");
+			primaryKpiMap.put("D", "D8.01");
+
+			String primaryCode = primaryKpiMap.get(vertexCode);
+			Double newVertexTarget = null;
+
+			// If this dimension has a primary KPI, fetch its target
+			if (primaryCode != null) {
+				try {
+					List<Map<String, Object>> pKpiRows = jdbcTemplate.queryForList(
+						"SELECT target FROM kpi_definitions WHERE kpi_code = ? AND (is_deleted = 0 OR is_deleted IS NULL)",
+						primaryCode
+					);
+					if (!pKpiRows.isEmpty() && pKpiRows.get(0).get("target") != null) {
+						newVertexTarget = Double.parseDouble(pKpiRows.get(0).get("target").toString().trim());
+					}
+				} catch (Exception ignored) {}
+			}
+
+			// Fallback to weighted target of active member KPIs if primary not found
+			if (newVertexTarget == null) {
+				try {
+					String avgTargetSql = 
+						"SELECT ROUND(SUM(CASE WHEN k.kpi_code = 'T1.05' THEN -1.0 ELSE 1.0 END * TRY_CAST(k.target AS FLOAT) * ISNULL(vm.weight, 1.0)) / " +
+						"NULLIF(SUM(CASE WHEN TRY_CAST(k.target AS FLOAT) IS NOT NULL THEN ISNULL(vm.weight, 1.0) ELSE 0 END), 0), 2) " +
+						"FROM kpi_definitions k " +
+						"LEFT JOIN vertex_members vm ON k.kpi_id = vm.kpi_id " +
+						"WHERE (k.kpi_code LIKE ? OR k.category LIKE ?) AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
+					newVertexTarget = jdbcTemplate.queryForObject(avgTargetSql, Double.class, vertexCode + "%", vertexCode + "%");
+				} catch (Exception ignored) {}
+			}
+
+			if (newVertexTarget != null) {
+				String updateZoneSql = 
+					"UPDATE dbo.kpi_vertex_threshold_zones " +
+					"SET target_value = ?, updated_at = SYSDATETIME() " +
+					"WHERE dimension_code = ?";
+				jdbcTemplate.update(updateZoneSql, newVertexTarget, vertexCode);
+				result.put("dimension_code", vertexCode);
+				result.put("target_value", newVertexTarget);
+			}
+
+			// 4. Ensure target_value and score columns exist in vertex_results
+			try {
+				jdbcTemplate.execute(
+					"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.vertex_results') AND name = 'target_value') " +
+					"    ALTER TABLE dbo.vertex_results ADD target_value FLOAT NULL; " +
+					"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.vertex_results') AND name = 'score') " +
+					"    ALTER TABLE dbo.vertex_results ADD score FLOAT NULL;"
+				);
+			} catch (Exception ignored) {}
+
+			// 5. Recalculate vertex_results for all periods that have data points for this vertex
+			String mergeResultsSql = 
+				"MERGE dbo.vertex_results AS target " +
+				"USING ( " +
+				"    SELECT " +
+				"        vm.vertex_id, " +
+				"        dp.period_id, " +
+				"        ROUND(SUM(CASE WHEN k.kpi_code = 'T1.05' THEN -1.0 ELSE 1.0 END * CAST(dp.actual_value AS FLOAT) * ISNULL(vm.weight, 1.0)) / NULLIF(SUM(ISNULL(vm.weight, 1.0)), 0), 2) AS calculated_value, " +
+				"        ROUND(SUM(CASE WHEN k.kpi_code = 'T1.05' THEN -1.0 ELSE 1.0 END * TRY_CAST(k.target AS FLOAT) * ISNULL(vm.weight, 1.0)) / NULLIF(SUM(CASE WHEN TRY_CAST(k.target AS FLOAT) IS NOT NULL THEN ISNULL(vm.weight, 1.0) ELSE 0 END), 0), 2) AS target_value, " +
+				"        ROUND( " +
+				"            (SUM(CASE WHEN k.kpi_code = 'T1.05' THEN -1.0 ELSE 1.0 END * CAST(dp.actual_value AS FLOAT) * ISNULL(vm.weight, 1.0)) / NULLIF(SUM(ISNULL(vm.weight, 1.0)), 0)) " +
+				"            / NULLIF((SUM(CASE WHEN k.kpi_code = 'T1.05' THEN -1.0 ELSE 1.0 END * TRY_CAST(k.target AS FLOAT) * ISNULL(vm.weight, 1.0)) / NULLIF(SUM(CASE WHEN TRY_CAST(k.target AS FLOAT) IS NOT NULL THEN ISNULL(vm.weight, 1.0) ELSE 0 END), 0)), 0) " +
+				"            * 100.0, 1 " +
+				"        ) AS score, " +
+				"        1 AS status_id, " +
+				"        1 AS updated_by " +
+				"    FROM dbo.vertex_members vm " +
+				"    JOIN dbo.vertices_def vd ON vm.vertex_id = vd.vertex_id " +
+				"    JOIN dbo.kpi_definitions k ON vm.kpi_id = k.kpi_id " +
+				"    JOIN dbo.kpi_data_points dp ON vm.kpi_id = dp.kpi_id " +
+				"    WHERE vd.vertex_code = ? AND dp.actual_value IS NOT NULL AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+				"    GROUP BY vm.vertex_id, dp.period_id " +
+				") AS source " +
+				"ON (target.vertex_id = source.vertex_id AND target.period_id = source.period_id) " +
+				"WHEN MATCHED THEN " +
+				"    UPDATE SET " +
+				"        target.calculated_value = source.calculated_value, " +
+				"        target.target_value = source.target_value, " +
+				"        target.score = source.score, " +
+				"        target.updated_at = GETDATE() " +
+				"WHEN NOT MATCHED THEN " +
+				"    INSERT (vertex_id, period_id, calculated_value, target_value, score, status_id, updated_by, updated_at) " +
+				"    VALUES (source.vertex_id, source.period_id, source.calculated_value, source.target_value, source.score, source.status_id, source.updated_by, GETDATE());";
+			
+			try {
+				int mergedCount = jdbcTemplate.update(mergeResultsSql, vertexCode);
+				result.put("merged_results_count", mergedCount);
+			} catch (Exception ex) {
+				logger.warn("Could not merge vertex_results for {}: {}", vertexCode, ex.getMessage());
+			}
+
+			invalidateKpisWithAssignmentsCache();
+			result.put("success", true);
+		} catch (Exception e) {
+			logger.error("Error recalculating vertex values: " + e.getMessage(), e);
+			result.put("success", false);
+			result.put("error", e.getMessage());
+		}
+		return result;
+	}
+
+	@Transactional
+	public JSONObject recalculateAllVertexValues() {
+		JSONObject result = new JSONObject();
+		String[] allVertices = {"T", "G", "N", "H", "C", "K", "Q", "D"};
+		JSONArray jsa = new JSONArray();
+		for (String vCode : allVertices) {
+			JSONObject r = recalculateVertexValues(null, vCode + "1.01", null);
+			jsa.put(r);
+		}
+		invalidateKpisWithAssignmentsCache();
+		result.put("success", true);
+		result.put("recalculated_vertices", jsa);
+		return result;
 	}
 
 	public JSONObject getDeadlinesConfig() {

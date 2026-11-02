@@ -1642,4 +1642,26 @@ public class kpiServices {
 			return jout.toString();
 		}
 	}
-}
+
+	/**
+	 * POST /kpi/recalculate-vertices - Recalculate and update all vertex targets, actuals, and scores
+	 */
+	@RequestMapping(value = "/recalculate-vertices", method = {RequestMethod.GET, RequestMethod.POST}, produces = "application/json;charset=UTF-8")
+	public String recalculateVertices() {
+		System.out.println("-------recalculateVertices");
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject res = kpiExtend.recalculateAllVertexValues();
+			jout.put("code", 200);
+			jout.put("status", "SUCCESS");
+			jout.put("description", "Tính toán lại và cập nhật giá trị các đỉnh chiều (Vertices) thành công!");
+			jout.put("data", res);
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("status", "ERROR");
+			jout.put("description", "Lỗi tính toán lại đỉnh chiều: " + e.getMessage());
+		}
+		return jout.toString();
+	}
+}

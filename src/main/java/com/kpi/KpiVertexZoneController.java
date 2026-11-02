@@ -22,6 +22,9 @@ public class KpiVertexZoneController {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired(required = false)
+    private kpiExtend kpiExtend;
+
     /**
      * Helper method to ensure the table dbo.kpi_vertex_threshold_zones exists and is seeded with defaults.
      */
@@ -130,20 +133,48 @@ public class KpiVertexZoneController {
                 double okMin = item.optDouble("okMin", 100.0);
                 double warningMin = item.optDouble("warningMin", 85.0);
                 double dangerMax = item.optDouble("dangerMax", warningMin);
+                double targetVal = item.optDouble("target", item.optDouble("target_value", -1.0));
 
-                String mergeSql = "IF EXISTS (SELECT 1 FROM dbo.kpi_vertex_threshold_zones WHERE dimension_code = ?) " +
-                    "BEGIN " +
-                    "    UPDATE dbo.kpi_vertex_threshold_zones " +
-                    "    SET ok_min = ?, warning_min = ?, danger_max = ?, updated_at = SYSDATETIME() " +
-                    "    WHERE dimension_code = ?; " +
-                    "END " +
-                    "ELSE " +
-                    "BEGIN " +
-                    "    INSERT INTO dbo.kpi_vertex_threshold_zones (dimension_code, dimension_name, ok_min, warning_min, danger_max) " +
-                    "    VALUES (?, ?, ?, ?, ?); " +
-                    "END";
+                String mergeSql;
+                if (targetVal >= 0) {
+                    mergeSql = "IF EXISTS (SELECT 1 FROM dbo.kpi_vertex_threshold_zones WHERE dimension_code = ?) " +
+                        "BEGIN " +
+                        "    UPDATE dbo.kpi_vertex_threshold_zones " +
+                        "    SET ok_min = ?, warning_min = ?, danger_max = ?, target_value = ?, updated_at = SYSDATETIME() " +
+                        "    WHERE dimension_code = ?; " +
+                        "END " +
+                        "ELSE " +
+                        "BEGIN " +
+                        "    INSERT INTO dbo.kpi_vertex_threshold_zones (dimension_code, dimension_name, ok_min, warning_min, danger_max, target_value) " +
+                        "    VALUES (?, ?, ?, ?, ?, ?); " +
+                        "END";
+                    jdbcTemplate.update(mergeSql, code, okMin, warningMin, dangerMax, targetVal, code, code, code, okMin, warningMin, dangerMax, targetVal);
+                } else {
+                    mergeSql = "IF EXISTS (SELECT 1 FROM dbo.kpi_vertex_threshold_zones WHERE dimension_code = ?) " +
+                        "BEGIN " +
+                        "    UPDATE dbo.kpi_vertex_threshold_zones " +
+                        "    SET ok_min = ?, warning_min = ?, danger_max = ?, updated_at = SYSDATETIME() " +
+                        "    WHERE dimension_code = ?; " +
+                        "END " +
+                        "ELSE " +
+                        "BEGIN " +
+                        "    INSERT INTO dbo.kpi_vertex_threshold_zones (dimension_code, dimension_name, ok_min, warning_min, danger_max) " +
+                        "    VALUES (?, ?, ?, ?, ?); " +
+                        "END";
+                    jdbcTemplate.update(mergeSql, code, okMin, warningMin, dangerMax, code, code, code, okMin, warningMin, dangerMax);
+                }
 
-                jdbcTemplate.update(mergeSql, code, okMin, warningMin, dangerMax, code, code, code, okMin, warningMin, dangerMax);
+                if (kpiExtend != null) {
+                    try {
+                        kpiExtend.recalculateVertexValues(null, code, null);
+                    } catch (Exception ex) {
+                        System.err.println("Error recalculating vertex for " + code + ": " + ex.getMessage());
+                    }
+                }
+            }
+
+            if (kpiExtend != null) {
+                kpiExtend.invalidateKpisWithAssignmentsCache();
             }
 
             jout.put("code", 200);
@@ -155,6 +186,29 @@ public class KpiVertexZoneController {
             jout.put("code", 500);
             jout.put("status", "ERROR");
             jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    /**
+     * POST /kpi-vertex-zones/recalculate - Recalculate and update all vertex values and threshold zones
+     */
+    @PostMapping(value = {"/recalculate", "/sync"})
+    public String recalculateThresholds() {
+        System.out.println("-------recalculateThresholds");
+        JSONObject jout = new JSONObject();
+        try {
+            ensureTableExists();
+            JSONObject res = (kpiExtend != null) ? kpiExtend.recalculateAllVertexValues() : new JSONObject();
+            jout.put("code", 200);
+            jout.put("status", "SUCCESS");
+            jout.put("description", "Tính toán lại và cập nhật tất cả các đỉnh chiều (Vertices) thành công!");
+            jout.put("data", res);
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("status", "ERROR");
+            jout.put("description", "Lỗi: " + e.getMessage());
         }
         return jout.toString();
     }
