@@ -389,60 +389,8 @@ public class SurveySyncScheduler {
         try {
             // Find active surveys to sync
             List<String> activeSurveyIds = jdbcTemplate.queryForList("SELECT id FROM surveys WHERE is_active = 1", String.class);
-            
-            String cleanApiKey = slinkApiKey != null ? slinkApiKey.replace("\"", "").trim() : "";
-            org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
-            requestFactory.setConnectTimeout(10000);
-            requestFactory.setReadTimeout(10000);
-            RestTemplate restTemplate = new RestTemplate(requestFactory);
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("x-api-key", cleanApiKey);
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
             for (String surveyId : activeSurveyIds) {
-                int page = 1;
-                int limit = 100;
-                boolean hasMore = true;
-                
-                while (hasMore) {
-                    String url = "https://gw.aisoftech.vn/ptit/slink/internal/cau-tra-loi-khao-sat/khao-sat/" + surveyId + "/page?page=" + page + "&limit=" + limit;
-                    try {
-                        ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
-                        String responseBody = response.getBody() != null ? new String(response.getBody(), java.nio.charset.StandardCharsets.UTF_8) : "{}";
-                        JSONObject jRes = new JSONObject(responseBody);
-                        if (jRes.has("success") && jRes.getBoolean("success")) {
-                            JSONObject data = jRes.getJSONObject("data");
-                            JSONArray items = data.getJSONArray("result");
-                            
-                            if (items.length() == 0) {
-                                hasMore = false;
-                                break;
-                            }
-                            
-                            for (int i = 0; i < items.length(); i++) {
-                                updateSurveyResponse(items.getJSONObject(i)); //TODO: Uncomment this line when the method is implemented
-                            }
-                            
-                            int total = data.getInt("total");
-                            if (page * limit >= total) {
-                                hasMore = false;
-                            } else {
-                                page++;
-                            }
-                        } else {
-                            hasMore = false;
-                        }
-                    } catch (Exception ex) {
-                        System.out.println("Error syncing details for survey " + surveyId + ": " + ex.getMessage());
-                        hasMore = false;
-                        if (ex.getMessage() != null && ex.getMessage().contains("Fatal database connection error") || 
-                            ex instanceof org.springframework.transaction.CannotCreateTransactionException || 
-                            ex instanceof org.springframework.jdbc.CannotGetJdbcConnectionException ||
-                            (ex.getCause() != null && ex.getCause().getMessage() != null && ex.getCause().getMessage().contains("closed"))) {
-                            throw ex;
-                        }
-                    }
-                }
+                syncSurveyDetailsById(surveyId);
             }
             System.out.println("Slink Survey Details Sync Completed successfully.");
         } catch (Exception e) {
@@ -451,16 +399,96 @@ public class SurveySyncScheduler {
         }
     }
 
+    public int syncSurveyDetailsById(String surveyId) {
+        System.out.println("Starting Slink Survey Details Sync for survey " + surveyId + "...");
+        int totalSaved = 0;
+        try {
+            String cleanApiKey = slinkApiKey != null ? slinkApiKey.replace("\"", "").trim() : "";
+            org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+            requestFactory.setConnectTimeout(15000);
+            requestFactory.setReadTimeout(15000);
+            RestTemplate restTemplate = new RestTemplate(requestFactory);
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("x-api-key", cleanApiKey);
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            int page = 1;
+            int limit = 100;
+            boolean hasMore = true;
+
+            while (hasMore) {
+                String url = "https://gw.aisoftech.vn/ptit/slink/internal/cau-tra-loi-khao-sat/khao-sat/" + surveyId + "/page?page=" + page + "&limit=" + limit;
+                try {
+                    ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
+                    String responseBody = response.getBody() != null ? new String(response.getBody(), java.nio.charset.StandardCharsets.UTF_8) : "{}";
+                    JSONObject jRes = new JSONObject(responseBody);
+                    if (jRes.has("success") && jRes.getBoolean("success")) {
+                        JSONObject data = jRes.getJSONObject("data");
+                        JSONArray items = data.getJSONArray("result");
+
+                        if (items.length() == 0) {
+                            hasMore = false;
+                            break;
+                        }
+
+                        for (int i = 0; i < items.length(); i++) {
+                            updateSurveyResponse(items.getJSONObject(i));
+                            totalSaved++;
+                        }
+
+                        int total = data.getInt("total");
+                        if (page * limit >= total) {
+                            hasMore = false;
+                        } else {
+                            page++;
+                        }
+                    } else {
+                        hasMore = false;
+                    }
+                } catch (Exception ex) {
+                    System.out.println("Error syncing details for survey " + surveyId + ": " + ex.getMessage());
+                    hasMore = false;
+                    if (ex.getMessage() != null && ex.getMessage().contains("Fatal database connection error") || 
+                        ex instanceof org.springframework.transaction.CannotCreateTransactionException || 
+                        ex instanceof org.springframework.jdbc.CannotGetJdbcConnectionException ||
+                        (ex.getCause() != null && ex.getCause().getMessage() != null && ex.getCause().getMessage().contains("closed"))) {
+                        throw ex;
+                    }
+                }
+            }
+            System.out.println("Slink Survey Details Sync for survey " + surveyId + " completed. Total responses: " + totalSaved);
+        } catch (Exception e) {
+            System.out.println("Error in syncSurveyDetailsById: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return totalSaved;
+    }
+
     private void updateSurveyResponse(JSONObject res) {
         try {
             String id = res.getString("_id");
             String surveyId = res.getString("idKhaoSat");
             String hoTen = res.optString("hoTen", null);
             String userCode = res.optString("userCode", null);
-            boolean answered = res.optBoolean("answered", false);
+            if (userCode == null || userCode.trim().isEmpty()) {
+                userCode = res.optString("userId", null);
+            }
             String role = res.optString("vaiTro", null);
             String classCode = res.optString("maLop", null);
-            
+            String campaignId = res.optString("idDot", null);
+
+            boolean answered = res.optBoolean("answered", false);
+            if (!answered) {
+                if (res.optBoolean("saved", false)) {
+                    answered = true;
+                } else if (res.has("danhSachTraLoi") && !res.isNull("danhSachTraLoi")) {
+                    JSONArray dArray = res.optJSONArray("danhSachTraLoi");
+                    if (dArray != null && dArray.length() > 0) {
+                        answered = true;
+                    }
+                }
+            }
+
             Timestamp startedAt = parseDate(res.optString("startedAt"));
             Timestamp createdAt = parseDate(res.optString("createdAt"));
             Timestamp updatedAt = parseDate(res.optString("updatedAt"));
@@ -471,6 +499,7 @@ public class SurveySyncScheduler {
             final String finalHoTen = hoTen;
             final String finalRole = role;
             final String finalClassCode = classCode;
+            final String finalCampaignId = campaignId;
             final boolean finalAnswered = answered;
             final Timestamp finalStartedAt = startedAt;
             final Timestamp finalCreatedAt = createdAt;
@@ -479,7 +508,7 @@ public class SurveySyncScheduler {
             Timestamp dbUpdatedAt = null;
             boolean exists = false;
             try {
-                dbUpdatedAt = jdbcTemplate.queryForObject("SELECT updated_at FROM survey_responses WHERE id = ?", Timestamp.class, finalId);
+                dbUpdatedAt = jdbcTemplate.queryForObject("SELECT updated_at FROM survey_responses WHERE id = CAST(? AS VARCHAR(100))", Timestamp.class, finalId);
                 exists = true;
             } catch (EmptyResultDataAccessException e) {
                 // Not found
@@ -495,20 +524,21 @@ public class SurveySyncScheduler {
             transactionTemplate.executeWithoutResult(status -> {
                 if (finalExists) {
                     if (finalDbUpdatedAt == null || (finalUpdatedAt != null && finalUpdatedAt.after(finalDbUpdatedAt))) {
-                        String updateSql = "UPDATE survey_responses SET is_answered=?, updated_at=? WHERE id=?";
+                        String updateSql = "UPDATE survey_responses SET is_answered=?, updated_at=?, campaign_id=COALESCE(?, campaign_id) WHERE id=CAST(? AS VARCHAR(100))";
                         jdbcTemplate.update(connection -> {
                             java.sql.PreparedStatement ps = connection.prepareStatement(updateSql);
                             ps.setBoolean(1, finalAnswered);
                             ps.setTimestamp(2, finalUpdatedAt);
-                            ps.setString(3, finalId);
+                            ps.setString(3, finalCampaignId);
+                            ps.setString(4, finalId);
                             return ps;
                         });
 
-                        jdbcTemplate.update("DELETE FROM survey_response_answers WHERE response_id = ?", finalId);
+                        jdbcTemplate.update("DELETE FROM survey_response_answers WHERE response_id = CAST(? AS VARCHAR(100))", finalId);
                         insertAnswers(finalSurveyId, finalId, res.optJSONArray("danhSachTraLoi"));
                     }
                 } else {
-                    String insertSql = "INSERT INTO survey_responses (id, survey_id, user_code, full_name, role, class_code, is_answered, started_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    String insertSql = "INSERT INTO survey_responses (id, survey_id, user_code, full_name, role, class_code, is_answered, started_at, created_at, updated_at, campaign_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                     jdbcTemplate.update(connection -> {
                         java.sql.PreparedStatement ps = connection.prepareStatement(insertSql);
                         ps.setString(1, finalId);
@@ -521,6 +551,7 @@ public class SurveySyncScheduler {
                         ps.setTimestamp(8, finalStartedAt);
                         ps.setTimestamp(9, finalCreatedAt);
                         ps.setTimestamp(10, finalUpdatedAt);
+                        ps.setString(11, finalCampaignId);
                         return ps;
                     });
 
@@ -541,6 +572,17 @@ public class SurveySyncScheduler {
     private void insertAnswers(String surveyId, String responseId, JSONArray answers) {
         if (answers == null || answers.length() == 0) return;
         
+        java.util.Map<String, String> qTypes = new java.util.HashMap<>();
+        try {
+            List<java.util.Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT q.id, q.question_type FROM survey_questions q JOIN survey_blocks b ON q.block_id = b.id WHERE b.survey_id = ?",
+                surveyId
+            );
+            for (java.util.Map<String, Object> r : rows) {
+                qTypes.put((String) r.get("id"), (String) r.get("question_type"));
+            }
+        } catch (Exception ignored) {}
+
         List<Object[]> batchParams = new java.util.ArrayList<>();
         for (int i = 0; i < answers.length(); i++) {
             JSONObject ans = answers.getJSONObject(i);
@@ -548,15 +590,25 @@ public class SurveySyncScheduler {
             String originalQId = ans.getString("idCauHoi");
             String qId = generateUniqueId(surveyId, originalQId);
             String traLoiKhac = ans.optString("traLoiKhac", null);
+            String traLoiText = ans.optString("traLoiText", null);
             
             JSONArray listLuaChon = ans.optJSONArray("listLuaChon");
             JSONArray listLuaChonBang = ans.optJSONArray("listLuaChonBang");
             
+            String qType = qTypes.get(qId);
+            boolean isTextType = "Text".equalsIgnoreCase(qType) || "Paragraph".equalsIgnoreCase(qType);
+
             String choicesStr = null;
             if (listLuaChon != null && listLuaChon.length() > 0) {
                 choicesStr = listLuaChon.toString();
             } else if (listLuaChonBang != null && listLuaChonBang.length() > 0) {
                 choicesStr = listLuaChonBang.toString();
+            } else if (!isTextType && traLoiText != null && !traLoiText.trim().isEmpty()) {
+                choicesStr = new JSONArray().put(traLoiText.trim()).toString();
+            }
+
+            if (traLoiKhac == null && traLoiText != null && !traLoiText.trim().isEmpty()) {
+                traLoiKhac = traLoiText.trim();
             }
             
             batchParams.add(new Object[]{ansId, responseId, qId, choicesStr, traLoiKhac});

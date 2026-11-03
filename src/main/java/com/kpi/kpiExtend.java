@@ -144,7 +144,7 @@ public class kpiExtend {
 				}
 			}
 
-			if (assignedBy == null || assignedBy.trim().isEmpty()) {
+			if (assignedBy == null || assignedBy.trim().isEmpty() || "null".equalsIgnoreCase(assignedBy.trim())) {
 				if ("B".equalsIgnoreCase(role)) {
 					// Delete Role B assignment when cleared/unselected
 					String deleteSql = "DELETE FROM kpi_assignments WHERE kpi_id = ? AND role = 'B'";
@@ -153,9 +153,13 @@ public class kpiExtend {
 					response.put("description", "Thành công (Đã xóa người phê duyệt)");
 					return response;
 				}
-				response.put("code", 400);
-				response.put("description", "Assigned By user ID is required");
-				return response;
+				if ("A".equalsIgnoreCase(role)) {
+					assignedBy = "1";
+				} else {
+					response.put("code", 400);
+					response.put("description", "Assigned By user ID is required");
+					return response;
+				}
 			}
 
 			// Check if KPI assignment already exists for the given kpiId and role
@@ -3189,13 +3193,17 @@ public class kpiExtend {
 						   "u.Email AS approved_by_name, dp.updated_at " +
 						   "FROM kpi_data_points dp " +
 						   "LEFT JOIN users u ON dp.approved_by = u.ID " +
-						   "WHERE dp.kpi_id = ? AND (CAST(dp.department_id AS VARCHAR(100)) = ? OR (dp.department_id IS NULL AND ? IS NULL))";
-			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql, kpiId, sDeptId, sDeptId);
+						   "WHERE dp.kpi_id = ? AND (CAST(dp.department_id AS VARCHAR(100)) = ? OR dp.department_id IS NULL) " +
+						   "ORDER BY dp.data_id ASC";
+			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql, kpiId, sDeptId);
 
 			Map<Integer, Map<String, Object>> dpByPeriod = new java.util.HashMap<>();
 			for (Map<String, Object> dp : dpRows) {
 				if (dp.get("period_id") != null) {
-					dpByPeriod.put(((Number) dp.get("period_id")).intValue(), dp);
+					int pid = ((Number) dp.get("period_id")).intValue();
+					if (!dpByPeriod.containsKey(pid) || dp.get("department_id") != null) {
+						dpByPeriod.put(pid, dp);
+					}
 				}
 			}
 

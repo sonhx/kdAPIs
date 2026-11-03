@@ -704,6 +704,88 @@ public class KpiT106Controller {
     }
 
     // -------------------------------------------------------------------------
+    // 4b. POST /kpi/t106/manual-summary
+    //     Save manual CLO count (fully assessed courses & total courses)
+    // -------------------------------------------------------------------------
+    @PostMapping("/manual-summary")
+    public ResponseEntity<String> saveManualSummary(@RequestBody String payload) {
+        JSONObject result = new JSONObject();
+        try {
+            JSONObject json = new JSONObject(payload);
+            String rawPeriod = json.optString("period_code", "SEMESTER_1_2025-2026");
+            String normalizedPeriod = normalizePeriod(rawPeriod);
+            int fullyAssessed = json.optInt("fully_assessed", 0);
+            Integer customTotal = json.has("total_courses") && !json.isNull("total_courses") ? json.getInt("total_courses") : null;
+            Integer uploadedBy = json.has("uploaded_by") ? json.getInt("uploaded_by") : null;
+            String note = json.optString("notes", "Kê khai thủ công số lượng học phần đánh giá CLO");
+
+            List<Long> allCourseIds = jdbcTemplate.queryForList("SELECT id FROM dbo.courses ORDER BY id ASC", Long.class);
+            int totalCourses = customTotal != null && customTotal > 0 ? customTotal : (allCourseIds.isEmpty() ? 2854 : allCourseIds.size());
+            if (fullyAssessed < 0) fullyAssessed = 0;
+            if (fullyAssessed > totalCourses) fullyAssessed = totalCourses;
+
+            UUID batchId = UUID.randomUUID();
+
+            // Clear previous records for this period
+            jdbcTemplate.update(
+                "DELETE FROM dbo.kpi_t106_clo_assessment_data WHERE period_code = ? OR period_code = ?",
+                normalizedPeriod, rawPeriod
+            );
+
+            // Populate records for courses
+            if (!allCourseIds.isEmpty()) {
+                final int finalFully = fullyAssessed;
+                String insertSql = "INSERT INTO dbo.kpi_t106_clo_assessment_data " +
+                    "(period_code, course_id, is_fully_assessed, total_clos, assessed_clos, assessment_method, evaluated_by, notes, uploaded_by, batch_id) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+                jdbcTemplate.batchUpdate(insertSql, new BatchPreparedStatementSetter() {
+                    @Override
+                    public void setValues(PreparedStatement ps, int i) throws SQLException {
+                        Long cId = allCourseIds.get(i);
+                        boolean isFull = i < finalFully;
+                        ps.setString(1, normalizedPeriod);
+                        ps.setLong(2, cId);
+                        ps.setBoolean(3, isFull);
+                        ps.setInt(4, 4);
+                        ps.setInt(5, isFull ? 4 : 0);
+                        ps.setNString(6, isFull ? "Kê khai hoàn thành CLO" : null);
+                        ps.setNull(7, Types.NVARCHAR);
+                        ps.setNString(8, note);
+                        if (uploadedBy != null) ps.setInt(9, uploadedBy);
+                        else ps.setNull(9, Types.INTEGER);
+                        ps.setString(10, batchId.toString());
+                    }
+
+                    @Override
+                    public int getBatchSize() {
+                        return allCourseIds.size();
+                    }
+                });
+            }
+
+            int denominator = Math.max(totalCourses, 1);
+            double ratio = Math.round((fullyAssessed * 100.0 / denominator) * 100.0) / 100.0;
+
+            result.put("status", "SUCCESS");
+            result.put("period_code", normalizedPeriod);
+            result.put("batch_id", batchId.toString());
+            result.put("total_courses", totalCourses);
+            result.put("fully_assessed", fullyAssessed);
+            result.put("unassessed", Math.max(0, totalCourses - fullyAssessed));
+            result.put("ratio", ratio);
+            result.put("message", "Đã lưu số lượng học phần đánh giá CLO: " + fullyAssessed + "/" + totalCourses + " (" + ratio + "%).");
+
+            return ResponseEntity.ok(result.toString());
+        } catch (Exception e) {
+            log.error("Error saving manual summary for T1.06", e);
+            result.put("status", "ERROR");
+            result.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(result.toString());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // 5. GET /kpi/t106/data?period=SEMESTER_1_2025-2026
     //    Get list of assessed courses with joined details from courses & training_programs
     // -------------------------------------------------------------------------

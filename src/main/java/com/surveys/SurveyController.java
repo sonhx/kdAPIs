@@ -52,9 +52,40 @@ public class SurveyController {
     @Autowired
     private com.surveys.job.SurveyAutoIgnoreJob surveyAutoIgnoreJob;
 
+    @Autowired
+    private SurveySyncScheduler surveySyncScheduler;
+
+    @Autowired
+    private com.surveys.service.SurveyStatsService surveyStatsService;
+
     @Value("${slink.api-key}")
     private String slinkApiKey;
 
+    @PostMapping(value = {"/{id}/sync", "/{id}/sync-responses"})
+    public String syncSurvey(@PathVariable("id") String id) {
+        JSONObject jout = new JSONObject();
+        try {
+            int total = surveySyncScheduler.syncSurveyDetailsById(id);
+            if (total > 0) {
+                jdbcTemplate.update("UPDATE dbo.surveys SET is_ignored = 0 WHERE id = ?", id);
+            }
+            try {
+                surveyStatsService.recomputeCampaign(id, null);
+            } catch (Exception ex) {
+                System.out.println("Notice recomputing overall stats after sync: " + ex.getMessage());
+            }
+            jout.put("code", 200);
+            jout.put("message", "Đồng bộ thành công " + total + " phản hồi");
+            jout.put("totalSynced", total);
+            return jout.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("error", "Lỗi khi đồng bộ khảo sát: " + e.getMessage());
+            return jout.toString();
+        }
+    }
+    
     @PostMapping(value = "/upload-t107", produces = MediaType.APPLICATION_JSON_VALUE)
     public String uploadT107SurveyExcel(
             @RequestParam("file") MultipartFile file,
