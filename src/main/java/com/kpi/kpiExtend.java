@@ -1546,6 +1546,8 @@ public class kpiExtend {
 						else if ("C5.01".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_CAPA"; }
 						else if ("C5.02".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_CAPA"; }
 						else if ("C5.03".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_CAPA"; }
+						else if ("G2.09".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
+						else if ("Q7.04".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
 					}
 
 					KpiSyncScheduleInfo sched = getKpiSyncScheduleInfo(kCode);
@@ -2623,6 +2625,10 @@ public class kpiExtend {
 		if (kpiCode == null) return null;
 		String code = kpiCode.trim().toUpperCase();
 		switch (code) {
+			case "G2.09":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:15 AM)", "0 15 1 * * ?", "SLINK_SURVEY", "Hệ thống Khảo sát S-Link");
+			case "Q7.04":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:15 AM)", "0 15 1 * * ?", "SLINK_SURVEY", "Hệ thống Khảo sát S-Link (tạm đồng bộ theo KS Giảng viên)");
 			case "D8.04":
 				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:00 AM)", "0 0 1 * * ?", "QA_DASHBOARD", "Dashboard QA (Hệ thống dữ liệu QA)");
 			case "C5.01":
@@ -2658,7 +2664,7 @@ public class kpiExtend {
 			|| code.equals("G2.01") || code.equals("G2.05")
 			|| code.equals("K6.05") || code.equals("D8.07")
 			|| code.equals("D8.04")
-			|| code.equals("C5.01") || code.equals("C5.02") || code.equals("C5.03");
+			|| code.equals("C5.01") || code.equals("C5.02") || code.equals("C5.03") || code.equals("G2.09") || code.equals("Q7.04");
 	}
 
 	public int getOrCreatePeriodInstance(int cycleId, String cycleType, Date date) {
@@ -3331,6 +3337,21 @@ public class kpiExtend {
 			e.printStackTrace();
 			response.put("code", 500);
 			response.put("description", "Lỗi lưu cấu hình chính sách: " + e.getMessage());
+		}
+		return response;
+	}
+
+	public JSONObject getKpiReportEntries(Integer cycleId, Integer periodId, String departmentId, String status, String search) {
+		JSONObject response = new JSONObject();
+		try {
+			response.put("code", 200);
+			response.put("description", "Success");
+			response.put("entries", new JSONArray());
+		} catch (Exception e) {
+			try {
+				response.put("code", 500);
+				response.put("description", e.getMessage());
+			} catch (Exception ignored) {}
 		}
 		return response;
 	}

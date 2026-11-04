@@ -1289,6 +1289,21 @@ public class kpiServices {
 		return jout.toString();
 	}
 
+	/**
+	 * GET /kpi/report/entries - Aggregated report of KPI entries across cycles for Admin
+	 */
+	@GetMapping("/report/entries")
+	public String getKpiReportEntries(
+			@RequestParam(value = "cycle_id", required = false) Integer cycleId,
+			@RequestParam(value = "period_id", required = false) Integer periodId,
+			@RequestParam(value = "department_id", required = false) String departmentId,
+			@RequestParam(value = "status", required = false) String status,
+			@RequestParam(value = "search", required = false) String search) {
+		System.out.println("-------getKpiReportEntries: cycleId=" + cycleId + ", periodId=" + periodId + ", deptId=" + departmentId + ", status=" + status + ", search=" + search);
+		JSONObject result = kpiExtend.getKpiReportEntries(cycleId, periodId, departmentId, status, search);
+		return result.toString();
+	}
+
 	private void onKpiSyncCompleted(String kpiCode) {
 		try {
 			String safeCode = kpiCode != null ? kpiCode.replace("'", "''") : "";

@@ -15,10 +15,10 @@ public class SurveyTestController {
         // Chạy đồng bộ trong một luồng nền để không chặn HTTP Request
         new Thread(() -> {
             System.out.println("Manual trigger: Starting syncSurveys...");
-            surveySyncScheduler.syncSurveys();
+            surveySyncScheduler.syncSurveys(true);
             
             System.out.println("Manual trigger: Starting syncOngoingSurveyDetails...");
-            surveySyncScheduler.syncOngoingSurveyDetails();
+            surveySyncScheduler.syncOngoingSurveyDetails(true);
             
             System.out.println("Manual trigger: Completed!");
         }).start();

@@ -228,44 +228,28 @@ public class SurveyController {
     @GetMapping("/list")
     public String getSurveyList() {
         try {
-            boolean hasFocusCol = false;
-            try {
-                Integer colExists = jdbcTemplate.queryForObject(
-                    "SELECT CASE WHEN COL_LENGTH('dbo.surveys', 'is_institutional_focus') IS NOT NULL THEN 1 ELSE 0 END", 
-                    Integer.class
-                );
-                if (colExists == null || colExists == 0) {
-                    jdbcTemplate.execute("ALTER TABLE dbo.surveys ADD is_institutional_focus BIT NOT NULL DEFAULT 0;");
-                    hasFocusCol = true;
-                } else {
-                    hasFocusCol = true;
-                }
-            } catch (Exception e) {
-                System.out.println("Notice checking/adding is_institutional_focus: " + e.getMessage());
-            }
-
             String sql = "SELECT s.id, " +
                          "s.title as name, " +
                          "s.survey_type as target, " +
-                         "s.is_active, " +
+                         "c.id as campaign_id, " +
+                         "c.title as campaign_name, " +
+                         "c.semester_code, " +
+                         "c.semester_name, " +
+                         "CASE WHEN c.id IS NOT NULL THEN c.is_active ELSE s.is_active END as is_active, " +
                          "ISNULL(s.is_ignored, 0) as is_ignored, " +
-                         (hasFocusCol ? "ISNULL(s.is_institutional_focus, 0) as is_institutional_focus, " : "0 as is_institutional_focus, ") +
-                         "CONVERT(VARCHAR(10), COALESCE(c.min_start, r.min_resp, s.created_at), 120) as startDate, " +
-                         "CONVERT(VARCHAR(10), COALESCE(c.max_end, r.max_resp, s.updated_at, s.created_at), 120) as endDate, " +
+                         "ISNULL(s.is_institutional_focus, 0) as is_institutional_focus, " +
+                         "CONVERT(VARCHAR(10), COALESCE(c.start_time, r.min_resp, s.created_at), 120) as startDate, " +
+                         "CONVERT(VARCHAR(10), COALESCE(c.end_time, r.max_resp, s.updated_at, s.created_at), 120) as endDate, " +
                          "ISNULL(r.response_count, 0) as responses " +
-                         "FROM surveys s " +
-                         "LEFT JOIN (" +
-                         "    SELECT survey_id, MIN(start_time) as min_start, MAX(end_time) as max_end " +
-                         "    FROM survey_campaigns " +
-                         "    GROUP BY survey_id" +
-                         ") c ON s.id = c.survey_id " +
+                         "FROM surveys s WITH (NOLOCK) " +
+                         "LEFT JOIN survey_campaigns c WITH (NOLOCK) ON s.id = c.survey_id " +
                          "LEFT JOIN (" +
                          "    SELECT survey_id, COUNT(*) as response_count, " +
                          "           MIN(created_at) as min_resp, MAX(created_at) as max_resp " +
-                         "    FROM survey_responses " +
+                         "    FROM survey_responses WITH (NOLOCK) " +
                          "    GROUP BY survey_id" +
                          ") r ON s.id = r.survey_id " +
-                         "ORDER BY s.created_at DESC";
+                         "ORDER BY COALESCE(c.created_at, s.created_at) DESC";
             
             System.out.println("Executing SQL: " + sql); // Debugging line to print the SQL query   
             
@@ -297,6 +281,20 @@ public class SurveyController {
                     isInstitutionalFocus = ((Number) isFocusObj).intValue() == 1;
                 }
                 map.put("is_institutional_focus", isInstitutionalFocus);
+                
+                if (map.get("campaign_name") != null) {
+                    map.put("campaignName", String.valueOf(map.get("campaign_name")));
+                }
+                if (map.get("campaign_id") != null) {
+                    map.put("campaignId", map.get("campaign_id"));
+                }
+                if (map.get("semester_name") != null) {
+                    map.put("semesterName", String.valueOf(map.get("semester_name")));
+                }
+                if (map.get("semester_code") != null) {
+                    map.put("semesterCode", String.valueOf(map.get("semester_code")));
+                }
+                map.put("surveyId", map.get("id"));
                 
                 if (map.get("startDate") == null) {
                     map.put("startDate", "N/A");

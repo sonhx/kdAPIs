@@ -17,16 +17,7 @@ public class UserExtend {
 
 	@PostConstruct
 	public void init() {
-		java.util.concurrent.CompletableFuture.runAsync(() -> {
-			try {
-				jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_users_ID' AND object_id = OBJECT_ID('users')) CREATE NONCLUSTERED INDEX IX_users_ID ON dbo.users(ID);");
-				jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_users_Email' AND object_id = OBJECT_ID('users')) CREATE NONCLUSTERED INDEX IX_users_Email ON dbo.users(Email);");
-				jdbcTemplate.execute("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_personnel_email' AND object_id = OBJECT_ID('personnel')) CREATE NONCLUSTERED INDEX IX_personnel_email ON dbo.personnel(email);");
-				System.out.println("[UserExtend] Verified database performance indexes on users and personnel tables.");
-			} catch (Exception e) {
-				System.err.println("[UserExtend] Index init notice: " + e.getMessage());
-			}
-		});
+		// Performance indexes are managed via database migrations, avoiding DDL lock conflicts on startup.
 	}
 
 	/**

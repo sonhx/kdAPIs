@@ -33,6 +33,18 @@ public class SurveySyncScheduler {
     @Value("${slink.api-key}")
     private String slinkApiKey;
 
+    /** Skip scheduler execution if it fires within this many ms after app startup. */
+    private static final long STARTUP_GRACE_MS = 30 * 60 * 1000L; // 30 minutes grace period
+
+    /** Recorded once when the bean is instantiated (i.e. at app start). */
+    private final long appStartTime = System.currentTimeMillis();
+
+    @Value("${slink.survey.details-sync.enabled:false}")
+    private boolean detailsSyncEnabled;
+
+    @Value("${slink.survey.sync.enabled:true}")
+    private boolean surveySyncEnabled;
+
     // Helper method to generate globally unique IDs for shared blocks/questions
     private String generateUniqueId(String surveyId, String originalId) {
         if (originalId == null) return null;
@@ -51,9 +63,23 @@ public class SurveySyncScheduler {
         }
     }
 
-    // Daily survey list metadata sync at 1:00 AM
-    @Scheduled(cron = "0 0 1 * * *")
+    // Daily survey list metadata sync at 1:00 AM (customizable via property)
+    @Scheduled(cron = "${slink.survey.sync.cron:0 0 1 * * *}")
     public void syncSurveys() {
+        syncSurveys(false);
+    }
+
+    public void syncSurveys(boolean force) {
+        if (!force) {
+            if (!surveySyncEnabled) {
+                System.out.println("Skipping Slink Survey Sync - disabled by configuration (slink.survey.sync.enabled=false).");
+                return;
+            }
+            if (System.currentTimeMillis() - appStartTime < STARTUP_GRACE_MS) {
+                System.out.println("Skipping Slink Survey Sync - still within startup grace period (" + (STARTUP_GRACE_MS / 60000) + " min).");
+                return;
+            }
+        }
         System.out.println("Starting Slink Survey Sync...");
         try {
             int page = 1;
@@ -382,9 +408,23 @@ public class SurveySyncScheduler {
         }
     }
 
-    // Daily detailed responses sync at 2:00 AM
-    @Scheduled(cron = "0 0 2 * * *")
+    // Daily detailed responses sync - disabled by default ("-"), customizable via property
+    @Scheduled(cron = "${slink.survey.details-sync.cron:-}")
     public void syncOngoingSurveyDetails() {
+        syncOngoingSurveyDetails(false);
+    }
+
+    public void syncOngoingSurveyDetails(boolean force) {
+        if (!force) {
+            if (!detailsSyncEnabled) {
+                System.out.println("Skipping Slink Survey Details Sync - disabled by configuration (slink.survey.details-sync.enabled=false).");
+                return;
+            }
+            if (System.currentTimeMillis() - appStartTime < STARTUP_GRACE_MS) {
+                System.out.println("Skipping Slink Survey Details Sync - still within startup grace period (" + (STARTUP_GRACE_MS / 60000) + " min).");
+                return;
+            }
+        }
         System.out.println("Starting Slink Survey Details Sync...");
         try {
             // Find active surveys to sync
