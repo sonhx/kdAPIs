@@ -60,7 +60,7 @@ public class WsEndPoint {
 	}
 	//========================================================================================
 	private static String fn_user_name(int user_id) {
-		String user_name = "ChÆ°a gÃ¡n ngÆ°á»i";
+		String user_name = "Chưa gán người";
 		Statement s1;
 		ResultSet rs1;
 		try {

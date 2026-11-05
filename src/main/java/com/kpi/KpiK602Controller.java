@@ -40,29 +40,8 @@ public class KpiK602Controller {
 
     @PostConstruct
     public void initTable() {
-        try {
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.kpi_k602_benchmarking_data') AND type = 'U') " +
-                "BEGIN " +
-                "CREATE TABLE dbo.kpi_k602_benchmarking_data ( " +
-                "  id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY, " +
-                "  period_code NVARCHAR(50) NOT NULL, " +
-                "  program_id BIGINT NULL, " +
-                "  program_name NVARCHAR(500) NOT NULL, " +
-                "  program_code NVARCHAR(50) NULL, " +
-                "  benchmark_standard NVARCHAR(255) NULL, " +
-                "  uploaded_by INT NULL, " +
-                "  uploaded_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(), " +
-                "  batch_id NVARCHAR(50) NOT NULL " +
-                "); " +
-                "CREATE NONCLUSTERED INDEX IX_k602_period_code ON dbo.kpi_k602_benchmarking_data (period_code); " +
-                "CREATE NONCLUSTERED INDEX IX_k602_batch_id ON dbo.kpi_k602_benchmarking_data (batch_id); " +
-                "END"
-            );
-            log.info("Initialized kpi_k602_benchmarking_data table successfully.");
-        } catch (Exception e) {
-            log.warn("Table kpi_k602_benchmarking_data init notice: {}", e.getMessage());
-        }
+        // Table dbo.kpi_k602_benchmarking_data and indexes are established in database migrations.
+        // Startup DDL execution bypassed to prevent database lock contention.
     }
 
     // Helper to normalize period string

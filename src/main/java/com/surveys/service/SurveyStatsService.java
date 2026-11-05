@@ -39,27 +39,8 @@ public class SurveyStatsService {
 
     @PostConstruct
     public void initProcedures() {
-        try {
-            ClassPathResource resource = new ClassPathResource("surveys_stats_schema.sql");
-            if (resource.exists()) {
-                InputStream is = resource.getInputStream();
-                String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
-                String[] batches = content.split("(?i)\\r?\\nGO\\r?\\n");
-                for (String batch : batches) {
-                    String trimmed = batch.trim();
-                    if (!trimmed.isEmpty()) {
-                        try {
-                            jdbcTemplate.execute(trimmed);
-                        } catch (Exception e) {
-                            log.warn("Notice executing SQL batch during startup: {}", e.getMessage());
-                        }
-                    }
-                }
-                log.info("Successfully refreshed survey stats schema and stored procedures.");
-            }
-        } catch (Exception e) {
-            log.warn("Notice refreshing survey stats schema: {}", e.getMessage());
-        }
+        // Survey stats schema and stored procedures are installed in database migrations.
+        // Startup execution of surveys_stats_schema.sql is bypassed to avoid startup latency and DDL locks.
     }
 
     public void recomputeCampaign(String surveyId, String campaignId) {
@@ -113,8 +94,8 @@ public class SurveyStatsService {
         // 2. Fetch Block Stats
         Map<String, BlockStatDto> blockMap = new HashMap<>();
         String blockSql = (actualCampaignId == null) 
-            ? "SELECT block_id, total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = ? AND campaign_id IS NULL"
-            : "SELECT block_id, total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = ? AND campaign_id = ?";
+            ? "SELECT block_id, total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id IS NULL"
+            : "SELECT block_id, total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = ?";
         Object[] blockParams = (actualCampaignId == null) ? new Object[]{surveyId} : new Object[]{surveyId, actualCampaignId};
         
         try {
@@ -130,8 +111,8 @@ public class SurveyStatsService {
         // 3. Fetch Numeric Question Stats
         Map<String, QuestionNumericStatDto> numericMap = new HashMap<>();
         String numSql = (actualCampaignId == null)
-            ? "SELECT question_id, total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = ? AND campaign_id IS NULL"
-            : "SELECT question_id, total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = ? AND campaign_id = ?";
+            ? "SELECT question_id, total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id IS NULL"
+            : "SELECT question_id, total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = ?";
         Object[] numParams = (actualCampaignId == null) ? new Object[]{surveyId} : new Object[]{surveyId, actualCampaignId};
 
         try {
@@ -150,8 +131,8 @@ public class SurveyStatsService {
         // 4. Fetch Option Question Stats
         Map<String, List<OptionStatDto>> optionMap = new HashMap<>();
         String optSql = (actualCampaignId == null)
-            ? "SELECT question_id, option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id IS NULL ORDER BY question_id, option_text ASC"
-            : "SELECT question_id, option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id = ? ORDER BY question_id, option_text ASC";
+            ? "SELECT question_id, option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id IS NULL ORDER BY question_id, option_text ASC"
+            : "SELECT question_id, option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = ? ORDER BY question_id, option_text ASC";
         Object[] optParams = (actualCampaignId == null) ? new Object[]{surveyId} : new Object[]{surveyId, actualCampaignId};
 
         try {
@@ -236,7 +217,7 @@ public class SurveyStatsService {
     private boolean hasSurveyResponses(String surveyId) {
         try {
             Integer count = jdbcTemplate.queryForObject(
-                "SELECT TOP 1 1 FROM dbo.survey_responses WHERE survey_id = ?", 
+                "SELECT TOP 1 1 FROM dbo.survey_responses WHERE survey_id = CAST(? AS VARCHAR(50))", 
                 Integer.class, 
                 surveyId
             );
@@ -250,10 +231,10 @@ public class SurveyStatsService {
         String sql;
         Object[] params;
         if (campaignId == null || "all".equalsIgnoreCase(campaignId)) {
-            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id IS NULL AND question_id = ? ORDER BY option_text ASC";
+            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id IS NULL AND question_id = ? ORDER BY option_text ASC";
             params = new Object[] { surveyId, questionId };
         } else {
-            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = ? AND campaign_id = ? AND question_id = ? ORDER BY option_text ASC";
+            sql = "SELECT option_id, option_text, count, percentage FROM dbo.survey_question_option_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = ? AND question_id = ? ORDER BY option_text ASC";
             params = new Object[] { surveyId, campaignId, questionId };
         }
 
@@ -276,10 +257,10 @@ public class SurveyStatsService {
         String sql;
         Object[] params;
         if (campaignId == null || "all".equalsIgnoreCase(campaignId)) {
-            sql = "SELECT total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = ? AND campaign_id IS NULL AND question_id = ?";
+            sql = "SELECT total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id IS NULL AND question_id = ?";
             params = new Object[] { surveyId, questionId };
         } else {
-            sql = "SELECT total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = ? AND campaign_id = ? AND question_id = ?";
+            sql = "SELECT total_responses, mean, std_dev, min_value, max_value, text_count FROM dbo.survey_question_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = ? AND question_id = ?";
             params = new Object[] { surveyId, campaignId, questionId };
         }
 
@@ -305,10 +286,10 @@ public class SurveyStatsService {
         String sql;
         Object[] params;
         if (campaignId == null || "all".equalsIgnoreCase(campaignId)) {
-            sql = "SELECT total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = ? AND campaign_id IS NULL AND block_id = ?";
+            sql = "SELECT total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id IS NULL AND block_id = ?";
             params = new Object[] { surveyId, blockId };
         } else {
-            sql = "SELECT total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = ? AND campaign_id = ? AND block_id = ?";
+            sql = "SELECT total_responses, mean, std_dev FROM dbo.survey_block_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = ? AND block_id = ?";
             params = new Object[] { surveyId, campaignId, blockId };
         }
 
@@ -331,10 +312,10 @@ public class SurveyStatsService {
         String sql;
         Object[] params;
         if (campaignId == null || "all".equalsIgnoreCase(campaignId)) {
-            sql = "SELECT total_responses, CONVERT(VARCHAR(24), computed_at, 126) as computed_at FROM dbo.survey_overall_stats WHERE survey_id = ? AND campaign_id IS NULL";
+            sql = "SELECT total_responses, CONVERT(VARCHAR(24), computed_at, 126) as computed_at FROM dbo.survey_overall_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id IS NULL";
             params = new Object[] { surveyId };
         } else {
-            sql = "SELECT total_responses, CONVERT(VARCHAR(24), computed_at, 126) as computed_at FROM dbo.survey_overall_stats WHERE survey_id = ? AND campaign_id = ?";
+            sql = "SELECT total_responses, CONVERT(VARCHAR(24), computed_at, 126) as computed_at FROM dbo.survey_overall_stats WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = ?";
             params = new Object[] { surveyId, campaignId };
         }
 

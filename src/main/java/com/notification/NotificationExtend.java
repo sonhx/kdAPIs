@@ -9,6 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import org.springframework.scheduling.annotation.Scheduled;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -97,7 +99,7 @@ public class NotificationExtend {
      * Subscribe a user's SSE Emitter connection for real-time event streaming.
      */
     public SseEmitter subscribeUser(String userId) {
-        SseEmitter emitter = new SseEmitter(1800000L); // 30 minutes timeout
+        SseEmitter emitter = new SseEmitter(180000L); // 30 minutes timeout
         List<SseEmitter> userEmitters = activeEmitters.computeIfAbsent(userId, k -> new ArrayList<>());
         synchronized (userEmitters) {
             userEmitters.add(emitter);
@@ -153,6 +155,43 @@ public class NotificationExtend {
                 }
             }
         }
+    }
+
+    /**
+     * Periodic 25s heartbeat to prevent TCP half-open connection leaks
+     * and promptly prune disconnected SSE emitters.
+     */
+    @Scheduled(fixedRate = 25000)
+    public void sendHeartbeat() {
+        if (activeEmitters.isEmpty()) return;
+        activeEmitters.forEach((userId, emitters) -> {
+            synchronized (emitters) {
+                Iterator<SseEmitter> it = emitters.iterator();
+                while (it.hasNext()) {
+                    SseEmitter emitter = it.next();
+                    try {
+                        emitter.send(SseEmitter.event().comment("heartbeat"));
+                    } catch (Exception ex) {
+                        try { emitter.complete(); } catch (Exception ignored) {}
+                        it.remove();
+                    }
+                }
+            }
+        });
+        activeEmitters.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+    }
+
+    @PreDestroy
+    public void cleanupEmittersOnShutdown() {
+        activeEmitters.forEach((userId, emitters) -> {
+            synchronized (emitters) {
+                for (SseEmitter emitter : emitters) {
+                    try { emitter.complete(); } catch (Exception ignored) {}
+                }
+                emitters.clear();
+            }
+        });
+        activeEmitters.clear();
     }
 
     /**

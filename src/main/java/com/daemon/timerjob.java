@@ -85,8 +85,8 @@ class checkNewTimeEventThread{
 		Date date = new Date();
 		
 		String content="";
-		if(flag_open==0)content="Info: Káº¿t thÃºc Ä‘á»£t nháº­p liá»‡u KPI_ID="+kpi_id+" Data source:"+data_id+","+batch_name;
-		else content="Info: Báº¯t Ä‘áº§u Ä‘á»£t nháº­p liá»‡u KPI_ID="+kpi_id+" Data source:"+data_id+","+batch_name;
+		if(flag_open==0)content="Info: Kết thúc đợt nhập liệu KPI_ID="+kpi_id+" Data source:"+data_id+","+batch_name;
+		else content="Info: Bắt đầu đợt nhập liệu KPI_ID="+kpi_id+" Data source:"+data_id+","+batch_name;
 
 		System.out.println("create_message_and_notify : "+content);
 		
@@ -108,7 +108,7 @@ class checkNewTimeEventThread{
 			if(rs1.next()){
 				
 				s2.executeUpdate("insert into TBL_MESSAGE (SenderID,ReceiverID,MsgSubject,MsgContent,CreatedTime) " 
-						+ "values(0,"+rs1.getInt(d_src_name)+",N'ThÃ´ng bÃ¡o',N'"+content+ "','" + dateFormat.format(date) + "')");
+						+ "values(0,"+rs1.getInt(d_src_name)+",N'Thông báo',N'"+content+ "','" + dateFormat.format(date) + "')");
 				
 				s2.executeUpdate("insert into TBL_NOTIFY (UserID,SessionID,NotifyContent,Email,CreatedTime) " 
 						+ "values(0,'',N'"+content+"',N'"+fn_user_email(rs1.getInt(d_src_name))+ "','" + dateFormat.format(date) + "')");

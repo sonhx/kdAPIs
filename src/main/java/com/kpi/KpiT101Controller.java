@@ -53,57 +53,8 @@ public class KpiT101Controller {
 
     @PostConstruct
     public void initTable() {
-        try {
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.kpi_t101_admission_data') AND type = 'U') " +
-                "BEGIN " +
-                "CREATE TABLE dbo.kpi_t101_admission_data ( " +
-                "  id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY, " +
-                "  period_code NVARCHAR(50) NOT NULL, " +
-                "  admission_year INT NOT NULL, " +
-                "  campus NVARCHAR(20) NOT NULL, " +
-                "  unit_type NVARCHAR(50) NOT NULL, " +
-                "  unit_code NVARCHAR(50) NOT NULL, " +
-                "  unit_name NVARCHAR(255) NOT NULL, " +
-                "  target_quota INT NOT NULL DEFAULT 0, " +
-                "  enrolled_count INT NOT NULL DEFAULT 0, " +
-                "  enrollment_rate DECIMAL(6,2) NULL, " +
-                "  notes NVARCHAR(1000) NULL, " +
-                "  uploaded_by INT NULL, " +
-                "  uploaded_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(), " +
-                "  batch_id NVARCHAR(50) NOT NULL " +
-                "); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t101_period_code ON dbo.kpi_t101_admission_data (period_code); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t101_campus_unit ON dbo.kpi_t101_admission_data (campus, unit_type, unit_code); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t101_batch_id ON dbo.kpi_t101_admission_data (batch_id); " +
-                "END; " +
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.kpi_t101_major_enrollment') AND type = 'U') " +
-                "BEGIN " +
-                "CREATE TABLE dbo.kpi_t101_major_enrollment ( " +
-                "  id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY, " +
-                "  period_code NVARCHAR(50) NOT NULL, " +
-                "  admission_year INT NOT NULL, " +
-                "  campus_code NVARCHAR(20) NOT NULL, " +
-                "  major_code NVARCHAR(50) NOT NULL, " +
-                "  major_name NVARCHAR(255) NOT NULL, " +
-                "  program_type NVARCHAR(100) NOT NULL, " +
-                "  department_code NVARCHAR(50) NULL, " +
-                "  department_name NVARCHAR(255) NULL, " +
-                "  target_quota INT NOT NULL DEFAULT 0, " +
-                "  enrolled_count INT NOT NULL DEFAULT 0, " +
-                "  enrollment_rate DECIMAL(6,2) NULL, " +
-                "  notes NVARCHAR(1000) NULL, " +
-                "  batch_id NVARCHAR(50) NOT NULL, " +
-                "  uploaded_at DATETIME2 NOT NULL DEFAULT SYSDATETIME() " +
-                "); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t101_major_period ON dbo.kpi_t101_major_enrollment (period_code, campus_code, major_code); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t101_major_batch ON dbo.kpi_t101_major_enrollment (batch_id); " +
-                "END;"
-            );
-            log.info("Initialized kpi_t101_admission_data and kpi_t101_major_enrollment tables successfully.");
-        } catch (Exception e) {
-            log.warn("Table kpi_t101 tables init notice: {}", e.getMessage());
-        }
+        // Tables dbo.kpi_t101_admission_data and dbo.kpi_t101_major_enrollment are managed via migrations.
+        // Startup DDL execution bypassed to prevent database lock contention.
     }
 
     private String normalizePeriod(String period, int year) {

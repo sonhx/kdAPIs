@@ -40,35 +40,8 @@ public class kpiExtend {
 	 */
 	@PostConstruct
 	public void initKpiSchemaAndTables() {
-		try {
-			jdbcTemplate.execute(
-				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'is_approved') " +
-				"    ALTER TABLE kpi_data_points ADD is_approved INT DEFAULT 0 NULL; " +
-				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'approved_by') " +
-				"    ALTER TABLE kpi_data_points ADD approved_by VARCHAR(255) NULL; " +
-				"IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('kpi_data_points') AND name = 'approved_at') " +
-				"    ALTER TABLE kpi_data_points ADD approved_at DATETIME NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'department_id' AND t.name NOT IN ('varchar', 'nvarchar')) " +
-				"    ALTER TABLE kpi_data_points ALTER COLUMN department_id VARCHAR(100) NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'department_id' AND t.name NOT IN ('varchar', 'nvarchar')) " +
-				"    ALTER TABLE kpi_value_versions ALTER COLUMN department_id VARCHAR(100) NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'evidence_file_name' AND t.name = 'varchar') " +
-				"    ALTER TABLE kpi_data_points ALTER COLUMN evidence_file_name NVARCHAR(500) NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'evidence_link' AND t.name = 'varchar') " +
-				"    ALTER TABLE kpi_data_points ALTER COLUMN evidence_link NVARCHAR(2000) NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_data_points') AND c.name = 'notes' AND t.name = 'varchar') " +
-				"    ALTER TABLE kpi_data_points ALTER COLUMN notes NVARCHAR(MAX) NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'evidence_file_name' AND t.name = 'varchar') " +
-				"    ALTER TABLE kpi_value_versions ALTER COLUMN evidence_file_name NVARCHAR(500) NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'evidence_link' AND t.name = 'varchar') " +
-				"    ALTER TABLE kpi_value_versions ALTER COLUMN evidence_link NVARCHAR(2000) NULL; " +
-				"IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('kpi_value_versions') AND c.name = 'notes' AND t.name = 'varchar') " +
-				"    ALTER TABLE kpi_value_versions ALTER COLUMN notes NVARCHAR(MAX) NULL; "
-			);
-			logger.info("kpi_data_points and kpi_value_versions schema verified: evidence_file_name, evidence_link, and notes set to NVARCHAR.");
-		} catch (Exception e) {
-			logger.warn("Could not verify kpi_data_points schema: {}", e.getMessage());
-		}
+		// Schema columns and types for kpi_data_points and kpi_value_versions
+		// are managed via database migrations, avoiding DDL lock conflicts on startup.
 	}
 
 	/**
@@ -1548,6 +1521,10 @@ public class kpiExtend {
 						else if ("C5.03".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "QA_CAPA"; }
 						else if ("G2.09".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
 						else if ("Q7.04".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
+						else if ("H4.02".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
+						else if ("H4.03".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
+						else if ("H4.04".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
+						else if ("H4.05".equalsIgnoreCase(kCode)) { updateMode = "AUTOMATED"; sourceSystem = "SLINK_SURVEY"; }
 					}
 
 					KpiSyncScheduleInfo sched = getKpiSyncScheduleInfo(kCode);
@@ -1796,11 +1773,27 @@ public class kpiExtend {
 					java.sql.Date cEndDate = (java.sql.Date) cInfo.get("cEndDate");
 					java.sql.Date pEndDate = (java.sql.Date) cInfo.get("pEndDate");
 
+					List<JSONObject> kpiDps = dpMap.get(kpiId);
 					boolean isCurrInProgress = (cEndDate != null && refDate.before(cEndDate));
 					if (isKpiAutomated) {
-						// Note: For KPIs automatically updated from other systems, period of getting data is the CURRENT period
-						targetPeriodId = (Integer) cInfo.get("currPid");
-						targetPeriodCode = (String) cInfo.get("cCode");
+						// For automated KPIs: if current in-progress period has no data yet, prefer the latest completed period with data
+						Integer currPid = (Integer) cInfo.get("currPid");
+						boolean currHasData = false;
+						if (currPid != null && kpiDps != null) {
+							for (JSONObject dpObj : kpiDps) {
+								if (currPid.equals(dpObj.optInt("period_id")) && !dpObj.isNull("actual_value")) {
+									currHasData = true;
+									break;
+								}
+							}
+						}
+						if (currHasData || cInfo.get("prevPid") == null) {
+							targetPeriodId = currPid;
+							targetPeriodCode = (String) cInfo.get("cCode");
+						} else {
+							targetPeriodId = (Integer) cInfo.get("prevPid");
+							targetPeriodCode = (String) cInfo.get("pCode");
+						}
 					} else {
 						// For manual KPIs, period of reporting is the PREVIOUS completed period
 						targetPeriodId = isCurrInProgress ? (Integer) cInfo.get("prevPid") : (Integer) cInfo.get("currPid");
@@ -2628,7 +2621,15 @@ public class kpiExtend {
 			case "G2.09":
 				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:15 AM)", "0 15 1 * * ?", "SLINK_SURVEY", "Hệ thống Khảo sát S-Link");
 			case "Q7.04":
-				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:15 AM)", "0 15 1 * * ?", "SLINK_SURVEY", "Hệ thống Khảo sát S-Link (tạm đồng bộ theo KS Giảng viên)");
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:15 AM)", "0 15 1 * * ?", "SLINK_SURVEY", "Đồng bộ khảo sát từ S-Link");
+			case "H4.02":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:20 AM)", "0 20 1 * * ?", "SLINK_SURVEY", "Khảo sát Sinh viên S-Link");
+			case "H4.03":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:25 AM)", "0 25 1 * * ?", "SLINK_SURVEY", "Khảo sát Sinh viên S-Link");
+			case "H4.04":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:30 AM)", "0 30 1 * * ?", "SLINK_SURVEY", "Khảo sát Sinh viên S-Link");
+			case "H4.05":
+				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:35 AM)", "0 35 1 * * ?", "SLINK_SURVEY", "Khảo sát Sinh viên S-Link");
 			case "D8.04":
 				return new KpiSyncScheduleInfo("DAILY", "Hằng ngày (01:00 AM)", "0 0 1 * * ?", "QA_DASHBOARD", "Dashboard QA (Hệ thống dữ liệu QA)");
 			case "C5.01":
@@ -2644,13 +2645,13 @@ public class kpiExtend {
 			case "N3.08":
 				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:15)", "0 15 0 1 * ?", "OPENALEX_SCIMAGO", "OpenAlex + SCImago");
 			case "G2.01":
-				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:15)", "0 15 0 1 * ?", "PERSONNEL_DB", "Hệ thống Nhân sự (Personnel DB)");
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:15)", "0 15 0 1 * ?", "PERSONNEL_DB", "Đồng bộ từ S-Link");
 			case "G2.05":
 				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:20)", "0 20 0 1 * ?", "OPENALEX_PERSONNEL", "OpenAlex + Nhân sự");
 			case "K6.05":
 				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:25)", "0 25 0 1 * ?", "KIEMDINH_TBL_MINHCHUNG", "Kiểm định (TBL_Minhchung)");
 			case "D8.07":
-				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:30)", "0 30 0 1 * ?", "KIEMDINH_TBL_MINHCHUNG", "Kiểm định (TBL_Minhchung)");
+				return new KpiSyncScheduleInfo("MONTHLY", "Hằng tháng (ngày 01 lúc 00:30)", "0 30 0 1 * ?", "KIEMDINH_TBL_MINHCHUNG", "Kiểm định");
 			default:
 				return null;
 		}
@@ -2664,7 +2665,8 @@ public class kpiExtend {
 			|| code.equals("G2.01") || code.equals("G2.05")
 			|| code.equals("K6.05") || code.equals("D8.07")
 			|| code.equals("D8.04")
-			|| code.equals("C5.01") || code.equals("C5.02") || code.equals("C5.03") || code.equals("G2.09") || code.equals("Q7.04");
+			|| code.equals("C5.01") || code.equals("C5.02") || code.equals("C5.03") || code.equals("G2.09") || code.equals("Q7.04")
+			|| code.equals("H4.02") || code.equals("H4.03") || code.equals("H4.04") || code.equals("H4.05");
 	}
 
 	public int getOrCreatePeriodInstance(int cycleId, String cycleType, Date date) {

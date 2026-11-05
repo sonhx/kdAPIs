@@ -25,20 +25,8 @@ public class SurveyAutoIgnoreJob {
 
     @PostConstruct
     public void initTableSchema() {
-        try {
-            ClassPathResource resource = new ClassPathResource("survey_ignore_rules_schema.sql");
-            if (resource.exists()) {
-                try (InputStream is = resource.getInputStream()) {
-                    String sql = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
-                    jdbcTemplate.execute(sql);
-                    // Un-ignore Excel summary surveys that were mistakenly auto-flagged as empty
-                    jdbcTemplate.update("UPDATE dbo.surveys SET is_ignored = 0 WHERE input_method IN ('MANUAL_EXCEL', 'EXCEL', 'EXCEL_SUMMARY') AND is_ignored = 1");
-                    log.info("Initialized survey_auto_ignore_rules schema successfully.");
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Notice initializing survey_auto_ignore_rules schema: {}", e.getMessage());
-        }
+        // Table schema survey_auto_ignore_rules is established in database migrations.
+        // Startup schema execution and updates bypassed to prevent startup lock contention.
     }
 
     /**

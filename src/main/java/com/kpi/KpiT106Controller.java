@@ -45,48 +45,8 @@ public class KpiT106Controller {
 
     @PostConstruct
     public void initTable() {
-        try {
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.kpi_t106_clo_assessment_data') AND type = 'U') " +
-                "BEGIN " +
-                "CREATE TABLE dbo.kpi_t106_clo_assessment_data ( " +
-                "  id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY, " +
-                "  period_code NVARCHAR(50) NOT NULL, " +
-                "  course_id BIGINT NOT NULL, " +
-                "  is_fully_assessed BIT NOT NULL DEFAULT 1, " +
-                "  total_clos INT NULL, " +
-                "  assessed_clos INT NULL, " +
-                "  assessment_method NVARCHAR(255) NULL, " +
-                "  evaluated_by NVARCHAR(255) NULL, " +
-                "  notes NVARCHAR(1000) NULL, " +
-                "  uploaded_by INT NULL, " +
-                "  uploaded_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(), " +
-                "  batch_id NVARCHAR(50) NOT NULL, " +
-                "  CONSTRAINT FK_kpi_t106_courses FOREIGN KEY (course_id) REFERENCES dbo.courses(id) ON DELETE CASCADE " +
-                "); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t106_period_code ON dbo.kpi_t106_clo_assessment_data (period_code); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t106_course_id ON dbo.kpi_t106_clo_assessment_data (course_id); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t106_batch_id ON dbo.kpi_t106_clo_assessment_data (batch_id); " +
-                "END; " +
-                // Auto-sync course_code in dbo.courses from course_test_results and fallback
-                "IF EXISTS (SELECT 1 FROM dbo.courses WHERE course_code IS NULL OR RTRIM(LTRIM(course_code)) = '') " +
-                "BEGIN " +
-                "  UPDATE c SET c.course_code = tr.course_code " +
-                "  FROM dbo.courses c " +
-                "  CROSS APPLY ( " +
-                "    SELECT TOP 1 tr.course_code FROM dbo.course_test_results tr " +
-                "    WHERE LOWER(RTRIM(LTRIM(tr.course_name))) = LOWER(RTRIM(LTRIM(c.course_name))) " +
-                "      AND tr.course_code IS NOT NULL AND tr.course_code <> '' " +
-                "  ) tr " +
-                "  WHERE c.course_code IS NULL OR RTRIM(LTRIM(c.course_code)) = ''; " +
-                "  UPDATE dbo.courses SET course_code = CONCAT('HP', RIGHT(CONCAT('0000', id), 5)) " +
-                "  WHERE course_code IS NULL OR RTRIM(LTRIM(course_code)) = ''; " +
-                "END;"
-            );
-            log.info("Initialized kpi_t106_clo_assessment_data table and verified course codes successfully.");
-        } catch (Exception e) {
-            log.warn("Table kpi_t106_clo_assessment_data init notice: {}", e.getMessage());
-        }
+        // Table dbo.kpi_t106_clo_assessment_data and course codes are managed via migrations.
+        // Startup DDL execution bypassed to prevent database lock contention.
     }
 
     /**

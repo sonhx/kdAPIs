@@ -120,7 +120,7 @@ public class CommonService {
 			String session_id = jsonobjReq.getString("session_id");
 			struct_session sst = sessionService.getSessionInfo(session_id);
 			if (sst == null)
-				return "{\"code\":" + 700 + ", \"description\":\"" + "ChÆ°a Ä‘Äƒng nháº­p" + "\"}";
+				return "{\"code\":" + 700 + ", \"description\":\"" + "Chưa đăng nhập" + "\"}";
 
 			jout.put("code", 200);
 		} catch (JSONException e) {

@@ -2,23 +2,38 @@ package com.daemon;
 
 import java.io.File;
 import java.nio.file.*;
-import java.util.HashMap;
-import java.util.Map;
-
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class AutorunService {
 
+    private volatile boolean running = true;
+    private WatchService watchService;
+    private Thread watchThread;
+
     @PostConstruct
     public void startWatchThread() {
-        Thread thread = new Thread(this::watchDirectory);
-        thread.setDaemon(true);
-        thread.start();
+        watchThread = new Thread(this::watchDirectory, "ocr-autorun-watcher");
+        watchThread.setDaemon(true);
+        watchThread.start();
+    }
+
+    @PreDestroy
+    public void stopWatchThread() {
+        running = false;
+        if (watchService != null) {
+            try {
+                watchService.close();
+            } catch (Exception ignored) {}
+        }
+        if (watchThread != null && watchThread.isAlive()) {
+            watchThread.interrupt();
+        }
     }
 
     private void watchDirectory() {
@@ -27,16 +42,17 @@ public class AutorunService {
         String ocrOut = userHome + File.separator + "Desktop" + File.separator + "ocrOut";
         String abbyyProg = "C:\\Program Files\\ABBYY FineReader 16";
 
-        try (WatchService service = FileSystems.getDefault().newWatchService()) {
+        try {
+            watchService = FileSystems.getDefault().newWatchService();
             Path path = Paths.get(ocrIn);
             if (!Files.exists(path)) Files.createDirectories(path);
             
-            path.register(service, StandardWatchEventKinds.ENTRY_CREATE);
+            path.register(watchService, StandardWatchEventKinds.ENTRY_CREATE);
             
             System.out.println("AutorunService: Watching " + ocrIn);
 
             WatchKey key;
-            while ((key = service.take()) != null) {
+            while (running && (key = watchService.take()) != null) {
                 for (WatchEvent<?> event : key.pollEvents()) {
                     if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE) {
                         String filename = event.context().toString();
@@ -46,6 +62,8 @@ public class AutorunService {
                 }
                 key.reset();
             }
+        } catch (ClosedWatchServiceException | InterruptedException e) {
+            // Expected on application shutdown / context reload
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -53,7 +71,8 @@ public class AutorunService {
 
     private void executeOcr(String inputPath, String ocrOut, String abbyyProg, String filename) {
         try {
-            String outputFilename = filename.substring(0, filename.lastIndexOf(".")) + ".txt";
+            int dotIdx = filename.lastIndexOf(".");
+            String outputFilename = (dotIdx >= 0 ? filename.substring(0, dotIdx) : filename) + ".txt";
             String outputPath = ocrOut + "\\" + outputFilename;
             
             String sCmdLine = "cmd /c c: && cd \"" + abbyyProg + "\" && finereaderocr.exe \"" + inputPath + "\" /lang vietnamese /out \"" + outputPath + "\" /quit";

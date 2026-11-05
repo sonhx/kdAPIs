@@ -283,18 +283,25 @@ public class UserService {
 				return jout.toString();
 			}
 
-			// Fetch personnel details for display (fast separate lookup with NOLOCK)
+			// Fetch personnel details for display and role checking (single fast lookup with OPTION (MAXDOP 1))
 			String fullName = "";
 			String mobile = "";
+			String personnelId = null;
+			String donViChinhId = null;
+			String donViL3Id = null;
 			try {
-				String pSql = "SELECT TOP 1 p.fullname AS FullName, p.sdtCaNhan AS Mobile "
+				String pSql = "SELECT TOP 1 p.id, p.fullname AS FullName, p.sdtCaNhan AS Mobile, p.donViChinhId, p.donViL3Id "
 						+ "FROM dbo.personnel p WITH (NOLOCK) "
-						+ "WHERE p.isDeleted = 0 AND (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?))";
+						+ "WHERE p.isDeleted = 0 AND (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?)) "
+						+ "OPTION (MAXDOP 1)";
 				List<Map<String, Object>> pRows = jdbcTemplate.queryForList(pSql, 
 						user_id != null ? user_id.toString() : "", userEmail, userEmail);
 				if (!pRows.isEmpty()) {
 					fullName = pRows.get(0).get("FullName") != null ? pRows.get(0).get("FullName").toString() : "";
 					mobile = pRows.get(0).get("Mobile") != null ? pRows.get(0).get("Mobile").toString() : "";
+					personnelId = pRows.get(0).get("id") != null ? pRows.get(0).get("id").toString() : null;
+				donViChinhId = pRows.get(0).get("donViChinhId") != null ? pRows.get(0).get("donViChinhId").toString() : null;
+				donViL3Id = pRows.get(0).get("donViL3Id") != null ? pRows.get(0).get("donViL3Id").toString() : null;
 				}
 			} catch (Exception ex) {}
 
@@ -336,42 +343,30 @@ public class UserService {
 				jout.put("dept_code", finalDpCode != null ? finalDpCode : JSONObject.NULL);
 
 				// Check if this user is Lãnh đạo Học viện (belongs to LD_HOC_VIEN_ID or LD_HOC_VIEN_NAM_ID)
-				boolean isLanhDaoHocVien = false;
-				try {
-					String ldCheckSql =
-						"SELECT COUNT(*) FROM personnel p WITH (NOLOCK) WHERE (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?)) " +
-						"AND (p.donViChinhId IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d') " +
-						"  OR p.donViL3Id   IN ('66a308ce8068e53428da202c', '66a308ce8068e53428da202d'))";
-					Integer cnt = jdbcTemplate.queryForObject(ldCheckSql, Integer.class, 
-							user_id != null ? user_id.toString() : "", userEmail, userEmail);
-					if (cnt != null && cnt > 0) {
-						isLanhDaoHocVien = true;
-					}
-				} catch (Exception ldEx) {
-					System.err.println("Warning: could not check Lãnh đạo Học viện status: " + ldEx.getMessage());
-				}
+				boolean isLanhDaoHocVien = ("66a308ce8068e53428da202c".equals(donViChinhId) || "66a308ce8068e53428da202d".equals(donViChinhId)
+						|| "66a308ce8068e53428da202c".equals(donViL3Id) || "66a308ce8068e53428da202d".equals(donViL3Id));
 				jout.put("is_lanh_dao_hoc_vien", isLanhDaoHocVien ? 1 : 0);
 
 				// Check if this user is an org leader (their personnel.id is in orgs.leaderId)
 				boolean isOrgLeader = false;
 				String leaderOfDeptId = null;
 				String leaderOfDeptName = null;
-				try {
-					String leaderCheckSql =
-						"SELECT TOP 1 o.id AS orgId, o.ten AS orgName " +
-						"FROM orgs o WITH (NOLOCK) " +
-						"INNER JOIN personnel p WITH (NOLOCK) ON o.leaderId = p.id " +
-						"WHERE (p.id = ? OR (p.emailCanBo IS NOT NULL AND p.emailCanBo <> '' AND p.emailCanBo = ?) OR (p.email IS NOT NULL AND p.email <> '' AND p.email = ?)) AND (o.isDeleted IS NULL OR o.isDeleted = 0)";
-					List<Map<String, Object>> leaderRows = jdbcTemplate.queryForList(
-						leaderCheckSql, user_id != null ? user_id.toString() : "", userEmail, userEmail
-					);
-					if (!leaderRows.isEmpty()) {
-						isOrgLeader = true;
-						leaderOfDeptId   = leaderRows.get(0).get("orgId")   != null ? leaderRows.get(0).get("orgId").toString()   : null;
-						leaderOfDeptName = leaderRows.get(0).get("orgName") != null ? leaderRows.get(0).get("orgName").toString() : null;
+				if (personnelId != null && !personnelId.isEmpty()) {
+					try {
+						String leaderCheckSql =
+							"SELECT TOP 1 o.id AS orgId, o.ten AS orgName " +
+							"FROM dbo.orgs o WITH (NOLOCK) " +
+							"WHERE o.leaderId = ? AND (o.isDeleted IS NULL OR o.isDeleted = 0) " +
+							"OPTION (MAXDOP 1)";
+						List<Map<String, Object>> leaderRows = jdbcTemplate.queryForList(leaderCheckSql, personnelId);
+						if (!leaderRows.isEmpty()) {
+							isOrgLeader = true;
+							leaderOfDeptId   = leaderRows.get(0).get("orgId")   != null ? leaderRows.get(0).get("orgId").toString()   : null;
+							leaderOfDeptName = leaderRows.get(0).get("orgName") != null ? leaderRows.get(0).get("orgName").toString() : null;
+						}
+					} catch (Exception leaderEx) {
+						System.err.println("Warning: could not check org leader status: " + leaderEx.getMessage());
 					}
-				} catch (Exception leaderEx) {
-					System.err.println("Warning: could not check org leader status: " + leaderEx.getMessage());
 				}
 				jout.put("is_org_leader", isOrgLeader ? 1 : 0);
 				jout.put("leader_of_dept_id",   leaderOfDeptId   != null ? leaderOfDeptId   : JSONObject.NULL);

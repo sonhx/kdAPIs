@@ -246,7 +246,7 @@ public class SurveyController {
                          "LEFT JOIN (" +
                          "    SELECT survey_id, COUNT(*) as response_count, " +
                          "           MIN(created_at) as min_resp, MAX(created_at) as max_resp " +
-                         "    FROM survey_responses WITH (NOLOCK) " +
+                         "    FROM survey_responses WITH (NOLOCK, INDEX(IX_responses_survey_id_covering)) " +
                          "    GROUP BY survey_id" +
                          ") r ON s.id = r.survey_id " +
                          "ORDER BY COALESCE(c.created_at, s.created_at) DESC";
@@ -462,14 +462,14 @@ public class SurveyController {
             if (campaignId != null && !campaignId.trim().isEmpty() && !"all".equalsIgnoreCase(campaignId)) {
                 sql = "SELECT CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) as [date], COUNT(*) as [count] " +
                       "FROM survey_responses " +
-                      "WHERE survey_id = ? AND campaign_id = ? AND (created_at IS NOT NULL OR started_at IS NOT NULL OR updated_at IS NOT NULL) " +
+                      "WHERE survey_id = CAST(? AS VARCHAR(50)) AND campaign_id = CAST(? AS VARCHAR(100)) AND (created_at IS NOT NULL OR started_at IS NOT NULL OR updated_at IS NOT NULL) " +
                       "GROUP BY CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) " +
                       "ORDER BY [date] ASC";
                 list = jdbcTemplate.queryForList(sql, id, campaignId);
             } else {
                 sql = "SELECT CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) as [date], COUNT(*) as [count] " +
                       "FROM survey_responses " +
-                      "WHERE survey_id = ? AND (created_at IS NOT NULL OR started_at IS NOT NULL OR updated_at IS NOT NULL) " +
+                      "WHERE survey_id = CAST(? AS VARCHAR(50)) AND (created_at IS NOT NULL OR started_at IS NOT NULL OR updated_at IS NOT NULL) " +
                       "GROUP BY CONVERT(VARCHAR(10), COALESCE(created_at, started_at, updated_at), 120) " +
                       "ORDER BY [date] ASC";
                 list = jdbcTemplate.queryForList(sql, id);
@@ -493,16 +493,16 @@ public class SurveyController {
                 "LEFT JOIN (" +
                 "    SELECT survey_id, MIN(start_time) as min_start, MAX(end_time) as max_end " +
                 "    FROM survey_campaigns " +
-                "    WHERE survey_id = ? " +
+                "    WHERE survey_id = CAST(? AS VARCHAR(50)) " +
                 "    GROUP BY survey_id" +
                 ") c ON s.id = c.survey_id " +
                 "LEFT JOIN (" +
                 "    SELECT survey_id, MIN(created_at) as min_resp, MAX(created_at) as max_resp " +
                 "    FROM survey_responses " +
-                "    WHERE survey_id = ? " +
+                "    WHERE survey_id = CAST(? AS VARCHAR(50)) " +
                 "    GROUP BY survey_id" +
                 ") r ON s.id = r.survey_id " +
-                "WHERE s.id = ?", id, id, id
+                "WHERE s.id = CAST(? AS VARCHAR(50))", id, id, id
             );
             
             if (list.isEmpty()) {
@@ -519,7 +519,7 @@ public class SurveyController {
             survey.put("status", (isActive != null && isActive) ? "open" : "closed");
             
             Integer responses = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM survey_responses WHERE survey_id = ?", Integer.class, id
+                "SELECT COUNT(*) FROM survey_responses WHERE survey_id = CAST(? AS VARCHAR(50))", Integer.class, id
             );
             int resCount = responses != null ? responses : 0;
             survey.put("responses", resCount);

@@ -733,7 +733,7 @@ public class MCService {
             JSONObject jin = new JSONObject(sReq);
             String session_id = jin.getString("session_id");
             struct_session sst = sessionService.getSessionInfo(session_id);
-            if (sst == null) return "{\"code\":700, \"description\":\"ChÆ°a Ä‘Äƒng nháº­p\"}";
+            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
 
             String search_key = jin.getString("search_key");
             int kd_id = jin.has("kd_id") ? jin.getInt("kd_id") : -1;
@@ -774,7 +774,7 @@ public class MCService {
             JSONObject jin = new JSONObject(sReq);
             String session_id = jin.getString("session_id");
             struct_session sst = sessionService.getSessionInfo(session_id);
-            if (sst == null) return "{\"code\":700, \"description\":\"ChÆ°a Ä‘Äƒng nháº­p\"}";
+            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
 
             String search_key = jin.getString("search_key");
             int kd_id = jin.has("kd_id") ? jin.getInt("kd_id") : -1;
@@ -797,7 +797,7 @@ public class MCService {
             JSONObject jin = new JSONObject(sReq);
             String session_id = jin.getString("session_id");
             struct_session sst = sessionService.getSessionInfo(session_id);
-            if (sst == null) return "{\"code\":700, \"description\":\"ChÆ°a Ä‘Äƒng nháº­p\"}";
+            if (sst == null) return "{\"code\":700, \"description\":\"Chưa đăng nhập\"}";
 
             String search_key = jin.getString("search_key");
             int kd_id = jin.has("kd_id") ? jin.getInt("kd_id") : -1;

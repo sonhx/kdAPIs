@@ -574,11 +574,11 @@ public class MCExtend {
             res.put("processed_docs", totalProcessed);
             res.put("total_tokens", totalTokens);
             res.put("elapsed_ms", elapsed);
-            res.put("description", "ÄÃ£ Ä‘Ã¡nh chá»‰ má»¥c OCR thÃ nh cÃ´ng " + totalProcessed + " tÃ i liá»‡u (" + totalTokens + " tokens) trong " + elapsed + " ms.");
+            res.put("description", "Đã đánh chỉ mục OCR thành công " + totalProcessed + " tài liệu (" + totalTokens + " tokens) trong " + elapsed + " ms.");
         } catch (Exception e) {
             e.printStackTrace();
             res.put("code", 500);
-            res.put("description", "Lá»—i: " + e.getMessage());
+            res.put("description", "Lỗi: " + e.getMessage());
         }
         return res;
     }

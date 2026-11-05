@@ -268,25 +268,60 @@ public class UserExtend {
 	public JSONObject getUserDepartmentInfo(Object userId) {
 		JSONObject joOrg = new JSONObject();
 		try {
-			String sql = 
-				"SELECT TOP 1 " +
-				"    COALESCE(p0.donViL3Id, p0.donViChinhId, p1.donViL3Id, p1.donViChinhId, p2.donViL3Id, p2.donViChinhId) AS dept_id, " +
-				"    COALESCE(o3.ten, oChinh.ten, N'Chưa xếp đơn vị') AS dept_name, " +
-				"    COALESCE(o3.maDonVi, oChinh.maDonVi, '') AS dept_code " +
-				"FROM users u WITH (NOLOCK) " +
-				"LEFT JOIN personnel p0 WITH (NOLOCK) ON CAST(p0.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) AND p0.isDeleted = 0 " +
-				"LEFT JOIN personnel p1 WITH (NOLOCK) ON p0.id IS NULL AND p1.emailCanBo = u.Email AND p1.isDeleted = 0 " +
-				"LEFT JOIN personnel p2 WITH (NOLOCK) ON p0.id IS NULL AND p1.id IS NULL AND p2.email = u.Email AND p2.isDeleted = 0 " +
-				"LEFT JOIN orgs o3 WITH (NOLOCK) ON o3.id = COALESCE(p0.donViL3Id, p1.donViL3Id, p2.donViL3Id) " +
-				"LEFT JOIN orgs oChinh WITH (NOLOCK) ON oChinh.id = COALESCE(p0.donViChinhId, p1.donViChinhId, p2.donViChinhId) " +
-				"WHERE u.ID = ? AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
+			if (userId == null || userId.toString().trim().isEmpty()) {
+				return joOrg;
+			}
+			String uIdStr = userId.toString().trim();
 
-			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, userId != null ? userId.toString() : "");
-			if (!rows.isEmpty()) {
-				Map<String, Object> row = rows.get(0);
-				joOrg.put("dept_id", row.get("dept_id") != null ? row.get("dept_id") : "");
-				joOrg.put("dept_name", row.get("dept_name") != null ? row.get("dept_name") : "N/A");
-				joOrg.put("dept_code", row.get("dept_code") != null ? row.get("dept_code") : "");
+			// 1. Get user email directly
+			String userEmail = null;
+			List<Map<String, Object>> uRows = jdbcTemplate.queryForList(
+				"SELECT TOP 1 Email FROM users WITH (NOLOCK) WHERE ID = ? AND (IsDeleted IS NULL OR IsDeleted = '0') OPTION (MAXDOP 1)",
+				uIdStr
+			);
+			if (!uRows.isEmpty() && uRows.get(0).get("Email") != null) {
+				userEmail = uRows.get(0).get("Email").toString().trim();
+			}
+
+			// 2. Lookup personnel by ID or Email
+			String donViL3Id = null;
+			String donViChinhId = null;
+
+			List<Map<String, Object>> pRows = jdbcTemplate.queryForList(
+				"SELECT TOP 1 donViL3Id, donViChinhId FROM personnel WITH (NOLOCK) WHERE id = ? AND isDeleted = 0 OPTION (MAXDOP 1)",
+				uIdStr
+			);
+			if (!pRows.isEmpty()) {
+				donViL3Id = pRows.get(0).get("donViL3Id") != null ? pRows.get(0).get("donViL3Id").toString() : null;
+				donViChinhId = pRows.get(0).get("donViChinhId") != null ? pRows.get(0).get("donViChinhId").toString() : null;
+			} else if (userEmail != null && !userEmail.isEmpty()) {
+				pRows = jdbcTemplate.queryForList(
+					"SELECT TOP 1 donViL3Id, donViChinhId FROM personnel WITH (NOLOCK) WHERE isDeleted = 0 AND (email = ? OR emailCanBo = ?) OPTION (MAXDOP 1)",
+					userEmail, userEmail
+				);
+				if (!pRows.isEmpty()) {
+					donViL3Id = pRows.get(0).get("donViL3Id") != null ? pRows.get(0).get("donViL3Id").toString() : null;
+					donViChinhId = pRows.get(0).get("donViChinhId") != null ? pRows.get(0).get("donViChinhId").toString() : null;
+				}
+			}
+
+			String targetOrgId = (donViL3Id != null && !donViL3Id.trim().isEmpty()) ? donViL3Id : donViChinhId;
+
+			if (targetOrgId != null && !targetOrgId.trim().isEmpty()) {
+				List<Map<String, Object>> orgRows = jdbcTemplate.queryForList(
+					"SELECT TOP 1 id, ten, maDonVi FROM orgs WITH (NOLOCK) WHERE id = ? OPTION (MAXDOP 1)",
+					targetOrgId.trim()
+				);
+				if (!orgRows.isEmpty()) {
+					Map<String, Object> orgRow = orgRows.get(0);
+					joOrg.put("dept_id", orgRow.get("id") != null ? orgRow.get("id") : targetOrgId);
+					joOrg.put("dept_name", orgRow.get("ten") != null ? orgRow.get("ten") : "N/A");
+					joOrg.put("dept_code", orgRow.get("maDonVi") != null ? orgRow.get("maDonVi") : "");
+				} else {
+					joOrg.put("dept_id", targetOrgId);
+					joOrg.put("dept_name", "Chưa xếp đơn vị");
+					joOrg.put("dept_code", "");
+				}
 			}
 		} catch (Exception e) {
 			e.printStackTrace();

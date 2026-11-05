@@ -8,11 +8,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -142,7 +148,7 @@ public class KpiQ704CalculationService {
             String activeQuestionKeyword = staffQuestionKeyword.trim();
 
             List<Map<String, Object>> matchingSurveys = jdbcTemplate.queryForList(
-                "SELECT id, title, is_active FROM dbo.surveys WITH (NOLOCK) WHERE title LIKE ? OR (title LIKE '%cán bộ%' AND title LIKE '%môi trường làm việc%') ORDER BY created_at DESC",
+                "SELECT id, title, is_active FROM dbo.surveys WITH (NOLOCK) WHERE title LIKE ? OR (title LIKE '%cán bộ%' AND title LIKE '%môi trường làm việc%') ORDER BY created_at DESC OPTION (MAXDOP 1)",
                 activeSurveyPrefix + "%"
             );
 
@@ -154,7 +160,7 @@ public class KpiQ704CalculationService {
                 activeSurveyPrefix = fallbackSurveyPrefix.trim();
                 activeQuestionKeyword = fallbackQuestionKeyword.trim();
                 matchingSurveys = jdbcTemplate.queryForList(
-                    "SELECT id, title, is_active FROM dbo.surveys WITH (NOLOCK) WHERE title LIKE ? ORDER BY created_at DESC",
+                    "SELECT id, title, is_active FROM dbo.surveys WITH (NOLOCK) WHERE title LIKE ? ORDER BY created_at DESC OPTION (MAXDOP 1)",
                     activeSurveyPrefix + "%"
                 );
                 log.info("Dedicated staff survey not found. Falling back to lecturer survey prefix '{}' ({} surveys found)", activeSurveyPrefix, matchingSurveys.size());
@@ -299,6 +305,18 @@ public class KpiQ704CalculationService {
             result.put("is_dedicated_staff_survey", isUsingDedicatedStaffSurvey);
             result.put("processed_periods", processedPeriods);
             result.put("total_periods_updated", processedPeriods.length());
+
+            if (processedPeriods.length() > 0) {
+                JSONObject latestPeriodObj = processedPeriods.getJSONObject(processedPeriods.length() - 1);
+                result.put("actual_value", latestPeriodObj.optDouble("actual_value"));
+                result.put("notes", latestPeriodObj.optString("notes"));
+                result.put("period_id", latestPeriodObj.optInt("period_id"));
+                result.put("period_code", latestPeriodObj.optString("period_code"));
+            }
+
+            if (kpiExtendService != null) {
+                kpiExtendService.invalidateKpisWithAssignmentsCache();
+            }
 
         } catch (Exception e) {
             log.error("Error calculating KPI Q7.04: ", e);
@@ -471,68 +489,116 @@ public class KpiQ704CalculationService {
     }
 
     /**
-     * Calculates Likert ratings for the target question using indexed seek query with MAXDOP 1.
+     * Calculates Likert ratings for the target question using optimized index-seek query.
+     * Uses DataSourceUtils and proper try-with-resources blocks to ensure connections,
+     * statements, and result sets are safely closed without leaking back to the HikariCP pool.
      */
     public LikertCalculationResult calculateCampaignLikertScores(String surveyId, String campaignId, QuestionMeta qMeta) {
         Map<String, CriterionStats> criterionStatsMap = new LinkedHashMap<>();
-        for (Map.Entry<String, String> e : qMeta.matrixRows.entrySet()) {
-            criterionStatsMap.put(e.getKey(), new CriterionStats(e.getKey(), e.getValue()));
+        if (qMeta != null && qMeta.matrixRows != null) {
+            for (Map.Entry<String, String> e : qMeta.matrixRows.entrySet()) {
+                criterionStatsMap.put(e.getKey(), new CriterionStats(e.getKey(), e.getValue()));
+            }
         }
 
-        int totalRespondents = 0;
-        double overallSum = 0.0;
-        int totalItemRatings = 0;
+        int[] totalRespondents = new int[]{0};
+        double[] overallSum = new double[]{0.0};
+        int[] totalItemRatings = new int[]{0};
 
-        String sql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK) " +
-                     "INNER JOIN dbo.survey_response_answers a WITH (NOLOCK) ON a.response_id = r.id " +
-                     "WHERE r.survey_id = CAST(? AS VARCHAR(100)) " +
-                     "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
-                     "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
-                     "  AND a.choices IS NOT NULL " +
-                     "OPTION (MAXDOP 1)";
+        // Primary optimized query: uses index on campaign_id and loop join to seek answers in milliseconds
+        String optimizedSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK, INDEX(IX_survey_responses_campaign_id)) " +
+                             "INNER LOOP JOIN dbo.survey_response_answers a WITH (NOLOCK) ON a.response_id = r.id " +
+                             "WHERE r.survey_id = CAST(? AS VARCHAR(100)) " +
+                             "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
+                             "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
+                             "  AND a.choices IS NOT NULL";
 
-        List<Map<String, Object>> answerRows = jdbcTemplate.queryForList(sql, surveyId, campaignId, qMeta.questionId);
+        // Safe fallback without index hint in case index name differs
+        String fallbackSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK) " +
+                            "INNER LOOP JOIN dbo.survey_response_answers a WITH (NOLOCK) ON a.response_id = r.id " +
+                            "WHERE r.survey_id = CAST(? AS VARCHAR(100)) " +
+                            "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
+                            "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
+                            "  AND a.choices IS NOT NULL";
 
-        for (Map<String, Object> row : answerRows) {
-            String choicesJson = (String) row.get("choices");
-            if (choicesJson == null || choicesJson.trim().isEmpty()) continue;
+        DataSource dataSource = jdbcTemplate.getDataSource();
+        Connection conn = DataSourceUtils.getConnection(dataSource);
+        try {
+            boolean executed = false;
+            try (PreparedStatement ps = conn.prepareStatement(optimizedSql)) {
+                ps.setQueryTimeout(15);
+                ps.setString(1, surveyId);
+                ps.setString(2, campaignId);
+                ps.setString(3, qMeta != null ? qMeta.questionId : "");
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        processLikertRow(rs.getString("choices"), qMeta, criterionStatsMap, totalRespondents, overallSum, totalItemRatings);
+                    }
+                    executed = true;
+                }
+            } catch (Exception ex) {
+                log.warn("Notice in indexed Likert seek query, attempting fallback: {}", ex.getMessage());
+            }
 
-            try {
-                JSONArray arr = new JSONArray(choicesJson);
-                if (arr.length() == 0) continue;
-
-                boolean hasValidItem = false;
-                for (int j = 0; j < arr.length(); j++) {
-                    JSONObject item = arr.getJSONObject(j);
-                    String textCot = item.optString("textCot", null);
-                    String idHang = item.optString("idHang", null);
-                    String textHang = item.optString("textHang", null);
-
-                    Double score = parseLikertScore(textCot, item.optString("idCot", null), qMeta);
-                    if (score != null && score >= 1.0 && score <= 5.0) {
-                        overallSum += score;
-                        totalItemRatings++;
-                        hasValidItem = true;
-
-                        String critKey = idHang != null && !idHang.isEmpty() ? idHang : (textHang != null ? textHang : "unknown_" + j);
-                        CriterionStats cs = criterionStatsMap.computeIfAbsent(
-                            critKey,
-                            k -> new CriterionStats(critKey, textHang != null ? textHang : critKey)
-                        );
-                        cs.addScore(score);
+            if (!executed) {
+                try (PreparedStatement psFallback = conn.prepareStatement(fallbackSql)) {
+                    psFallback.setQueryTimeout(15);
+                    psFallback.setString(1, surveyId);
+                    psFallback.setString(2, campaignId);
+                    psFallback.setString(3, qMeta != null ? qMeta.questionId : "");
+                    try (ResultSet rsFallback = psFallback.executeQuery()) {
+                        while (rsFallback.next()) {
+                            processLikertRow(rsFallback.getString("choices"), qMeta, criterionStatsMap, totalRespondents, overallSum, totalItemRatings);
+                        }
                     }
                 }
-
-                if (hasValidItem) {
-                    totalRespondents++;
-                }
-            } catch (Exception ignored) {}
+            }
+        } catch (Exception e) {
+            log.error("Error executing calculateCampaignLikertScores for survey {} campaign {}: {}", surveyId, campaignId, e.getMessage(), e);
+        } finally {
+            DataSourceUtils.releaseConnection(conn, dataSource);
         }
 
-        double overallAvg = totalItemRatings > 0 ? (overallSum / totalItemRatings) : 0.0;
+        double overallAvg = totalItemRatings[0] > 0 ? (overallSum[0] / totalItemRatings[0]) : 0.0;
         overallAvg = BigDecimal.valueOf(overallAvg).setScale(2, RoundingMode.HALF_UP).doubleValue();
 
-        return new LikertCalculationResult(totalRespondents, totalItemRatings, overallAvg, criterionStatsMap);
+        return new LikertCalculationResult(totalRespondents[0], totalItemRatings[0], overallAvg, criterionStatsMap);
+    }
+
+    private void processLikertRow(String choicesJson, QuestionMeta qMeta, Map<String, CriterionStats> criterionStatsMap,
+                                  int[] totalRespondents, double[] overallSum, int[] totalItemRatings) {
+        if (choicesJson == null || choicesJson.trim().isEmpty()) return;
+
+        try {
+            JSONArray arr = new JSONArray(choicesJson);
+            if (arr.length() == 0) return;
+
+            boolean hasValidItem = false;
+            for (int j = 0; j < arr.length(); j++) {
+                JSONObject item = arr.getJSONObject(j);
+                String textCot = item.optString("textCot", null);
+                String idHang = item.optString("idHang", null);
+                String textHang = item.optString("textHang", null);
+
+                Double score = parseLikertScore(textCot, item.optString("idCot", null), qMeta);
+                if (score != null && score >= 1.0 && score <= 5.0) {
+                    overallSum[0] += score;
+                    totalItemRatings[0]++;
+                    hasValidItem = true;
+
+                    String critKey = idHang != null && !idHang.isEmpty() ? idHang : (textHang != null ? textHang : "unknown_" + j);
+                    CriterionStats cs = criterionStatsMap.computeIfAbsent(
+                        critKey,
+                        k -> new CriterionStats(critKey, textHang != null ? textHang : critKey)
+                    );
+                    cs.addScore(score);
+                }
+            }
+
+            if (hasValidItem) {
+                totalRespondents[0]++;
+            }
+        } catch (Exception ignored) {}
     }
 
     private Double parseLikertScore(String textCot, String idCot, QuestionMeta qMeta) {

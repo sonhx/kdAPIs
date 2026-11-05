@@ -98,7 +98,7 @@ class checkNewEventThread{
 	  								+ " /quit";
 	  						
 	  						System.out.println(sCmdLine);
-	  						//CommandLine cmdLine = CommandLine.parse("cmd /c c: && cd C:\\Program Files\\ABBYY FineReader 16 && finereaderocr.exe \"E:\\Dá»¯ liá»‡u MC\\Minh chá»©ng CSGD\\Minh chá»©ng CSGD\\Minh chá»©ng tiÃªu chuáº©n 12\\TiÃªu chuáº©n 12. NÃ¢ng cao cháº¥t lÆ°á»£ng\\TiÃªu chÃ­ 12.3\\H12.12.03.01- 12.2017 TT-BGDÄT 19.05.2017 ThÃ´ng tÆ° ban hÃ nh quy Ä‘á»‹nh vá» kiá»ƒm Ä‘á»‹nh cháº¥t lÆ°á»£ng cÆ¡ sá»Ÿ giÃ¡o dá»¥c Ä‘áº¡i há»c.pdf\" /lang vietnamese /out C:\\Users\\sonho\\Desktop\\result.docx /quit");
+	  						// CommandLine cmdLine = CommandLine.parse("...");
 	  						CommandLine cmdLine = CommandLine.parse(sCmdLine);
 	  				        DefaultExecutor executor = new DefaultExecutor();
 	  				        int exitValue = executor.execute(cmdLine);

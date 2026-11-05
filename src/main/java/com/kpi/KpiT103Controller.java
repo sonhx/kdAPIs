@@ -44,59 +44,8 @@ public class KpiT103Controller {
 
     @PostConstruct
     public void initTable() {
-        try {
-            jdbcTemplate.execute(
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.kpi_t103_graduation_data') AND type = 'U') " +
-                "BEGIN " +
-                "CREATE TABLE dbo.kpi_t103_graduation_data ( " +
-                "  id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY, " +
-                "  period_code NVARCHAR(50) NOT NULL, " +
-                "  cohort NVARCHAR(50) NULL, " +
-                "  graduation_milestone NVARCHAR(50) NULL, " +
-                "  campus NVARCHAR(20) NOT NULL, " +
-                "  faculty_group NVARCHAR(50) NOT NULL, " +
-                "  initial_students INT NOT NULL DEFAULT 0, " +
-                "  final_students INT NOT NULL DEFAULT 0, " +
-                "  eligible_students INT NOT NULL DEFAULT 0, " +
-                "  graduated_students INT NOT NULL DEFAULT 0, " +
-                "  graduation_rate_by_final DECIMAL(6,2) NULL, " +
-                "  graduation_rate_by_initial DECIMAL(6,2) NULL, " +
-                "  notes NVARCHAR(1000) NULL, " +
-                "  uploaded_by INT NULL, " +
-                "  uploaded_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(), " +
-                "  batch_id NVARCHAR(50) NOT NULL " +
-                "); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t103_period_code ON dbo.kpi_t103_graduation_data (period_code); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t103_campus_faculty ON dbo.kpi_t103_graduation_data (campus, faculty_group); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t103_batch_id ON dbo.kpi_t103_graduation_data (batch_id); " +
-                "END; " +
-                "IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.kpi_t103_major_breakdown') AND type = 'U') " +
-                "BEGIN " +
-                "CREATE TABLE dbo.kpi_t103_major_breakdown ( " +
-                "  id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY, " +
-                "  period_code NVARCHAR(50) NOT NULL, " +
-                "  cohort NVARCHAR(50) NULL, " +
-                "  campus NVARCHAR(20) NOT NULL, " +
-                "  faculty_group NVARCHAR(50) NOT NULL, " +
-                "  major_code NVARCHAR(50) NOT NULL, " +
-                "  major_name NVARCHAR(255) NULL, " +
-                "  initial_students INT NOT NULL DEFAULT 0, " +
-                "  final_students INT NOT NULL DEFAULT 0, " +
-                "  eligible_students INT NOT NULL DEFAULT 0, " +
-                "  graduated_students INT NOT NULL DEFAULT 0, " +
-                "  graduation_rate_by_final DECIMAL(6,2) NULL, " +
-                "  graduation_rate_by_initial DECIMAL(6,2) NULL, " +
-                "  batch_id NVARCHAR(50) NOT NULL, " +
-                "  uploaded_at DATETIME2 NOT NULL DEFAULT SYSDATETIME() " +
-                "); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t103_major_period ON dbo.kpi_t103_major_breakdown (period_code, campus); " +
-                "CREATE NONCLUSTERED INDEX IX_kpi_t103_major_batch ON dbo.kpi_t103_major_breakdown (batch_id); " +
-                "END;"
-            );
-            log.info("Initialized kpi_t103_graduation_data and kpi_t103_major_breakdown tables successfully.");
-        } catch (Exception e) {
-            log.warn("Table kpi_t103 tables init notice: {}", e.getMessage());
-        }
+        // Tables dbo.kpi_t103_graduation_data and dbo.kpi_t103_major_breakdown are managed via migrations.
+        // Startup DDL execution bypassed to prevent database lock contention.
     }
 
     /**
