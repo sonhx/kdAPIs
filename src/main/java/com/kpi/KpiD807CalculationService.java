@@ -94,7 +94,7 @@ public class KpiD807CalculationService {
                 try {
                     jdbcTemplate.update(
                         "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle, target) " +
-                        "VALUES ('D8.07', N'Tỷ lệ hồ sơ QA được số hóa', N'D – Chất lượng số & Dữ liệu', '%', N'Hồ sơ số hóa/ tổng hồ sơ QA × 100%', N'TBL_Minhchung (kiemdinh)', N'Hàng tháng', 80.0)"
+                        "VALUES ('D8.07', N'Tỷ lệ hồ sơ QA được số hóa', N'D – Chất lượng số & Dữ liệu', '%', N'Hồ sơ số hóa/ tổng hồ sơ QA × 100%', N'Kiểm định', N'Hàng tháng', 80.0)"
                     );
                     kpiRows = jdbcTemplate.queryForList(
                         "SELECT kpi_id, cycle_id FROM kpi_definitions WHERE kpi_code = 'D8.07' AND (is_deleted = 0 OR is_deleted IS NULL)"

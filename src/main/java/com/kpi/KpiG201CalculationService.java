@@ -97,7 +97,7 @@ public class KpiG201CalculationService {
                 try {
                     jdbcTemplate.update(
                         "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle, target) " +
-                        "VALUES ('G2.01', N'Tỷ lệ GV có trình độ tiến sĩ', N'G – Giảng viên & Cán bộ', '%', N'Số GV tiến sĩ/ tổng GV cơ hữu × 100%', N'Personnel', N'Hàng tháng', 50.0)"
+                        "VALUES ('G2.01', N'Tỷ lệ GV có trình độ tiến sĩ', N'G – Giảng viên & Cán bộ', '%', N'Số GV tiến sĩ/ tổng GV cơ hữu × 100%', N'Đồng bộ từ S-Link', N'Hàng tháng', 50.0)"
                     );
                     kpiRows = jdbcTemplate.queryForList(
                         "SELECT kpi_id, cycle_id FROM kpi_definitions WHERE kpi_code = 'G2.01' AND (is_deleted = 0 OR is_deleted IS NULL)"
