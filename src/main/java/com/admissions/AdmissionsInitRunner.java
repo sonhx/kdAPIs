@@ -22,7 +22,7 @@ public class AdmissionsInitRunner implements CommandLineRunner {
     public void run(String... args) throws Exception {
         try {
             Integer existingCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM dbo.admissions WHERE admission_year = 2026", Integer.class);
+                "SELECT COUNT(*) FROM dbo.admissions WITH (NOLOCK) WHERE admission_year = 2026 OPTION (MAXDOP 1)", Integer.class);
             if (existingCount != null && existingCount > 0) {
                 logger.info("Startup Init: 2026 Admissions data already present ({} records). Skipping startup web scrape.", existingCount);
                 return;

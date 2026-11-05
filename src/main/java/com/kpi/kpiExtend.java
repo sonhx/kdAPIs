@@ -929,10 +929,15 @@ public class kpiExtend {
 		return response;
 	}
 
+	private static volatile boolean kpiEmployeeAssignmentsTableInitialized = true;
+
 	/**
 	 * Initialize kpi_employee_assignments table if not exists.
 	 */
 	public void initKpiEmployeeAssignmentsTable() {
+		if (kpiEmployeeAssignmentsTableInitialized) {
+			return;
+		}
 		try {
 			String sql = 
 				"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'kpi_employee_assignments') " +
@@ -961,6 +966,7 @@ public class kpiExtend {
 				"    ALTER TABLE kpi_employee_assignments ADD is_overridden BIT NOT NULL DEFAULT 0; " +
 				"END";
 			jdbcTemplate.execute(sql);
+			kpiEmployeeAssignmentsTableInitialized = true;
 		} catch (Exception e) {
 			logger.warn("Error initializing kpi_employee_assignments table: " + e.getMessage());
 		}
@@ -1429,7 +1435,7 @@ public class kpiExtend {
 							"LEFT JOIN vertices_def v WITH (NOLOCK) ON m.vertex_id = v.vertex_id " +
 							"LEFT JOIN cycle_definitions c WITH (NOLOCK) ON k.cycle_id = c.cycle_id " +
 							"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
-							"ORDER BY k.kpi_id ASC";
+							"ORDER BY k.kpi_id ASC OPTION (MAXDOP 1)";
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql);
 
 			// Map kpi_id -> kpi_code for fallback auto-inference
@@ -1451,27 +1457,26 @@ public class kpiExtend {
 			try {
 				String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
 							   "COALESCE(o.ten, o.tenVietTat) as department_name, " +
-							   "COALESCE(p.fullname, p.ten, u.Email, CAST(a.assigned_by AS VARCHAR(100))) as assigned_by_name, " +
+							   "COALESCE(u.Email, CAST(a.assigned_by AS VARCHAR(100))) as assigned_by_name, " +
 							   "u.Email as assigned_by_email, " +
 							   "a.update_mode, a.source_system, a.sync_frequency, a.last_synced_at, a.sync_status, a.allow_manual_override " +
 							   "FROM kpi_assignments a WITH (NOLOCK) " +
 							   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
 							   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID " +
-							   "LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(a.assigned_by AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)) OR p.email = CAST(u.Email AS VARCHAR(100)) OR p.emailCanBo = CAST(a.assigned_by AS VARCHAR(100)))";
+							   "OPTION (MAXDOP 1)";
 				
-				System.out.println("Executing assignSql: " + assignSql); // Debug log
 				assignRows = jdbcTemplate.queryForList(assignSql);
 			} catch (Exception e) {
 				logger.error("Error executing assignSql: " + e.getMessage());
 				try {
 					String fallbackAssignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
 											   "COALESCE(o.ten, o.tenVietTat) as department_name, " +
-											   "COALESCE(p.fullname, p.ten, u.Email, CAST(a.assigned_by AS VARCHAR(100))) as assigned_by_name, " +
+											   "COALESCE(u.Email, CAST(a.assigned_by AS VARCHAR(100))) as assigned_by_name, " +
 											   "u.Email as assigned_by_email " +
 											   "FROM kpi_assignments a WITH (NOLOCK) " +
 											   "LEFT JOIN orgs o WITH (NOLOCK) ON a.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
 											   "LEFT JOIN users u WITH (NOLOCK) ON a.assigned_by = u.ID " +
-											   "LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(a.assigned_by AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)) OR p.email = CAST(u.Email AS VARCHAR(100)) OR p.emailCanBo = CAST(a.assigned_by AS VARCHAR(100)))";
+											   "OPTION (MAXDOP 1)";
 					assignRows = jdbcTemplate.queryForList(fallbackAssignSql);
 				} catch (Exception ex) {
 					logger.error("Error executing fallbackAssignSql: " + ex.getMessage());
@@ -1564,14 +1569,13 @@ public class kpiExtend {
 									  "ea.allow_manual_override, ea.is_overridden, " +
 									  "ka.kpi_id, ka.department_id, " +
 									  "COALESCE(o.ten, o.tenVietTat) as department_name, " +
-									  "COALESCE(p.fullname, p.ten, u.Email, CAST(ea.employee_id AS VARCHAR(100))) as employee_name, " +
+									  "COALESCE(u.Email, CAST(ea.employee_id AS VARCHAR(100))) as employee_name, " +
 									  "u.Email as employee_email " +
 									  "FROM kpi_employee_assignments ea WITH (NOLOCK) " +
 									  "JOIN kpi_assignments ka WITH (NOLOCK) ON ea.assignment_id = ka.assignment_id " +
 									  "LEFT JOIN orgs o WITH (NOLOCK) ON ka.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
 									  "LEFT JOIN users u WITH (NOLOCK) ON (CAST(u.ID AS VARCHAR(100)) = CAST(ea.employee_id AS VARCHAR(100)) OR u.Email = CAST(ea.employee_id AS VARCHAR(100))) " +
-									  "LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(ea.employee_id AS VARCHAR(100)) OR p.email = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)))";
-				logger.info("Executing empAssignSql for Role C employee assignments...");
+									  "OPTION (MAXDOP 1)";
 				List<Map<String, Object>> empRows = new ArrayList<>();
 				try {
 					empRows = jdbcTemplate.queryForList(empAssignSql);
@@ -1580,13 +1584,13 @@ public class kpiExtend {
 					String fallbackEmpSql = "SELECT ea.employee_assignment_id, ea.assignment_id, ea.employee_id, ea.assigned_date, ea.assigned_by, " +
 											"ka.kpi_id, ka.department_id, " +
 											"COALESCE(o.ten, o.tenVietTat) as department_name, " +
-											"COALESCE(p.fullname, p.ten, u.Email, CAST(ea.employee_id AS VARCHAR(100))) as employee_name, " +
+											"COALESCE(u.Email, CAST(ea.employee_id AS VARCHAR(100))) as employee_name, " +
 											"u.Email as employee_email " +
 											"FROM kpi_employee_assignments ea WITH (NOLOCK) " +
 											"JOIN kpi_assignments ka WITH (NOLOCK) ON ea.assignment_id = ka.assignment_id " +
 											"LEFT JOIN orgs o WITH (NOLOCK) ON ka.department_id = o.id AND (o.IsDeleted = 0 OR o.IsDeleted IS NULL) " +
 											"LEFT JOIN users u WITH (NOLOCK) ON (CAST(u.ID AS VARCHAR(100)) = CAST(ea.employee_id AS VARCHAR(100)) OR u.Email = CAST(ea.employee_id AS VARCHAR(100))) " +
-											"LEFT JOIN personnel p WITH (NOLOCK) ON (p.id = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(ea.employee_id AS VARCHAR(100)) OR p.email = CAST(ea.employee_id AS VARCHAR(100)) OR p.emailCanBo = CAST(u.Email AS VARCHAR(100)))";
+											"OPTION (MAXDOP 1)";
 					empRows = jdbcTemplate.queryForList(fallbackEmpSql);
 				}
 				logger.info("Found " + empRows.size() + " employee assignment rows (Role C)");
@@ -1625,7 +1629,7 @@ public class kpiExtend {
 							   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
 							   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id " +
 							   "LEFT JOIN users u WITH (NOLOCK) ON dp.approved_by = u.ID " +
-							   "ORDER BY dp.data_id DESC";
+							   "ORDER BY dp.data_id DESC OPTION (MAXDOP 1)";
 				dpRows = jdbcTemplate.queryForList(dpSql);
 			} catch (Exception e) {
 				logger.error("Error executing dpSql: " + e.getMessage());
@@ -1634,7 +1638,7 @@ public class kpiExtend {
 										   "FROM kpi_data_points dp WITH (NOLOCK) " +
 										   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
 										   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id " +
-										   "ORDER BY dp.data_id DESC";
+										   "ORDER BY dp.data_id DESC OPTION (MAXDOP 1)";
 					dpRows = jdbcTemplate.queryForList(fallbackDpSql);
 				} catch (Exception ex) {
 					logger.error("Error executing fallbackDpSql: " + ex.getMessage());
@@ -3190,7 +3194,7 @@ public class kpiExtend {
 
 			// 3. Query all period instances for this cycle, sorted newest to oldest
 			String pSql = "SELECT TOP 12 period_id, period_code, start_date, end_date " +
-						  "FROM period_instances WHERE cycle_id = ? ORDER BY start_date DESC";
+						  "FROM period_instances WITH (NOLOCK) WHERE cycle_id = ? ORDER BY start_date DESC OPTION (MAXDOP 1)";
 			List<Map<String, Object>> periods = jdbcTemplate.queryForList(pSql, cycleId);
 
 			// 4. Query data points for this KPI (and specific dept if provided)
@@ -3198,19 +3202,27 @@ public class kpiExtend {
 					? deptId.toString().trim() : null;
 			String dpSql = "SELECT dp.data_id, dp.period_id, dp.actual_value, dp.notes, dp.evidence_link, " +
 						   "dp.evidence_file_name, dp.evidence_file_size, dp.is_approved, dp.approved_by, dp.approved_at, " +
-						   "u.Email AS approved_by_name, dp.updated_at " +
-						   "FROM kpi_data_points dp " +
-						   "LEFT JOIN users u ON dp.approved_by = u.ID " +
+						   "u.Email AS approved_by_name, dp.updated_at, dp.department_id " +
+						   "FROM kpi_data_points dp WITH (NOLOCK) " +
+						   "LEFT JOIN users u WITH (NOLOCK) ON dp.approved_by = u.ID " +
 						   "WHERE dp.kpi_id = ? AND (CAST(dp.department_id AS VARCHAR(100)) = ? OR dp.department_id IS NULL) " +
-						   "ORDER BY dp.data_id ASC";
+						   "ORDER BY dp.data_id ASC OPTION (MAXDOP 1)";
 			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql, kpiId, sDeptId);
 
 			Map<Integer, Map<String, Object>> dpByPeriod = new java.util.HashMap<>();
 			for (Map<String, Object> dp : dpRows) {
 				if (dp.get("period_id") != null) {
 					int pid = ((Number) dp.get("period_id")).intValue();
-					if (!dpByPeriod.containsKey(pid) || dp.get("department_id") != null) {
+					if (!dpByPeriod.containsKey(pid)) {
 						dpByPeriod.put(pid, dp);
+					} else {
+						Map<String, Object> existing = dpByPeriod.get(pid);
+						boolean existingHasVal = existing.get("actual_value") != null;
+						boolean newHasVal = dp.get("actual_value") != null;
+						boolean newMatchesDept = sDeptId != null && sDeptId.equalsIgnoreCase(String.valueOf(dp.get("department_id")));
+						if ((!existingHasVal && newHasVal) || (newMatchesDept && newHasVal) || (!existingHasVal && newMatchesDept)) {
+							dpByPeriod.put(pid, dp);
+						}
 					}
 				}
 			}

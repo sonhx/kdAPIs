@@ -119,7 +119,7 @@ public class KpiG209CalculationService {
 
             // 1. Fetch KPI definition for G2.09
             List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(
-                "SELECT kpi_id, cycle_id, target FROM kpi_definitions WHERE kpi_code = ? AND (is_deleted = 0 OR is_deleted IS NULL)",
+                "SELECT kpi_id, cycle_id, target FROM kpi_definitions WITH (NOLOCK) WHERE kpi_code = ? AND (is_deleted = 0 OR is_deleted IS NULL) OPTION (MAXDOP 1)",
                 KPI_CODE
             );
 
@@ -159,7 +159,7 @@ public class KpiG209CalculationService {
                 // Find all campaigns for this survey
                 List<Map<String, Object>> campaigns = jdbcTemplate.queryForList(
                     "SELECT id, survey_id, title, semester_code, semester_name, start_time, end_time, is_active " +
-                    "FROM dbo.survey_campaigns WITH (NOLOCK) WHERE survey_id = ? ORDER BY start_time DESC",
+                    "FROM dbo.survey_campaigns WITH (NOLOCK) WHERE survey_id = ? ORDER BY start_time DESC OPTION (MAXDOP 1)",
                     surveyId
                 );
 
@@ -177,7 +177,7 @@ public class KpiG209CalculationService {
                     // If not forcing all, and campaign closed long ago, check if already calculated
                     if (!forceAll && !isOpen) {
                         Integer existingCount = jdbcTemplate.queryForObject(
-                            "SELECT COUNT(*) FROM dbo.kpi_g209_survey_details WHERE campaign_id = ?",
+                            "SELECT COUNT(*) FROM dbo.kpi_g209_survey_details WITH (NOLOCK) WHERE campaign_id = ? OPTION (MAXDOP 1)",
                             Integer.class, campaignId
                         );
                         if (existingCount != null && existingCount > 0) {
@@ -237,8 +237,8 @@ public class KpiG209CalculationService {
                     periodCode, totalResp, actualValue, pData.campaignResults.size()
                 );
 
-                // Upsert kpi_data_points
-                String checkExistSql = "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC";
+                // Upsert kpi_data_points (Academy-level institutional record: department_id IS NULL)
+                String checkExistSql = "SELECT TOP 1 data_id FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC OPTION (MAXDOP 1)";
                 List<Integer> existingDataIds = jdbcTemplate.query(checkExistSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, periodId);
 
                 int dataId;
@@ -248,12 +248,45 @@ public class KpiG209CalculationService {
                     dataId = existingDataIds.get(0);
                     String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE data_id = ?";
                     jdbcTemplate.update(updateSql, actualValue, statusId, toNVarChar(notes), dataId);
-                    log.info("Updated kpi_data_points (data_id: {}) for KPI G2.09 period {}: {} Điểm", dataId, periodCode, actualValue);
+                    log.info("Updated institutional kpi_data_points (data_id: {}) for KPI G2.09 period {}: {} Điểm", dataId, periodCode, actualValue);
                 } else {
                     String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes) VALUES (?, ?, ?, GETDATE(), ?, ?)";
                     jdbcTemplate.update(insertSql, kpiId, periodId, actualValue, statusId, toNVarChar(notes));
                     dataId = jdbcTemplate.queryForObject(checkExistSql, Integer.class, kpiId, periodId);
-                    log.info("Inserted new kpi_data_points (data_id: {}) for KPI G2.09 period {}: {} Điểm", dataId, periodCode, actualValue);
+                    log.info("Inserted new institutional kpi_data_points (data_id: {}) for KPI G2.09 period {}: {} Điểm", dataId, periodCode, actualValue);
+                }
+
+                // ALSO upsert department-level records for assigned departments in kpi_assignments
+                try {
+                    List<String> assignedDeptIds = jdbcTemplate.queryForList(
+                        "SELECT DISTINCT department_id FROM kpi_assignments WITH (NOLOCK) WHERE kpi_id = ? AND department_id IS NOT NULL OPTION (MAXDOP 1)",
+                        String.class, kpiId
+                    );
+                    for (String deptId : assignedDeptIds) {
+                        if (deptId != null && !deptId.trim().isEmpty() && !"null".equalsIgnoreCase(deptId.trim())) {
+                            String deptCheckSql = "SELECT TOP 1 data_id FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC OPTION (MAXDOP 1)";
+                            List<Integer> deptDataIds = jdbcTemplate.query(deptCheckSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, periodId, deptId);
+                            if (!deptDataIds.isEmpty()) {
+                                jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE data_id = ?",
+                                    actualValue, statusId, toNVarChar(notes), deptDataIds.get(0));
+                            } else {
+                                jdbcTemplate.update("INSERT INTO kpi_data_points (kpi_id, period_id, department_id, actual_value, updated_at, status_id, notes) VALUES (?, ?, ?, ?, GETDATE(), ?, ?)",
+                                    kpiId, periodId, deptId, actualValue, statusId, toNVarChar(notes));
+                            }
+                        }
+                    }
+                } catch (Exception exDept) {
+                    log.warn("Notice syncing department-specific data points for G2.09: {}", exDept.getMessage());
+                }
+
+                // AND update any legacy / orphan data points for this KPI and period (e.g. data_id = 777)
+                try {
+                    jdbcTemplate.update(
+                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE kpi_id = ? AND period_id = ? AND (actual_value IS NULL OR actual_value != ?)",
+                        actualValue, statusId, toNVarChar(notes), kpiId, periodId, actualValue
+                    );
+                } catch (Exception exLegacy) {
+                    log.warn("Notice updating legacy data points for G2.09: {}", exLegacy.getMessage());
                 }
 
                 // Upsert into kpi_g209_survey_details
@@ -362,10 +395,13 @@ public class KpiG209CalculationService {
         String sql = "SELECT q.id, q.block_id, q.question_type, q.content, b.title as block_title " +
                      "FROM dbo.survey_questions q WITH (NOLOCK) " +
                      "JOIN dbo.survey_blocks b WITH (NOLOCK) ON q.block_id = b.id " +
-                     "WHERE b.survey_id = ? AND (q.content LIKE ? OR q.content LIKE ?) " +
+                     "WHERE b.survey_id = ? " +
+                     "  AND (q.content LIKE ? OR q.content LIKE ? OR b.title LIKE ? OR b.title LIKE ?) " +
                      "OPTION (MAXDOP 1)";
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-            sql, surveyId, "%" + questionKeyword + "%", "%Điều kiện đảm bảo chất lượng%"
+            sql, surveyId, 
+            "%" + questionKeyword + "%", "%Điều kiện đảm bảo chất lượng%",
+            "%" + questionKeyword + "%", "%Điều kiện đảm bảo chất lượng%"
         );
 
         if (rows.isEmpty()) return null;
@@ -464,7 +500,7 @@ public class KpiG209CalculationService {
 
         // 4. Query period_instances for cycle 6 and this period_code
         List<Map<String, Object>> pRows = jdbcTemplate.queryForList(
-            "SELECT period_id, period_code FROM dbo.period_instances WHERE cycle_id = ? AND period_code = ?",
+            "SELECT period_id, period_code FROM dbo.period_instances WITH (NOLOCK) WHERE cycle_id = ? AND period_code = ? OPTION (MAXDOP 1)",
             cycleId, periodCode
         );
 
@@ -495,7 +531,7 @@ public class KpiG209CalculationService {
             );
 
             Integer newId = jdbcTemplate.queryForObject(
-                "SELECT period_id FROM dbo.period_instances WHERE cycle_id = ? AND period_code = ?",
+                "SELECT period_id FROM dbo.period_instances WITH (NOLOCK) WHERE cycle_id = ? AND period_code = ? OPTION (MAXDOP 1)",
                 Integer.class, cycleId, periodCode
             );
 
@@ -510,7 +546,7 @@ public class KpiG209CalculationService {
         // Final fallback via kpiExtendService
         int fallbackId = kpiExtendService.getOrCreatePeriodInstance(cycleId, "term", dateForCheck);
         String fallbackCode = jdbcTemplate.queryForObject(
-            "SELECT period_code FROM dbo.period_instances WHERE period_id = ?",
+            "SELECT period_code FROM dbo.period_instances WITH (NOLOCK) WHERE period_id = ? OPTION (MAXDOP 1)",
             String.class, fallbackId
         );
         return new PeriodResolution(fallbackId, fallbackCode != null ? fallbackCode : periodCode);
@@ -534,15 +570,14 @@ public class KpiG209CalculationService {
         double[] overallSum = new double[]{0.0};
         int[] totalItemRatings = new int[]{0};
 
-        // Primary optimized query: uses index on campaign_id and loop join to seek answers in milliseconds
-        String optimizedSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK, INDEX(IX_survey_responses_campaign_id)) " +
-                             "INNER LOOP JOIN dbo.survey_response_answers a WITH (NOLOCK) ON a.response_id = r.id " +
-                             "WHERE r.survey_id = CAST(? AS VARCHAR(100)) " +
+        // Primary optimized query: uses index on survey_response_answers(question_id, response_id) from V45
+        String optimizedSql = "SELECT a.choices FROM dbo.survey_response_answers a WITH (NOLOCK) " +
+                             "INNER JOIN dbo.survey_responses r WITH (NOLOCK) ON a.response_id = r.id " +
+                             "WHERE a.question_id = CAST(? AS VARCHAR(100)) " +
                              "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
-                             "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
-                             "  AND a.choices IS NOT NULL";
+                             "  AND a.choices IS NOT NULL OPTION (MAXDOP 1)";
 
-        // Safe fallback without loop hint or index hint in case optimizer chooses hash/merge join
+        // Safe fallback in case table references require survey_id check
         String fallbackSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK) " +
                             "INNER JOIN dbo.survey_response_answers a WITH (NOLOCK) ON a.response_id = r.id " +
                             "WHERE r.survey_id = CAST(? AS VARCHAR(100)) " +
@@ -556,9 +591,8 @@ public class KpiG209CalculationService {
             boolean executed = false;
             try (PreparedStatement ps = conn.prepareStatement(optimizedSql)) {
                 ps.setQueryTimeout(60);
-                ps.setString(1, surveyId);
+                ps.setString(1, qMeta != null ? qMeta.questionId : "");
                 ps.setString(2, campaignId);
-                ps.setString(3, qMeta != null ? qMeta.questionId : "");
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         processLikertRow(rs.getString("choices"), qMeta, criterionStatsMap, totalRespondents, overallSum, totalItemRatings);
@@ -693,7 +727,7 @@ public class KpiG209CalculationService {
 
             String itemsJsonStr = itemsJson.toString();
 
-            String checkSql = "SELECT COUNT(*) FROM dbo.kpi_g209_survey_details WHERE period_id = ? AND campaign_id = ?";
+            String checkSql = "SELECT COUNT(*) FROM dbo.kpi_g209_survey_details WITH (NOLOCK) WHERE period_id = ? AND campaign_id = ? OPTION (MAXDOP 1)";
             Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, periodId, cr.campaignId);
 
             if (count != null && count > 0) {
@@ -734,10 +768,10 @@ public class KpiG209CalculationService {
             String sql = "SELECT * FROM dbo.kpi_g209_survey_details WITH (NOLOCK) ";
             List<Map<String, Object>> rows;
             if (periodCode != null && !periodCode.trim().isEmpty()) {
-                sql += "WHERE period_code = ? ORDER BY calculated_at DESC";
+                sql += "WHERE period_code = ? ORDER BY calculated_at DESC OPTION (MAXDOP 1)";
                 rows = jdbcTemplate.queryForList(sql, periodCode.trim());
             } else {
-                sql += "ORDER BY period_code DESC, calculated_at DESC";
+                sql += "ORDER BY period_code DESC, calculated_at DESC OPTION (MAXDOP 1)";
                 rows = jdbcTemplate.queryForList(sql);
             }
 
