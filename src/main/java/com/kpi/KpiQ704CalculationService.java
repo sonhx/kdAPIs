@@ -327,8 +327,8 @@ public class KpiQ704CalculationService {
                 // AND update any legacy / orphan data points for this KPI and period (e.g. data_id = 759)
                 try {
                     jdbcTemplate.update(
-                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE kpi_id = ? AND period_id = ? AND (actual_value IS NULL OR actual_value != ?)",
-                        actualValue, statusId, toNVarChar(notes), kpiId, periodId, actualValue
+                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE kpi_id = ? AND period_id = ?",
+                        actualValue, statusId, toNVarChar(notes), kpiId, periodId
                     );
                 } catch (Exception exLegacy) {
                     log.warn("Notice updating legacy data points for Q7.04: {}", exLegacy.getMessage());
@@ -677,12 +677,13 @@ public class KpiQ704CalculationService {
         double[] overallSum = new double[]{0.0};
         int[] totalItemRatings = new int[]{0};
 
-        // Primary optimized query: uses index on survey_response_answers(question_id, response_id) from V45
-        String optimizedSql = "SELECT a.choices FROM dbo.survey_response_answers a WITH (NOLOCK) " +
-                             "INNER JOIN dbo.survey_responses r WITH (NOLOCK) ON a.response_id = r.id " +
-                             "WHERE a.question_id = CAST(? AS VARCHAR(100)) " +
-                             "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
-                             "  AND a.choices IS NOT NULL OPTION (MAXDOP 1)";
+        // Primary optimized query: start from survey_responses r using IX_survey_responses_campaign_id
+        // then join survey_response_answers a using IX_answers_response_id
+        String optimizedSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK) " +
+                             "INNER JOIN dbo.survey_response_answers a WITH (NOLOCK) ON a.response_id = r.id " +
+                             "WHERE r.campaign_id = CAST(? AS VARCHAR(100)) " +
+                             "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
+                             "  AND a.choices IS NOT NULL OPTION (FORCE ORDER, MAXDOP 1)";
 
         // Safe fallback in case table references require survey_id check
         String fallbackSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK) " +
@@ -690,7 +691,7 @@ public class KpiQ704CalculationService {
                             "WHERE r.survey_id = CAST(? AS VARCHAR(100)) " +
                             "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
                             "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
-                            "  AND a.choices IS NOT NULL OPTION (MAXDOP 1)";
+                            "  AND a.choices IS NOT NULL OPTION (FORCE ORDER, MAXDOP 1)";
 
         DataSource dataSource = jdbcTemplate.getDataSource();
         Connection conn = DataSourceUtils.getConnection(dataSource);
@@ -698,8 +699,8 @@ public class KpiQ704CalculationService {
             boolean executed = false;
             try (PreparedStatement ps = conn.prepareStatement(optimizedSql)) {
                 ps.setQueryTimeout(60);
-                ps.setString(1, qMeta != null ? qMeta.questionId : "");
-                ps.setString(2, campaignId);
+                ps.setString(1, campaignId);
+                ps.setString(2, qMeta != null ? qMeta.questionId : "");
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         processLikertRow(rs.getString("choices"), qMeta, criterionStatsMap, totalRespondents, overallSum, totalItemRatings);

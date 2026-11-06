@@ -27,18 +27,22 @@ public class KpiQ704Controller {
      * 
      * @param forceAll If true, forces recalculation for all historical campaigns
      */
-    @RequestMapping(value = {"", "/recalculate", "/calculate"}, method = {RequestMethod.GET, RequestMethod.POST}, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> recalculate(@RequestParam(value = "forceAll", defaultValue = "true") boolean forceAll) {
+    @RequestMapping(value = {"", "/recalculate", "/calculate"}, method = {RequestMethod.GET, RequestMethod.POST}, produces = "application/json;charset=UTF-8")
+    public ResponseEntity<String> recalculate(@RequestParam(value = "forceAll", defaultValue = "false") boolean forceAll) {
         log.info("Received recalculation request for KPI Q7.04 (forceAll={})", forceAll);
         try {
             JSONObject result = calculationService.calculateAndSaveQ704(null, forceAll);
-            return ResponseEntity.ok(result.toString());
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("application/json;charset=UTF-8"))
+                    .body(result.toString());
         } catch (Exception e) {
             log.error("Error triggering Q7.04 recalculation: ", e);
             JSONObject err = new JSONObject();
             err.put("status", "ERROR");
             err.put("message", e.getMessage());
-            return ResponseEntity.status(500).body(err.toString());
+            return ResponseEntity.status(500)
+                    .contentType(MediaType.parseMediaType("application/json;charset=UTF-8"))
+                    .body(err.toString());
         }
     }
 
@@ -47,17 +51,21 @@ public class KpiQ704Controller {
      * 
      * @param periodCode Optional period code (e.g. TERM_2025-2026_HK2)
      */
-    @GetMapping(value = "/breakdown", produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = "/breakdown", produces = "application/json;charset=UTF-8")
     public ResponseEntity<String> getBreakdown(@RequestParam(value = "periodCode", required = false) String periodCode) {
         try {
             JSONObject result = calculationService.getBreakdown(periodCode);
-            return ResponseEntity.ok(result.toString());
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("application/json;charset=UTF-8"))
+                    .body(result.toString());
         } catch (Exception e) {
             log.error("Error getting Q7.04 breakdown: ", e);
             JSONObject err = new JSONObject();
             err.put("status", "ERROR");
             err.put("message", e.getMessage());
-            return ResponseEntity.status(500).body(err.toString());
+            return ResponseEntity.status(500)
+                    .contentType(MediaType.parseMediaType("application/json;charset=UTF-8"))
+                    .body(err.toString());
         }
     }
 }

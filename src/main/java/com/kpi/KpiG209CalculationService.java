@@ -174,15 +174,34 @@ public class KpiG209CalculationService {
                         && (startTime == null || !startTime.after(refDate))
                         && (endTime == null || !endTime.before(refDate));
 
-                    // If not forcing all, and campaign closed long ago, check if already calculated
-                    if (!forceAll && !isOpen) {
-                        Integer existingCount = jdbcTemplate.queryForObject(
-                            "SELECT COUNT(*) FROM dbo.kpi_g209_survey_details WITH (NOLOCK) WHERE campaign_id = ? OPTION (MAXDOP 1)",
-                            Integer.class, campaignId
+                    // If not forcing all, and campaign closed, load from cache if already calculated
+                    if (!isOpen) {
+                        List<Map<String, Object>> existingDetails = jdbcTemplate.queryForList(
+                            "SELECT period_id, period_code, total_respondents, average_score, campaign_status " +
+                            "FROM dbo.kpi_g209_survey_details WITH (NOLOCK) WHERE campaign_id = ? OPTION (MAXDOP 1)",
+                            campaignId
                         );
-                        if (existingCount != null && existingCount > 0) {
-                            log.debug("Campaign {} already closed and computed. Skipping daily re-sync.", campaignId);
-                            continue;
+                        if (!existingDetails.isEmpty()) {
+                            log.debug("Campaign {} already closed and computed. Loading cached results.", campaignId);
+                            Map<String, Object> ed = existingDetails.get(0);
+                            int pId = toInt(ed.get("period_id"), 0);
+                            String pCode = (String) ed.get("period_code");
+                            int totalResp = toInt(ed.get("total_respondents"), 0);
+                            double avgScore = toDouble(ed.get("average_score"), 0.0);
+
+                            if (pId > 0 && totalResp > 0) {
+                                JSONObject pObj = new JSONObject();
+                                pObj.put("period_id", pId);
+                                pObj.put("period_code", pCode);
+                                pObj.put("actual_value", avgScore);
+                                pObj.put("total_respondents", totalResp);
+                                String notes = String.format("Tự động tính từ Khảo sát GV (%s): %d phản hồi, điểm TB %.2f/5.0 (1 đợt)", pCode, totalResp, avgScore);
+                                pObj.put("notes", notes);
+                                processedPeriods.put(pObj);
+                            }
+                            if (!forceAll) {
+                                continue;
+                            }
                         }
                     }
 
@@ -282,8 +301,8 @@ public class KpiG209CalculationService {
                 // AND update any legacy / orphan data points for this KPI and period (e.g. data_id = 777)
                 try {
                     jdbcTemplate.update(
-                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE kpi_id = ? AND period_id = ? AND (actual_value IS NULL OR actual_value != ?)",
-                        actualValue, statusId, toNVarChar(notes), kpiId, periodId, actualValue
+                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE kpi_id = ? AND period_id = ?",
+                        actualValue, statusId, toNVarChar(notes), kpiId, periodId
                     );
                 } catch (Exception exLegacy) {
                     log.warn("Notice updating legacy data points for G2.09: {}", exLegacy.getMessage());
@@ -570,12 +589,13 @@ public class KpiG209CalculationService {
         double[] overallSum = new double[]{0.0};
         int[] totalItemRatings = new int[]{0};
 
-        // Primary optimized query: uses index on survey_response_answers(question_id, response_id) from V45
-        String optimizedSql = "SELECT a.choices FROM dbo.survey_response_answers a WITH (NOLOCK) " +
-                             "INNER JOIN dbo.survey_responses r WITH (NOLOCK) ON a.response_id = r.id " +
-                             "WHERE a.question_id = CAST(? AS VARCHAR(100)) " +
-                             "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
-                             "  AND a.choices IS NOT NULL OPTION (MAXDOP 1)";
+        // Primary optimized query: start from survey_responses r using IX_survey_responses_campaign_id
+        // then join survey_response_answers a using IX_answers_response_id
+        String optimizedSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK) " +
+                             "INNER JOIN dbo.survey_response_answers a WITH (NOLOCK) ON a.response_id = r.id " +
+                             "WHERE r.campaign_id = CAST(? AS VARCHAR(100)) " +
+                             "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
+                             "  AND a.choices IS NOT NULL OPTION (FORCE ORDER, MAXDOP 1)";
 
         // Safe fallback in case table references require survey_id check
         String fallbackSql = "SELECT a.choices FROM dbo.survey_responses r WITH (NOLOCK) " +
@@ -583,7 +603,7 @@ public class KpiG209CalculationService {
                             "WHERE r.survey_id = CAST(? AS VARCHAR(100)) " +
                             "  AND r.campaign_id = CAST(? AS VARCHAR(100)) " +
                             "  AND a.question_id = CAST(? AS VARCHAR(100)) " +
-                            "  AND a.choices IS NOT NULL OPTION (MAXDOP 1)";
+                            "  AND a.choices IS NOT NULL OPTION (FORCE ORDER, MAXDOP 1)";
 
         DataSource dataSource = jdbcTemplate.getDataSource();
         Connection conn = DataSourceUtils.getConnection(dataSource);
@@ -591,8 +611,8 @@ public class KpiG209CalculationService {
             boolean executed = false;
             try (PreparedStatement ps = conn.prepareStatement(optimizedSql)) {
                 ps.setQueryTimeout(60);
-                ps.setString(1, qMeta != null ? qMeta.questionId : "");
-                ps.setString(2, campaignId);
+                ps.setString(1, campaignId);
+                ps.setString(2, qMeta != null ? qMeta.questionId : "");
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         processLikertRow(rs.getString("choices"), qMeta, criterionStatsMap, totalRespondents, overallSum, totalItemRatings);

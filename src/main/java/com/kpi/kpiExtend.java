@@ -929,15 +929,13 @@ public class kpiExtend {
 		return response;
 	}
 
-	private static volatile boolean kpiEmployeeAssignmentsTableInitialized = true;
-
 	/**
 	 * Initialize kpi_employee_assignments table if not exists.
 	 */
+	private static volatile boolean employeeAssignmentsTableInitialized = false;
+
 	public void initKpiEmployeeAssignmentsTable() {
-		if (kpiEmployeeAssignmentsTableInitialized) {
-			return;
-		}
+		if (employeeAssignmentsTableInitialized) return;
 		try {
 			String sql = 
 				"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'kpi_employee_assignments') " +
@@ -966,7 +964,7 @@ public class kpiExtend {
 				"    ALTER TABLE kpi_employee_assignments ADD is_overridden BIT NOT NULL DEFAULT 0; " +
 				"END";
 			jdbcTemplate.execute(sql);
-			kpiEmployeeAssignmentsTableInitialized = true;
+			employeeAssignmentsTableInitialized = true;
 		} catch (Exception e) {
 			logger.warn("Error initializing kpi_employee_assignments table: " + e.getMessage());
 		}
@@ -3154,6 +3152,15 @@ public class kpiExtend {
 
 		if (startDate != null && endDate != null) {
 			try {
+				// Prevent duplicate period_instance insertion if normalized code exists
+				List<Integer> existingNormalized = jdbcTemplate.query(
+					"SELECT period_id FROM period_instances WHERE cycle_id = ? AND period_code = ?",
+					(rs, rowNum) -> rs.getInt("period_id"), cycleId, normalizedCode
+				);
+				if (!existingNormalized.isEmpty()) {
+					return existingNormalized.get(0);
+				}
+
 				jdbcTemplate.update(
 					"INSERT INTO period_instances (cycle_id, period_code, start_date, end_date) VALUES (?, ?, ?, ?)",
 					cycleId, normalizedCode, startDate, endDate
@@ -3195,7 +3202,7 @@ public class kpiExtend {
 			// 3. Query all period instances for this cycle, sorted newest to oldest
 			String pSql = "SELECT TOP 12 period_id, period_code, start_date, end_date " +
 						  "FROM period_instances WITH (NOLOCK) WHERE cycle_id = ? ORDER BY start_date DESC OPTION (MAXDOP 1)";
-			List<Map<String, Object>> periods = jdbcTemplate.queryForList(pSql, cycleId);
+			List<Map<String, Object>> rawPeriods = jdbcTemplate.queryForList(pSql, cycleId);
 
 			// 4. Query data points for this KPI (and specific dept if provided)
 			String sDeptId = deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim())
@@ -3227,6 +3234,24 @@ public class kpiExtend {
 				}
 			}
 
+			// Deduplicate periods by period_code (preferring instance with actual data point)
+			Map<String, Map<String, Object>> dedupedPeriodMap = new java.util.LinkedHashMap<>();
+			for (Map<String, Object> pRow : rawPeriods) {
+				String pCode = (String) pRow.get("period_code");
+				int pid = ((Number) pRow.get("period_id")).intValue();
+				if (!dedupedPeriodMap.containsKey(pCode)) {
+					dedupedPeriodMap.put(pCode, pRow);
+				} else {
+					int existingPid = ((Number) dedupedPeriodMap.get(pCode).get("period_id")).intValue();
+					boolean currentHasDp = dpByPeriod.containsKey(pid);
+					boolean existingHasDp = dpByPeriod.containsKey(existingPid);
+					if (currentHasDp && !existingHasDp) {
+						dedupedPeriodMap.put(pCode, pRow);
+					}
+				}
+			}
+			List<Map<String, Object>> periods = new ArrayList<>(dedupedPeriodMap.values());
+
 			JSONArray jsaPeriods = new JSONArray();
 			for (Map<String, Object> pRow : periods) {
 				int pid = ((Number) pRow.get("period_id")).intValue();
@@ -3241,9 +3266,10 @@ public class kpiExtend {
 
 				if (dpByPeriod.containsKey(pid)) {
 					Map<String, Object> dp = dpByPeriod.get(pid);
-					joP.put("has_data", true);
+					boolean hasVal = dp.get("actual_value") != null && !dp.get("actual_value").toString().trim().isEmpty();
+					joP.put("has_data", hasVal);
 					joP.put("data_id", dp.get("data_id"));
-					joP.put("actual_value", dp.get("actual_value"));
+					joP.put("actual_value", dp.get("actual_value") != null ? dp.get("actual_value") : JSONObject.NULL);
 					joP.put("notes", dp.get("notes") != null ? dp.get("notes").toString() : "");
 					joP.put("evidence_link", dp.get("evidence_link") != null ? dp.get("evidence_link").toString() : "");
 					joP.put("evidence_file_name", dp.get("evidence_file_name") != null ? dp.get("evidence_file_name").toString() : "");
