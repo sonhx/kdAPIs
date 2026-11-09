@@ -139,6 +139,12 @@
 			<artifactId>jsoup</artifactId>
 			<version>1.17.2</version>
 		</dependency>
+		<!-- Google Gen AI Java SDK for Gemini API -->
+		<dependency>
+			<groupId>com.google.genai</groupId>
+			<artifactId>google-genai</artifactId>
+			<version>1.57.0</version>
+		</dependency>
 
 	</dependencies>
 

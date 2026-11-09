@@ -1,0 +1,2 @@
+comment_id,comment_text,themes,theme_sentiments,overall_sentiment,contains_suggestion,notes
+c001,"Thầy dạy rất dễ hiểu và nhiệt tình, nhưng phòng học quá nóng, máy lạnh hỏng mấy tuần rồi.",teaching;facilities,teaching:positive;facilities:negative,mixed,false,example row - delete when real labeling starts

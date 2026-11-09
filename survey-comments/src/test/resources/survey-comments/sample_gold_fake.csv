@@ -1,0 +1,23 @@
+comment_id,comment_text,themes,theme_sentiments,overall_sentiment,contains_suggestion,notes
+c001,"Thầy dạy rất dễ hiểu và nhiệt tình, nhưng phòng học quá nóng, máy lạnh hỏng mấy tuần rồi.",teaching;facilities,teaching:positive;facilities:negative,mixed,false,
+c002,"Lịch học dày quá, tuần nào cũng học 6 ngày, không có thời gian nghỉ.",schedule,schedule:negative,negative,false,
+c003,"Bài thi cuối kỳ khó hơn nhiều so với nội dung đã học.",assessment,assessment:negative,negative,false,
+c004,"Tốt.",,,positive,false,no topic
+c005,"Wifi ở thư viện rất chậm, không tải được tài liệu.",facilities,facilities:negative,negative,false,
+c006,"(redacted) Em cảm ơn cô (redacted) bên phòng đào tạo đã hỗ trợ em rất nhiều về học phí.",student_support,student_support:positive,positive,false,label on REDACTED text
+c007,"Nội dung môn học lạc hậu, vẫn học công cụ của 5 năm trước. Giảng viên thì ok.",course_content;teaching,course_content:negative;teaching:positive,mixed,false,
+c009,"Giảng viên rất có tâm khi dạy. Đóng học phí online thì rối, mất cả buổi mới xong.",teaching;admin_fees,teaching:positive;admin_fees:negative,mixed,false,
+c010,"Phòng đào tạo hỗ trợ nhiệt tình, nhưng lịch học hay thay đổi mà không báo trước.",student_support;schedule,student_support:positive;schedule:negative,mixed,false,
+c011,"Tuyệt vời lắm, lịch học cứ thay đổi liên tục, tuyệt vời thật sự :)",schedule,schedule:negative,negative,false,sarcasm
+c013,"Tài liệu học không khớp với đề thi, thầy chấm bài lâu, không có phản hồi.",assessment,assessment:negative,negative,false,
+c014,"Tốt.",,,positive,false,no topic
+c015,"giang vien day rat de hieu nhung phong hoc hay mat dien",teaching;facilities,teaching:positive;facilities:negative,mixed,false,no diacritics
+c016,"Căng tin đồ ăn vừa đắt vừa dở, nhà xe thì chật.",campus_life,campus_life:negative,negative,false,
+c017,"Web đăng ký môn học sập mỗi lần mở đăng ký, mong nhà trường nâng cấp server.",online_systems,online_systems:negative,negative,true,
+c018,"Giáo trình khá ổn nhưng gv ko giảng lại phần khó, sv hỏi thì bảo tự đọc.",course_content;teaching,course_content:positive;teaching:negative,mixed,false,abbreviations
+c019,"Cũng được.",,,neutral,false,lukewarm idiom
+c020,"Em chưa thấy trường hỗ trợ gì về thực tập, toàn phải tự đi tìm.",career_activities,career_activities:negative,negative,false,
+c021,"Thầy cô nhiệt tình, cơ sở vật chất đầy đủ, nội dung học sát thực tế. Rất hài lòng.",teaching;facilities;course_content,teaching:positive;facilities:positive;course_content:positive,positive,false,3 themes
+c022,"Thi cử ko công bằng, điểm giữa kỳ bị trừ mà ko giải thích đc.",assessment,assessment:negative,negative,false,teencode
+c023,"Mong nhà trường sửa lại máy chiếu phòng B203, nhiều buổi không dùng được.",facilities,facilities:negative,negative,true,
+c024,"Bình thường.",,,neutral,false,lukewarm idiom

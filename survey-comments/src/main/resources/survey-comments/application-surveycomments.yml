@@ -1,0 +1,16 @@
+# Sample config for the module. Merge into kdAPIs' config style (T1).
+# NEVER put the API key here: it comes from the GEMINI_API_KEY environment variable.
+survey-comments:
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:}          # exact model id; check Google's current model list and pin one
+    requests-per-minute: ${GEMINI_RPM:10}   # free tier is strict
+    max-retries: 5
+  codebook-version: v0.2-draft
+  prompt-version: p0
+  redact-staff-names: false           # decide per institution policy
+  upload:
+    max-file-size: 10MB
+  storage:
+    base-dir: ./survey-comments-data   # or use kdAPIs' database if it has one (decided in T0)
+    retention-days: 90
