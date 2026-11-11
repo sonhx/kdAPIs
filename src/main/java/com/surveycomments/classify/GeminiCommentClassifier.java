@@ -100,13 +100,18 @@ public class GeminiCommentClassifier implements CommentClassifier {
         }
 
         // 1. Check Cache
-        Optional<ClassificationResult> cached = cache.get(text, codebookVersion, promptVersion, model);
+        String cacheKey = (comment.getQuestionText() != null && !comment.getQuestionText().isBlank()
+                ? comment.getQuestionText() + ":::" : "") + text;
+        Optional<ClassificationResult> cached = cache.get(cacheKey, codebookVersion, promptVersion, model);
         if (cached.isPresent()) {
             ClassificationResult c = cached.get();
-            // Return cached result with current commentId and cohort
+            // Return cached result with current commentId, question and cohort
             return new ClassificationResult(
                     commentId,
+                    comment.getQuestionId(),
+                    comment.getQuestionText(),
                     comment.getCohort(),
+                    comment.getRedactedText(),
                     c.getThemes(),
                     c.getOverallSentiment(),
                     c.getConfidence(),
@@ -121,7 +126,7 @@ public class GeminiCommentClassifier implements CommentClassifier {
 
         // 2. Build Prompt & System Instruction
         String systemInstruction = buildSystemInstruction();
-        String prompt = buildPrompt(commentId, text);
+        String prompt = buildPrompt(commentId, text, comment.getQuestionId(), comment.getQuestionText());
 
         int maxRetries = Math.max(1, props.getGemini().getMaxRetries());
         long backoffMs = 1500L;
@@ -171,7 +176,10 @@ public class GeminiCommentClassifier implements CommentClassifier {
 
         ClassificationResult result = new ClassificationResult(
                 commentId,
+                comment.getQuestionId(),
+                comment.getQuestionText(),
                 comment.getCohort(),
+                comment.getRedactedText(),
                 parsed.themes,
                 parsed.overallSentiment,
                 parsed.confidence,
@@ -185,7 +193,7 @@ public class GeminiCommentClassifier implements CommentClassifier {
         );
 
         // 4. Store in cache
-        cache.put(text, codebookVersion, promptVersion, model, result);
+        cache.put(cacheKey, codebookVersion, promptVersion, model, result);
 
         return result;
     }
@@ -211,16 +219,26 @@ public class GeminiCommentClassifier implements CommentClassifier {
                 + "  \"contains_suggestion\": false\n"
                 + "}\n"
                 + "QUY TẮC BẮT BUỘC:\n"
+                + "- Sử dụng ngữ cảnh của 'cau_hoi_khao_sat' (nếu có) để định hướng chính xác chủ đề và ý đồ của sinh viên, đặc biệt khi câu trả lời ngắn hoặc mang tính ám chỉ.\n"
                 + "- Tối đa 3 chủ đề trong themes (nếu có nhiều hơn, chỉ lấy 3 chủ đề quan trọng nhất và đặt needs_human_review = true).\n"
                 + "- Nếu câu chỉ mang tính cảm thán chung hoặc không có chủ đề rõ ràng (như 'Tốt.', 'Cũng được.', 'Bình thường.'), trả về themes là mảng rỗng [] và xác định overall_sentiment tương ứng.\n"
                 + "- Trích dẫn 'evidence' phải là câu trích dẫn CHÍNH XÁC từ văn bản đầu vào.\n"
                 + "- Đặt contains_suggestion = true nếu sinh viên đưa ra kiến nghị/đề xuất/mong muốn thay đổi.";
     }
 
-    private String buildPrompt(String commentId, String text) {
-        return "Phân loại ý kiến sinh viên sau và trả về kết quả JSON:\n"
-                + "comment_id: \"" + commentId + "\"\n"
-                + "comment_text: \"" + text.replace("\"", "\\\"") + "\"";
+    private String buildPrompt(String commentId, String text, String questionId, String questionText) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Phân loại ý kiến sinh viên sau và trả về kết quả JSON:\n");
+        sb.append("comment_id: \"").append(commentId).append("\"\n");
+        if (questionText != null && !questionText.isBlank() && !questionText.equals("Ý kiến đóng góp chung")) {
+            sb.append("cau_hoi_khao_sat: \"").append(questionText.replace("\"", "\\\""));
+            if (questionId != null && !questionId.isBlank() && !questionId.equals("Q_GENERAL")) {
+                sb.append(" (Mã: ").append(questionId).append(")");
+            }
+            sb.append("\"\n");
+        }
+        sb.append("comment_text: \"").append(text.replace("\"", "\\\"")).append("\"");
+        return sb.toString();
     }
 }
 

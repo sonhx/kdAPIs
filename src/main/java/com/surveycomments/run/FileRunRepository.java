@@ -50,6 +50,18 @@ public class FileRunRepository implements RunRepository {
     }
 
     @Override
+    public List<Run> findAll() {
+        return store.values().stream()
+                .sorted((a, b) -> {
+                    if (a.getCreatedAt() == null && b.getCreatedAt() == null) return 0;
+                    if (a.getCreatedAt() == null) return 1;
+                    if (b.getCreatedAt() == null) return -1;
+                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public void saveResults(String runId, List<ClassificationResult> results) {
         resultsStore.put(runId, new ArrayList<>(results));
         log.info("[survey-comments] saved {} classification results for runId={}", results.size(), runId);

@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sơ đồ Luồng xử lý Toàn trình - Survey AI Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #f1f5f9;
+            color: #0f172a;
+            margin: 0;
+            padding: 32px 40px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .header h1 {
+            color: #1e3a8a;
+            font-size: 26px;
+            margin: 0 0 8px 0;
+            font-weight: 800;
+        }
+        .header p {
+            color: #64748b;
+            font-size: 15px;
+            margin: 0;
+        }
+        .banner-tip {
+            background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+            border: 1px solid #bfdbfe;
+            border-left: 6px solid #4f46e5;
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #1e3a8a;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            padding: 24px;
+            margin-bottom: 36px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #f1f5f9;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .card-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #1e293b;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        .btn:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+            transform: translateY(-1px);
+        }
+        .btn-primary {
+            background: #4f46e5;
+            border-color: #4f46e5;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+        }
+        .btn-primary:hover {
+            background: #4338ca;
+            border-color: #4338ca;
+        }
+        .btn-live {
+            background: #059669;
+            border-color: #059669;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+        }
+        .btn-live:hover {
+            background: #047857;
+            border-color: #047857;
+        }
+        .diagram-viewport {
+            background: #ffffff;
+            border: 1px solid #f1f5f9;
+            border-radius: 8px;
+            padding: 24px;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+            min-height: 200px;
+        }
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #0f172a;
+            color: #ffffff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            display: none;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>SƠ ĐỒ LUỒNG XỬ LÝ TOÀN TRÌNH (PROCESSING FLOW)</h1>
+        <p>Phân hệ Phân tích Ý kiến Khảo sát Sinh viên bằng Trí tuệ Nhân tạo (Gemini AI) - PTIT QA-IMS</p>
+    </div>
+
+    <div class="banner-tip">
+        <strong>📌 HƯỚNG DẪN SAO CHÉP & XUẤT ẢNH:</strong><br>
+        • Nhấn <strong>"📋 Sao chép ảnh (PNG)"</strong> để sao chép trực tiếp vào bộ nhớ tạm (sau đó dán <kbd>Ctrl+V</kbd> vào Word/PowerPoint).<br>
+        • Nhấn <strong>"📥 Tải PNG / SVG"</strong> để lưu tệp hình ảnh độ nét cao về máy tính.<br>
+        • Nhấn <strong>"🌐 Mở trên Mermaid Live Editor"</strong> để xem trực tuyến, tùy chỉnh màu sắc và tải file PDF/Vector theo ý muốn.
+    </div>
+
+    <!-- SƠ ĐỒ 1 -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">1. Sơ đồ Kiến trúc & Luồng xử lý Pipeline (Architecture Flow)</h2>
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="copyDiagramPng('diagram1')">📋 Sao chép ảnh (PNG)</button>
+                <button class="btn" onclick="downloadDiagramPng('diagram1', 'so_do_1_kien_truc_pipeline.png')">📥 Tải PNG</button>
+                <button class="btn" onclick="downloadDiagramSvg('diagram1', 'so_do_1_kien_truc_pipeline.svg')">📥 Tải SVG</button>
+                <button class="btn" onclick="copyMermaidCode(rawD1)">📝 Copy mã Mermaid</button>
+                <a class="btn btn-live" href="https://mermaid.live/edit#base64:eyJjb2RlIjogImZsb3djaGFydCBURFxuICAgICUlIEtoXHUxZWQxaSBOZ1x1MDFiMFx1MWVkZGkgZFx1MDBmOW5nICYgR2lhbyBkaVx1MWVjN25cbiAgICBzdWJncmFwaCBVSSBbXCIxLiBHaWFvIGRpXHUxZWM3biBOZ1x1MDFiMFx1MWVkZGkgZFx1MDBmOW5nIChxYS1pbXMgRnJvbnRlbmQpXCJdXG4gICAgICAgIEFbXCJDaFx1MWVjZG4gZmlsZSBDU1Yga2hcdTFlYTNvIHNcdTAwZTF0XG4oc2FtcGxlX2Zha2VfY29tbWVudHMuY3N2KVwiXSAtLT4gQltcIkJcdTFlYTVtICdCXHUxZWFmdCBcdTAxMTFcdTFlYTd1IHBoXHUwMGUybiB0XHUwMGVkY2ggQUknXCJdXG4gICAgICAgIEIgLS0-IENbXCJUXHUxZWYxIFx1MDExMVx1MWVkOW5nIFx1MDExMVx1MDBlZG5oIGtcdTAwZThtIFNTTyBTZXNzaW9uXG4oWC1TZXNzaW9uLUlkICYgQ29va2llKVwiXVxuICAgICAgICBQb2xsW1wiUG9sbGluZyBjaHUga1x1MWVmMyAyc1xuR0VUIC9ydW5zL3tydW5JZH1cIl0gLS4tPiBNb25pdG9yW1wiQ1x1MWVhZHAgbmhcdTFlYWR0IFRoYW5oIHRpXHUxZWJmbiBcdTAxMTFcdTFlZDkgJlxuVHJcdTFlYTFuZyB0aFx1MDBlMWkgU3RlcHBlciB0clx1MDBlYW4gVUlcIl1cbiAgICBlbmRcblxuICAgICUlIEtoXHUxZWQxaSBUaVx1MWViZnAgbmhcdTFlYWRuICYgXHUwMTEwaVx1MWVjMXUgcGhcdTFlZDFpXG4gICAgc3ViZ3JhcGggQVBJIFtcIjIuIFRpXHUxZWJmcCBuaFx1MWVhZG4gJiBcdTAxMTBpXHUxZWMxdSBwaFx1MWVkMWkgKFNwcmluZyBCb290IGtkQVBJcylcIl1cbiAgICAgICAgQyAtLT58XCJQT1NUIC9hcGkvdjEvc3VydmV5LWNvbW1lbnRzL3J1bnNcInwgRFtcIlN1cnZleUNvbW1lbnRzQ29udHJvbGxlclwiXVxuICAgICAgICBEIC0tPnxYXHUwMGUxYyB0aFx1MWVmMWMgQWRtaW4gVXNlclR5cGUgIT0gNHwgRVtcIlRcdTFlYTFvIFJ1biBlbnRpdHkgKFVVSUQpXG5Uclx1MWVhMW5nIHRoXHUwMGUxaTogUEVORElOR1wiXVxuICAgICAgICBFIC0tPnxUclx1MWVhMyB2XHUxZWMxIG5nYXkgSFRUUCAyMDIgQWNjZXB0ZWR8IFBvbGxcbiAgICAgICAgRSAtLT58XHUwMTEwXHUxZWE5eSB0XHUwMGUxYyB2XHUxZWU1IHZcdTAwZTBvIFRocmVhZCBQb29sfCBGW1wiQXN5bmMgRXhlY3V0b3JcbihSdW5Qcm9jZXNzaW5nU2VydmljZSlcIl1cbiAgICBlbmRcblxuICAgICUlIEtoXHUxZWQxaSBQaXBlbGluZSB0aVx1MWVjMW4geFx1MWVlZCBsXHUwMGZkICYgQUlcbiAgICBzdWJncmFwaCBQaXBlbGluZSBbXCIzLiBQaXBlbGluZSBUaVx1MWVjMW4geFx1MWVlZCBsXHUwMGZkICYgUGhcdTAwZTJuIGxvXHUxZWExaSBBSVwiXVxuICAgICAgICBGIC0tPiBHW1wiQlx1MDFiMFx1MWVkYmMgMTogSW5nZXN0U2VydmljZVxuLSBcdTAxMTBcdTFlY2RjIFVURi04IC8gWFx1MWVlZCBsXHUwMGZkIEJPTVxuLSBQaFx1MDBlMm4gdFx1MDBlZGNoOiBDXHUwMGUydSBoXHUxZWNmaSwgS2hcdTAwZjNhLCBcdTAwZGQga2lcdTFlYmZuXCJdXG4gICAgICAgIEcgLS0-IEhbXCJCXHUwMWIwXHUxZWRiYyAyOiBDbGVhblNlcnZpY2Vcbi0gQ2h1XHUxZWE5biBoXHUwMGYzYSBVbmljb2RlIE5GQ1xuLSBMXHUxZWNkYyBzcGFtICYgY1x1MDBlMnUgY1x1MWVkOWMgbFx1MWVkMWNcIl1cbiAgICAgICAgSCAtLT4gSVtcIkJcdTAxYjBcdTFlZGJjIDM6IFJlZGFjdFNlcnZpY2UgKFplcm8gUElJKVxuLSBDaGUgTVNTViAtPiBbTVNTVl1cbi0gQ2hlIEVtYWlsIC0-IFtFTUFJTF1cbi0gQ2hlIFNcdTAxMTBUIC0-IFtQSE9ORV1cbi0gQ2hlIFRcdTAwZWFuIC0-IFtOQU1FXVwiXVxuICAgICAgICBcbiAgICAgICAgSSAtLT4gSntcIktpXHUxZWMzbSB0cmEgQ2FjaGVcbihDbGFzc2lmaWNhdGlvbkNhY2hlKVwifVxuICAgICAgICBKIC0tIFwiXHUwMTEwXHUwMGUzIGNcdTAwZjMgY2FjaGVcIiAtLT4gTVtcIkxcdTFlYTV5IGtcdTFlYmZ0IHF1XHUxZWEzIHRcdTFlZWIgQ2FjaGVcbigwIFRva2VuIGNvbnN1bWVkKVwiXVxuICAgICAgICBKIC0tIFwiQ2hcdTAxYjBhIGNcdTAwZjMgY2FjaGVcIiAtLT4gS1tcIlJhdGUgTGltaXRlciAoVG9rZW4gQnVja2V0KVxuS2lcdTFlYzNtIHNvXHUwMGUxdCBnaVx1MWVkYmkgaFx1MWVhMW4gUlBNXCJdXG4gICAgICAgIFxuICAgICAgICBLIC0tPiBMW1wiR2VtaW5pQ29tbWVudENsYXNzaWZpZXJcbk1vZGVsOiBnZW1pbmktMy44LWZsYXNoXG4tIE5nXHUxZWVmIGNcdTFlYTNuaCBDXHUwMGUydSBoXHUxZWNmaSArIENvZGVib29rIDEyIGNoXHUxZWU3IFx1MDExMVx1MWVjMVxuLSBOaGlcdTFlYzd0IFx1MDExMVx1MWVkOSB0aFx1MWVhNXAgMC4xICYgS2hcdTAwZjRuZyB0aGlua2luZyBkZWxheVwiXVxuICAgICAgICBMIC0tPiBWW1wiTG9jYWxTY2hlbWFWYWxpZGF0b3JcbktpXHUxZWMzbSB0cmEgSlNPTiBTY2hlbWEgaFx1MWVlM3AgbFx1MWVjN1wiXVxuICAgICAgICBWIC0tPiBNXG4gICAgICAgIFxuICAgICAgICBNIC0tPiBOe1wiXHUwMTEwXHUxZWQ5IHRpbiBjXHUxZWFkeSA8IDAuNlxuaG9cdTFlYjdjIENoXHUxZWU3IFx1MDExMVx1MWVjMSA9ICdvdGhlcidcbmhvXHUxZWI3YyBGbGFnIENcdTFlYTduIGR1eVx1MWVjN3Q_XCJ9XG4gICAgICAgIE4gLS0gXCJcdTAxMTBcdTAwZmFuZ1wiIC0tPiBPW1wiXHUwMTEwXHUwMWIwYSB2XHUwMGUwbyBIXHUwMGUwbmcgXHUwMTExXHUxZWUzaSBraVx1MWVjM20gZHV5XHUxZWM3dFxuKEh1bWFuIFJldmlldyBRdWV1ZSlcIl1cbiAgICAgICAgTiAtLSBcIlNhaVwiIC0tPiBQW1wiXHUwMTEwXHUwMWIwYSB2XHUwMGUwbyBLXHUxZWJmdCBxdVx1MWVhMyBwaFx1MDBlMm4gbG9cdTFlYTFpIGNodVx1MWVhOW5cIl1cbiAgICBlbmRcblxuICAgICUlIEtoXHUxZWQxaSBLXHUxZWJmdCBxdVx1MWVhMyAmIEJcdTAwZTFvIGNcdTAwZTFvXG4gICAgc3ViZ3JhcGggT3V0IFtcIjQuIExcdTAxYjB1IHRyXHUxZWVmICYgWHVcdTFlYTV0IEJcdTAwZTFvIGNcdTAwZTFvXCJdXG4gICAgICAgIE8gJiBQIC0tPiBRW1wiTFx1MDFiMHUgUnVuUmVwb3NpdG9yeVxuVHJcdTFlYTFuZyB0aFx1MDBlMWk6IERPTkVcIl1cbiAgICAgICAgUSAtLT4gUltcIkNvc3RTZXJ2aWNlOiBUXHUwMGVkbmggVG9rZW4gJiBDaGkgcGhcdTAwZWQgVVNEL1ZOXHUwMTEwXCJdXG4gICAgICAgIFEgLS0-IFNbXCJSZXBvcnRTZXJ2aWNlOiBTaW5oIEJcdTAwZTFvIGNcdTAwZTFvIEV4Y2VsIDUgU2hlZXRcIl1cbiAgICAgICAgXG4gICAgICAgIFEgLS4tPnxDXHUxZWFkcCBuaFx1MWVhZHQgeG9uZ3wgUG9sbFxuICAgICAgICBTIC0tPiBUW1wiVFx1MWVhM2kgQlx1MDBlMW8gY1x1MDBlMW8gRXhjZWwgNSBTaGVldCAoLnhsc3gpXG5TaGVldCAxOiBUXHUxZWQ1bmcgcXVhbiAmIENoXHUxZWU3IFx1MDExMVx1MWVjMVxuU2hlZXQgMjogUGhcdTAwZTJuIHRcdTAwZWRjaCB0aGVvIEtoXHUwMGYzYVxuU2hlZXQgMzogS2lcdTFlYmZuIG5naFx1MWVjYiAmIFx1MDExMFx1MWVjMSB4dVx1MWVhNXRcblNoZWV0IDQ6IEhcdTAwZTBuZyBcdTAxMTFcdTFlZTNpIGtpXHUxZWMzbSBkdXlcdTFlYzd0XG5TaGVldCA1OiBNXHUxZWFidSBraVx1MWVjM20gdHJhIG5nXHUxZWFidSBuaGlcdTAwZWFuIDUlXCJdXG4gICAgICAgIE8gLS0-IFVbXCJUXHUxZWEzaSBIXHUwMGUwbmcgXHUwMTExXHUxZWUzaSBraVx1MWVjM20gZHV5XHUxZWM3dCAoLmNzdilcIl1cbiAgICBlbmQiLCAibWVybWFpZCI6IHsidGhlbWUiOiAiZGVmYXVsdCJ9LCAiYXV0b1N5bmMiOiB0cnVlLCAidXBkYXRlRGlhZ3JhbSI6IHRydWV9" target="_blank">🌐 Mở trên Mermaid Live</a>
+            </div>
+        </div>
+        <div class="diagram-viewport" id="diagram1-wrap">
+            <div class="mermaid" id="diagram1">
+flowchart TD
+    %% Khối Người dùng & Giao diện
+    subgraph UI ["1. Giao diện Người dùng (qa-ims Frontend)"]
+        A["Chọn file CSV khảo sát
+(sample_fake_comments.csv)"] --> B["Bấm 'Bắt đầu phân tích AI'"]
+        B --> C["Tự động đính kèm SSO Session
+(X-Session-Id & Cookie)"]
+        Poll["Polling chu kỳ 2s
+GET /runs/{runId}"] -.-> Monitor["Cập nhật Thanh tiến độ &
+Trạng thái Stepper trên UI"]
+    end
+
+    %% Khối Tiếp nhận & Điều phối
+    subgraph API ["2. Tiếp nhận & Điều phối (Spring Boot kdAPIs)"]
+        C -->|"POST /api/v1/survey-comments/runs"| D["SurveyCommentsController"]
+        D -->|Xác thực Admin UserType != 4| E["Tạo Run entity (UUID)
+Trạng thái: PENDING"]
+        E -->|Trả về ngay HTTP 202 Accepted| Poll
+        E -->|Đẩy tác vụ vào Thread Pool| F["Async Executor
+(RunProcessingService)"]
+    end
+
+    %% Khối Pipeline tiền xử lý & AI
+    subgraph Pipeline ["3. Pipeline Tiền xử lý & Phân loại AI"]
+        F --> G["Bước 1: IngestService
+- Đọc UTF-8 / Xử lý BOM
+- Phân tích: Câu hỏi, Khóa, Ý kiến"]
+        G --> H["Bước 2: CleanService
+- Chuẩn hóa Unicode NFC
+- Lọc spam & câu cộc lốc"]
+        H --> I["Bước 3: RedactService (Zero PII)
+- Che MSSV -> [MSSV]
+- Che Email -> [EMAIL]
+- Che SĐT -> [PHONE]
+- Che Tên -> [NAME]"]
+        
+        I --> J{"Kiểm tra Cache
+(ClassificationCache)"}
+        J -- "Đã có cache" --> M["Lấy kết quả từ Cache
+(0 Token consumed)"]
+        J -- "Chưa có cache" --> K["Rate Limiter (Token Bucket)
+Kiểm soát giới hạn RPM"]
+        
+        K --> L["GeminiCommentClassifier
+Model: gemini-3.8-flash
+- Ngữ cảnh Câu hỏi + Codebook 12 chủ đề
+- Nhiệt độ thấp 0.1 & Không thinking delay"]
+        L --> V["LocalSchemaValidator
+Kiểm tra JSON Schema hợp lệ"]
+        V --> M
+        
+        M --> N{"Độ tin cậy < 0.6
+hoặc Chủ đề = 'other'
+hoặc Flag Cần duyệt?"}
+        N -- "Đúng" --> O["Đưa vào Hàng đợi kiểm duyệt
+(Human Review Queue)"]
+        N -- "Sai" --> P["Đưa vào Kết quả phân loại chuẩn"]
+    end
+
+    %% Khối Kết quả & Báo cáo
+    subgraph Out ["4. Lưu trữ & Xuất Báo cáo"]
+        O & P --> Q["Lưu RunRepository
+Trạng thái: DONE"]
+        Q --> R["CostService: Tính Token & Chi phí USD/VNĐ"]
+        Q --> S["ReportService: Sinh Báo cáo Excel 5 Sheet"]
+        
+        Q -.->|Cập nhật xong| Poll
+        S --> T["Tải Báo cáo Excel 5 Sheet (.xlsx)
+Sheet 1: Tổng quan & Chủ đề
+Sheet 2: Phân tích theo Khóa
+Sheet 3: Kiến nghị & Đề xuất
+Sheet 4: Hàng đợi kiểm duyệt
+Sheet 5: Mẫu kiểm tra ngẫu nhiên 5%"]
+        O --> U["Tải Hàng đợi kiểm duyệt (.csv)"]
+    end
+            </div>
+        </div>
+    </div>
+
+    <!-- SƠ ĐỒ 2 -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">2. Sơ đồ Trình tự Tương tác Tuần tự (Sequence Diagram)</h2>
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="copyDiagramPng('diagram2')">📋 Sao chép ảnh (PNG)</button>
+                <button class="btn" onclick="downloadDiagramPng('diagram2', 'so_do_2_trinh_tu_tuong_tac.png')">📥 Tải PNG</button>
+                <button class="btn" onclick="downloadDiagramSvg('diagram2', 'so_do_2_trinh_tu_tuong_tac.svg')">📥 Tải SVG</button>
+                <button class="btn" onclick="copyMermaidCode(rawD2)">📝 Copy mã Mermaid</button>
+                <a class="btn btn-live" href="https://mermaid.live/edit#base64:eyJjb2RlIjogInNlcXVlbmNlRGlhZ3JhbVxuICAgIGF1dG9udW1iZXJcbiAgICBhY3RvciBVc2VyIGFzIE5nXHUwMWIwXHUxZWRkaSBkXHUwMGY5bmcgKEFkbWluKVxuICAgIHBhcnRpY2lwYW50IFVJIGFzIEdpYW8gZGlcdTFlYzduIHFhLWltc1xuICAgIHBhcnRpY2lwYW50IENvbnRyb2xsZXIgYXMgU3VydmV5Q29tbWVudHNDb250cm9sbGVyXG4gICAgcGFydGljaXBhbnQgV29ya2VyIGFzIFJ1blByb2Nlc3NpbmdTZXJ2aWNlIChBc3luYylcbiAgICBwYXJ0aWNpcGFudCBHZW1pbmkgYXMgR29vZ2xlIEdlbWluaSBBUEkgKGdlbWluaS0zLjgtZmxhc2gpXG4gICAgcGFydGljaXBhbnQgUmVwbyBhcyBSdW5SZXBvc2l0b3J5XG5cbiAgICBVc2VyLT4-VUk6IEtcdTAwZTlvIHRoXHUxZWEzIHNhbXBsZV9mYWtlX2NvbW1lbnRzLmNzdiAmIEJcdTFlYTVtIGJcdTFlYWZ0IFx1MDExMVx1MWVhN3VcbiAgICBVSS0-PkNvbnRyb2xsZXI6IFBPU1QgL3J1bnMgKGtcdTAwZThtIGZpbGUsIHN1cnZleUlkLCBYLVNlc3Npb24tSWQpXG4gICAgQ29udHJvbGxlci0-PkNvbnRyb2xsZXI6IEtpXHUxZWMzbSB0cmEgaFx1MWVlM3AgbFx1MWVjNyBwaGlcdTAwZWFuIFx1MDExMVx1MDEwM25nIG5oXHUxZWFkcFxuICAgIENvbnRyb2xsZXItPj5SZXBvOiBLaFx1MWVkZmkgdFx1MWVhMW8gUnVuIChydW5JZCwgUEVORElORylcbiAgICBDb250cm9sbGVyLT4-V29ya2VyOiBHXHUxZWVkaSB0XHUwMGUxYyB2XHUxZWU1IGNoXHUxZWExeSBuXHUxZWMxbiAoc3VibWl0UnVuKVxuICAgIENvbnRyb2xsZXItLT4-VUk6IEhUVFAgMjAyIEFjY2VwdGVkIChydW5JZCwgc3RhdHVzPVBFTkRJTkcpXG5cbiAgICBsb29wIFBvbGxpbmcgbVx1MWVkN2kgMiBnaVx1MDBlMnlcbiAgICAgICAgVUktPj5Db250cm9sbGVyOiBHRVQgL3J1bnMve3J1bklkfVxuICAgICAgICBDb250cm9sbGVyLT4-UmVwbzogTFx1MWVhNXkgdGlcdTFlYmZuIFx1MDExMVx1MWVkOSBoaVx1MWVjN24gdFx1MWVhMWlcbiAgICAgICAgQ29udHJvbGxlci0tPj5VSTogVHJcdTFlYTMgdlx1MWVjMSB0clx1MWVhMW5nIHRoXHUwMGUxaSAoc3RhdHVzLCBjbGFzc2lmaWVkL3RvdGFsKVxuICAgICAgICBVSS0-PlVJOiBDXHUxZWFkcCBuaFx1MWVhZHQgUHJvZ3Jlc3MgQmFyICYgU3RlcHBlclxuICAgIGVuZFxuXG4gICAgTm90ZSBvdmVyIFdvcmtlcjogSW5nZXN0IC0-IENsZWFuIC0-IFJlZGFjdCBQSUlcbiAgICBXb3JrZXItPj5Xb3JrZXI6IENoZSBnaVx1MWVhNXUgdGhcdTAwZjRuZyB0aW4gY1x1MDBlMSBuaFx1MDBlMm4gKE1TU1YsIEVtYWlsLCBQaG9uZSwgVFx1MDBlYW4pXG4gICAgXG4gICAgbG9vcCBQaFx1MDBlMm4gbG9cdTFlYTFpIHRcdTFlZWJuZyBcdTAwZmQga2lcdTFlYmZuIFx1MDExMVx1MDBlMyBjaGUgUElJXG4gICAgICAgIFdvcmtlci0-PkdlbWluaTogUHJvbXB0IChOZ1x1MWVlZiBjXHUxZWEzbmggY1x1MDBlMnUgaFx1MWVjZmkgKyBDb2RlYm9vayAxMiBjaFx1MWVlNyBcdTAxMTFcdTFlYzEpXG4gICAgICAgIEdlbWluaS0tPj5Xb3JrZXI6IEpTT04gKHRoZW1lcywgc2VudGltZW50LCBjb25maWRlbmNlLCBzdWdnZXN0aW9ucylcbiAgICAgICAgV29ya2VyLT4-V29ya2VyOiBTY2hlbWEgVmFsaWRhdGlvbiAmIFBoXHUwMGUybiBsb1x1MWVhMWkgUmV2aWV3IFF1ZXVlXG4gICAgICAgIFdvcmtlci0-PlJlcG86IENcdTFlYWRwIG5oXHUxZWFkdCB0aVx1MWViZm4gXHUwMTExXHUxZWQ5IChjbGFzc2lmaWVkQ29tbWVudHMrKylcbiAgICBlbmRcblxuICAgIFdvcmtlci0-PlJlcG86IExcdTAxYjB1IHRvXHUwMGUwbiBiXHUxZWQ5IGtcdTFlYmZ0IHF1XHUxZWEzICYgXHUwMTEwXHUxZWQ1aSB0clx1MWVhMW5nIHRoXHUwMGUxaSAtPiBET05FXG5cbiAgICBVSS0-PkNvbnRyb2xsZXI6IEdFVCAvcnVucy97cnVuSWR9IC0-IE5oXHUxZWFkbiBzdGF0dXMgPSBET05FXG4gICAgVUktPj5Db250cm9sbGVyOiBHRVQgL3J1bnMve3J1bklkfS9yZXN1bHRzICYgR0VUIC9ydW5zL3tydW5JZH0vY29zdFxuICAgIENvbnRyb2xsZXItLT4-VUk6IERcdTFlZWYgbGlcdTFlYzd1IHBoXHUwMGUybiBsb1x1MWVhMWkgY2hpIHRpXHUxZWJmdCAmIFRoXHUxZWQxbmcga1x1MDBlYSBUb2tlbiAvIENoaSBwaFx1MDBlZFxuICAgIFVJLT4-VXNlcjogSGlcdTFlYzNuIHRoXHUxZWNiIEJcdTFlYTNuZyBrXHUxZWJmdCBxdVx1MWVhMywgS1BJIENhcmRzICYgTVx1MWVkZiBuXHUwMGZhdCBUXHUxZWEzaSBiXHUwMGUxbyBjXHUwMGUxb1xuXG4gICAgb3B0IFRcdTFlYTNpIEJcdTAwZTFvIGNcdTAwZTFvXG4gICAgICAgIFVzZXItPj5VSTogQlx1MWVhNW0gXCJUXHUxZWEzaSBCXHUwMGUxbyBjXHUwMGUxbyBFeGNlbCAoNSBTaGVldHMpXCJcbiAgICAgICAgVUktPj5Db250cm9sbGVyOiBHRVQgL3J1bnMve3J1bklkfS9yZXBvcnQ_Zm9ybWF0PXhsc3hcbiAgICAgICAgQ29udHJvbGxlci0tPj5Vc2VyOiBUXHUxZWEzaSB0clx1MWVmMWMgdGlcdTFlYmZwIGZpbGUgc3VydmV5X2NvbW1lbnRzX3JlcG9ydC54bHN4XG4gICAgZW5kIiwgIm1lcm1haWQiOiB7InRoZW1lIjogImRlZmF1bHQifSwgImF1dG9TeW5jIjogdHJ1ZSwgInVwZGF0ZURpYWdyYW0iOiB0cnVlfQ" target="_blank">🌐 Mở trên Mermaid Live</a>
+            </div>
+        </div>
+        <div class="diagram-viewport" id="diagram2-wrap">
+            <div class="mermaid" id="diagram2">
+sequenceDiagram
+    autonumber
+    actor User as Người dùng (Admin)
+    participant UI as Giao diện qa-ims
+    participant Controller as SurveyCommentsController
+    participant Worker as RunProcessingService (Async)
+    participant Gemini as Google Gemini API (gemini-3.8-flash)
+    participant Repo as RunRepository
+
+    User->>UI: Kéo thả sample_fake_comments.csv & Bấm bắt đầu
+    UI->>Controller: POST /runs (kèm file, surveyId, X-Session-Id)
+    Controller->>Controller: Kiểm tra hợp lệ phiên đăng nhập
+    Controller->>Repo: Khởi tạo Run (runId, PENDING)
+    Controller->>Worker: Gửi tác vụ chạy nền (submitRun)
+    Controller-->>UI: HTTP 202 Accepted (runId, status=PENDING)
+
+    loop Polling mỗi 2 giây
+        UI->>Controller: GET /runs/{runId}
+        Controller->>Repo: Lấy tiến độ hiện tại
+        Controller-->>UI: Trả về trạng thái (status, classified/total)
+        UI->>UI: Cập nhật Progress Bar & Stepper
+    end
+
+    Note over Worker: Ingest -> Clean -> Redact PII
+    Worker->>Worker: Che giấu thông tin cá nhân (MSSV, Email, Phone, Tên)
+    
+    loop Phân loại từng ý kiến đã che PII
+        Worker->>Gemini: Prompt (Ngữ cảnh câu hỏi + Codebook 12 chủ đề)
+        Gemini-->>Worker: JSON (themes, sentiment, confidence, suggestions)
+        Worker->>Worker: Schema Validation & Phân loại Review Queue
+        Worker->>Repo: Cập nhật tiến độ (classifiedComments++)
+    end
+
+    Worker->>Repo: Lưu toàn bộ kết quả & Đổi trạng thái -> DONE
+
+    UI->>Controller: GET /runs/{runId} -> Nhận status = DONE
+    UI->>Controller: GET /runs/{runId}/results & GET /runs/{runId}/cost
+    Controller-->>UI: Dữ liệu phân loại chi tiết & Thống kê Token / Chi phí
+    UI->>User: Hiển thị Bảng kết quả, KPI Cards & Mở nút Tải báo cáo
+
+    opt Tải Báo cáo
+        User->>UI: Bấm "Tải Báo cáo Excel (5 Sheets)"
+        UI->>Controller: GET /runs/{runId}/report?format=xlsx
+        Controller-->>User: Tải trực tiếp file survey_comments_report.xlsx
+    end
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">Thông báo</div>
+
+    <script>
+        const rawD1 = `flowchart TD
+    %% Khối Người dùng & Giao diện
+    subgraph UI ["1. Giao diện Người dùng (qa-ims Frontend)"]
+        A["Chọn file CSV khảo sát
+(sample_fake_comments.csv)"] --> B["Bấm 'Bắt đầu phân tích AI'"]
+        B --> C["Tự động đính kèm SSO Session
+(X-Session-Id & Cookie)"]
+        Poll["Polling chu kỳ 2s
+GET /runs/{runId}"] -.-> Monitor["Cập nhật Thanh tiến độ &
+Trạng thái Stepper trên UI"]
+    end
+
+    %% Khối Tiếp nhận & Điều phối
+    subgraph API ["2. Tiếp nhận & Điều phối (Spring Boot kdAPIs)"]
+        C -->|"POST /api/v1/survey-comments/runs"| D["SurveyCommentsController"]
+        D -->|Xác thực Admin UserType != 4| E["Tạo Run entity (UUID)
+Trạng thái: PENDING"]
+        E -->|Trả về ngay HTTP 202 Accepted| Poll
+        E -->|Đẩy tác vụ vào Thread Pool| F["Async Executor
+(RunProcessingService)"]
+    end
+
+    %% Khối Pipeline tiền xử lý & AI
+    subgraph Pipeline ["3. Pipeline Tiền xử lý & Phân loại AI"]
+        F --> G["Bước 1: IngestService
+- Đọc UTF-8 / Xử lý BOM
+- Phân tích: Câu hỏi, Khóa, Ý kiến"]
+        G --> H["Bước 2: CleanService
+- Chuẩn hóa Unicode NFC
+- Lọc spam & câu cộc lốc"]
+        H --> I["Bước 3: RedactService (Zero PII)
+- Che MSSV -> [MSSV]
+- Che Email -> [EMAIL]
+- Che SĐT -> [PHONE]
+- Che Tên -> [NAME]"]
+        
+        I --> J{"Kiểm tra Cache
+(ClassificationCache)"}
+        J -- "Đã có cache" --> M["Lấy kết quả từ Cache
+(0 Token consumed)"]
+        J -- "Chưa có cache" --> K["Rate Limiter (Token Bucket)
+Kiểm soát giới hạn RPM"]
+        
+        K --> L["GeminiCommentClassifier
+Model: gemini-3.8-flash
+- Ngữ cảnh Câu hỏi + Codebook 12 chủ đề
+- Nhiệt độ thấp 0.1 & Không thinking delay"]
+        L --> V["LocalSchemaValidator
+Kiểm tra JSON Schema hợp lệ"]
+        V --> M
+        
+        M --> N{"Độ tin cậy < 0.6
+hoặc Chủ đề = 'other'
+hoặc Flag Cần duyệt?"}
+        N -- "Đúng" --> O["Đưa vào Hàng đợi kiểm duyệt
+(Human Review Queue)"]
+        N -- "Sai" --> P["Đưa vào Kết quả phân loại chuẩn"]
+    end
+
+    %% Khối Kết quả & Báo cáo
+    subgraph Out ["4. Lưu trữ & Xuất Báo cáo"]
+        O & P --> Q["Lưu RunRepository
+Trạng thái: DONE"]
+        Q --> R["CostService: Tính Token & Chi phí USD/VNĐ"]
+        Q --> S["ReportService: Sinh Báo cáo Excel 5 Sheet"]
+        
+        Q -.->|Cập nhật xong| Poll
+        S --> T["Tải Báo cáo Excel 5 Sheet (.xlsx)
+Sheet 1: Tổng quan & Chủ đề
+Sheet 2: Phân tích theo Khóa
+Sheet 3: Kiến nghị & Đề xuất
+Sheet 4: Hàng đợi kiểm duyệt
+Sheet 5: Mẫu kiểm tra ngẫu nhiên 5%"]
+        O --> U["Tải Hàng đợi kiểm duyệt (.csv)"]
+    end`;
+        const rawD2 = `sequenceDiagram
+    autonumber
+    actor User as Người dùng (Admin)
+    participant UI as Giao diện qa-ims
+    participant Controller as SurveyCommentsController
+    participant Worker as RunProcessingService (Async)
+    participant Gemini as Google Gemini API (gemini-3.8-flash)
+    participant Repo as RunRepository
+
+    User->>UI: Kéo thả sample_fake_comments.csv & Bấm bắt đầu
+    UI->>Controller: POST /runs (kèm file, surveyId, X-Session-Id)
+    Controller->>Controller: Kiểm tra hợp lệ phiên đăng nhập
+    Controller->>Repo: Khởi tạo Run (runId, PENDING)
+    Controller->>Worker: Gửi tác vụ chạy nền (submitRun)
+    Controller-->>UI: HTTP 202 Accepted (runId, status=PENDING)
+
+    loop Polling mỗi 2 giây
+        UI->>Controller: GET /runs/{runId}
+        Controller->>Repo: Lấy tiến độ hiện tại
+        Controller-->>UI: Trả về trạng thái (status, classified/total)
+        UI->>UI: Cập nhật Progress Bar & Stepper
+    end
+
+    Note over Worker: Ingest -> Clean -> Redact PII
+    Worker->>Worker: Che giấu thông tin cá nhân (MSSV, Email, Phone, Tên)
+    
+    loop Phân loại từng ý kiến đã che PII
+        Worker->>Gemini: Prompt (Ngữ cảnh câu hỏi + Codebook 12 chủ đề)
+        Gemini-->>Worker: JSON (themes, sentiment, confidence, suggestions)
+        Worker->>Worker: Schema Validation & Phân loại Review Queue
+        Worker->>Repo: Cập nhật tiến độ (classifiedComments++)
+    end
+
+    Worker->>Repo: Lưu toàn bộ kết quả & Đổi trạng thái -> DONE
+
+    UI->>Controller: GET /runs/{runId} -> Nhận status = DONE
+    UI->>Controller: GET /runs/{runId}/results & GET /runs/{runId}/cost
+    Controller-->>UI: Dữ liệu phân loại chi tiết & Thống kê Token / Chi phí
+    UI->>User: Hiển thị Bảng kết quả, KPI Cards & Mở nút Tải báo cáo
+
+    opt Tải Báo cáo
+        User->>UI: Bấm "Tải Báo cáo Excel (5 Sheets)"
+        UI->>Controller: GET /runs/{runId}/report?format=xlsx
+        Controller-->>User: Tải trực tiếp file survey_comments_report.xlsx
+    end`;
+
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+            sequence: { useMaxWidth: true }
+        });
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.display = 'block';
+            setTimeout(() => { t.style.display = 'none'; }, 3000);
+        }
+
+        function getSvgElement(containerId) {
+            const container = document.getElementById(containerId);
+            return container ? container.querySelector('svg') : null;
+        }
+
+        function svgToCanvas(svg) {
+            return new Promise((resolve, reject) => {
+                const svgString = new XMLSerializer().serializeToString(svg);
+                const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+                const URL = window.URL || window.webkitURL || window;
+                const blobURL = URL.createObjectURL(svgBlob);
+                
+                const image = new Image();
+                image.onload = () => {
+                    const scale = 2; // high res 2x
+                    const canvas = document.createElement('canvas');
+                    canvas.width = (svg.viewBox.baseVal.width || svg.clientWidth || 1200) * scale;
+                    canvas.height = (svg.viewBox.baseVal.height || svg.clientHeight || 800) * scale;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+                    URL.revokeObjectURL(blobURL);
+                    resolve(canvas);
+                };
+                image.onerror = (e) => reject(e);
+                image.src = blobURL;
+            });
+        }
+
+        async function copyDiagramPng(containerId) {
+            try {
+                const svg = getSvgElement(containerId);
+                if (!svg) return alert('Sơ đồ đang được vẽ, vui lòng thử lại sau 1 giây.');
+                const canvas = await svgToCanvas(svg);
+                canvas.toBlob(async (blob) => {
+                    try {
+                        await navigator.clipboard.write([
+                            new ClipboardItem({ 'image/png': blob })
+                        ]);
+                        showToast('Đã sao chép ảnh PNG vào bộ nhớ tạm! Bạn có thể dán (Ctrl+V) ngay.');
+                    } catch (e) {
+                        alert('Trình duyệt chưa cho phép ghi ảnh tự động. Bạn vui lòng dùng nút Tải PNG.');
+                    }
+                }, 'image/png');
+            } catch (err) {
+                alert('Không thể sao chép ảnh: ' + err.message);
+            }
+        }
+
+        async function downloadDiagramPng(containerId, filename) {
+            try {
+                const svg = getSvgElement(containerId);
+                if (!svg) return alert('Sơ đồ đang được vẽ, vui lòng thử lại sau 1 giây.');
+                const canvas = await svgToCanvas(svg);
+                const a = document.createElement('a');
+                a.download = filename;
+                a.href = canvas.toDataURL('image/png');
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                showToast('Đã tải tệp PNG thành công!');
+            } catch (err) {
+                alert('Không thể tải ảnh: ' + err.message);
+            }
+        }
+
+        function downloadDiagramSvg(containerId, filename) {
+            const svg = getSvgElement(containerId);
+            if (!svg) return alert('Sơ đồ đang được vẽ, vui lòng thử lại sau 1 giây.');
+            const svgString = new XMLSerializer().serializeToString(svg);
+            const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.download = filename;
+            a.href = url;
+            document.body.appendChild(a);
+            a.click();
+            URL.revokeObjectURL(url);
+            a.remove();
+            showToast('Đã tải tệp SVG thành công!');
+        }
+
+        function copyMermaidCode(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('Đã sao chép mã nguồn Mermaid vào Clipboard!');
+            }).catch(() => {
+                prompt('Sao chép mã Mermaid:', text);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -139,7 +139,19 @@ public class IngestServiceImpl implements IngestService {
                     sid = surveyId;
                 }
 
-                results.add(new RawComment(commentId, sid, cohort, commentText));
+                // Question context (optional, with fallback)
+                String qid = get(record, "question_id");
+                if (qid == null || qid.isBlank()) qid = get(record, "questionId");
+                if (qid == null || qid.isBlank()) qid = get(record, "ma_cau_hoi");
+                if (qid == null || qid.isBlank()) qid = "Q_GENERAL";
+
+                String qtext = get(record, "question_text");
+                if (qtext == null || qtext.isBlank()) qtext = get(record, "questionText");
+                if (qtext == null || qtext.isBlank()) qtext = get(record, "cau_hoi");
+                if (qtext == null || qtext.isBlank()) qtext = get(record, "question");
+                if (qtext == null || qtext.isBlank()) qtext = "Ý kiến đóng góp chung";
+
+                results.add(new RawComment(commentId, sid, qid, qtext, cohort, commentText));
             }
 
         } catch (IngestException e) {

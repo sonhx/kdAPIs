@@ -116,7 +116,7 @@ public class CleanServiceImpl implements CleanService {
             boolean veryShort = nfc.length() < VERY_SHORT_THRESHOLD;
             boolean veryLong  = nfc.length() > VERY_LONG_THRESHOLD;
 
-            kept.add(new CleanComment(r.getCommentId(), r.getSurveyId(), r.getCohort(),
+            kept.add(new CleanComment(r.getCommentId(), r.getSurveyId(), r.getQuestionId(), r.getQuestionText(), r.getCohort(),
                     nfc, veryShort, veryLong));
         }
 

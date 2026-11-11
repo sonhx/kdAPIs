@@ -144,6 +144,24 @@ public class SurveyCommentsController {
     }
 
     // -------------------------------------------------------------------------
+    // GET /api/v1/survey-comments/runs
+    // -------------------------------------------------------------------------
+
+    @GetMapping("/runs")
+    public ResponseEntity<?> listRuns(
+            @RequestParam(value = "session_id", required = false)   String sessionId,
+            @RequestHeader(value = "X-Session-Id", required = false) String headerSessionId) {
+
+        ResponseEntity<String> authError = requireAdmin(sessionId, headerSessionId);
+        if (authError != null) return authError;
+
+        List<RunResponse> runs = runRepository.findAll().stream()
+                .map(RunResponse::from)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(runs);
+    }
+
+    // -------------------------------------------------------------------------
     // GET /api/v1/survey-comments/runs/{runId}
     // -------------------------------------------------------------------------
 

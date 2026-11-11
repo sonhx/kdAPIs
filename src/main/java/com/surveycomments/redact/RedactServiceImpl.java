@@ -107,7 +107,7 @@ public class RedactServiceImpl implements RedactService {
         for (CleanComment c : comments) {
             RedactionResult r = redactText(c.getCommentText(), redactStaff);
             results.add(new RedactedComment(
-                    c.getCommentId(), c.getSurveyId(), c.getCohort(),
+                    c.getCommentId(), c.getSurveyId(), c.getQuestionId(), c.getQuestionText(), c.getCohort(),
                     r.text,
                     r.emails, r.phones, r.mssv, r.names,
                     c.isVeryShort(), c.isVeryLong()));

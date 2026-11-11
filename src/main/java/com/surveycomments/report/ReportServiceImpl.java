@@ -279,7 +279,7 @@ public class ReportServiceImpl implements ReportService {
                 .toList();
 
         Row th = sheet.createRow(0);
-        String[] headers = {"STT", "Mã ý kiến", "Khóa", "Cảm xúc chung", "Chủ đề", "Trích dẫn kiến nghị"};
+        String[] headers = {"STT", "Mã ý kiến", "Câu hỏi khảo sát", "Khóa", "Cảm xúc chung", "Chủ đề", "Trích dẫn kiến nghị"};
         for (int i = 0; i < headers.length; i++) {
             Cell c = th.createCell(i);
             c.setCellValue(headers[i]);
@@ -299,12 +299,15 @@ public class ReportServiceImpl implements ReportService {
                     .filter(Objects::nonNull)
                     .collect(Collectors.joining(" | "));
 
+            String qText = r.getQuestionText() != null && !r.getQuestionText().isBlank() ? r.getQuestionText() : "Ý kiến chung";
+
             createCell(row, 0, stt++, dataStyle);
             createCell(row, 1, r.getCommentId(), dataStyle);
-            createCell(row, 2, r.getCohort(), dataStyle);
-            createCell(row, 3, r.getOverallSentiment(), dataStyle);
-            createCell(row, 4, themesStr, dataStyle);
-            createCell(row, 5, evidenceStr, dataStyle);
+            createCell(row, 2, qText, dataStyle);
+            createCell(row, 3, r.getCohort(), dataStyle);
+            createCell(row, 4, r.getOverallSentiment(), dataStyle);
+            createCell(row, 5, themesStr, dataStyle);
+            createCell(row, 6, evidenceStr, dataStyle);
         }
 
         for (int i = 0; i < headers.length; i++) {
@@ -321,7 +324,7 @@ public class ReportServiceImpl implements ReportService {
                 .toList();
 
         Row th = sheet.createRow(0);
-        String[] headers = {"STT", "Mã ý kiến", "Khóa", "Độ tin cậy", "Cảm xúc", "Chủ đề", "Lý do kiểm duyệt"};
+        String[] headers = {"STT", "Mã ý kiến", "Câu hỏi khảo sát", "Khóa", "Độ tin cậy", "Cảm xúc", "Chủ đề", "Lý do kiểm duyệt"};
         for (int i = 0; i < headers.length; i++) {
             Cell c = th.createCell(i);
             c.setCellValue(headers[i]);
@@ -339,13 +342,16 @@ public class ReportServiceImpl implements ReportService {
                     .map(ClassificationResult.ThemeResult::getTheme)
                     .collect(Collectors.joining("; "));
 
+            String qText = r.getQuestionText() != null && !r.getQuestionText().isBlank() ? r.getQuestionText() : "Ý kiến chung";
+
             createCell(row, 0, stt++, dataStyle);
             createCell(row, 1, r.getCommentId(), dataStyle);
-            createCell(row, 2, r.getCohort(), dataStyle);
-            createCell(row, 3, String.format("%.2f", r.getConfidence()), dataStyle);
-            createCell(row, 4, r.getOverallSentiment(), dataStyle);
-            createCell(row, 5, themesStr, dataStyle);
-            createCell(row, 6, reason, dataStyle);
+            createCell(row, 2, qText, dataStyle);
+            createCell(row, 3, r.getCohort(), dataStyle);
+            createCell(row, 4, String.format("%.2f", r.getConfidence()), dataStyle);
+            createCell(row, 5, r.getOverallSentiment(), dataStyle);
+            createCell(row, 6, themesStr, dataStyle);
+            createCell(row, 7, reason, dataStyle);
         }
 
         for (int i = 0; i < headers.length; i++) {
@@ -364,7 +370,7 @@ public class ReportServiceImpl implements ReportService {
         List<ClassificationResult> sample = copy.stream().limit(sampleSize).toList();
 
         Row th = sheet.createRow(0);
-        String[] headers = {"STT", "Mã ý kiến", "Khóa", "Cảm xúc", "Chủ đề & Cảm xúc", "Trích dẫn minh chứng"};
+        String[] headers = {"STT", "Mã ý kiến", "Câu hỏi khảo sát", "Khóa", "Cảm xúc", "Chủ đề & Cảm xúc", "Trích dẫn minh chứng"};
         for (int i = 0; i < headers.length; i++) {
             Cell c = th.createCell(i);
             c.setCellValue(headers[i]);
@@ -384,12 +390,15 @@ public class ReportServiceImpl implements ReportService {
                     .filter(Objects::nonNull)
                     .collect(Collectors.joining(" | "));
 
+            String qText = r.getQuestionText() != null && !r.getQuestionText().isBlank() ? r.getQuestionText() : "Ý kiến chung";
+
             createCell(row, 0, stt++, dataStyle);
             createCell(row, 1, r.getCommentId(), dataStyle);
-            createCell(row, 2, r.getCohort(), dataStyle);
-            createCell(row, 3, r.getOverallSentiment(), dataStyle);
-            createCell(row, 4, themeSnt, dataStyle);
-            createCell(row, 5, evidence, dataStyle);
+            createCell(row, 2, qText, dataStyle);
+            createCell(row, 3, r.getCohort(), dataStyle);
+            createCell(row, 4, r.getOverallSentiment(), dataStyle);
+            createCell(row, 5, themeSnt, dataStyle);
+            createCell(row, 6, evidence, dataStyle);
         }
 
         for (int i = 0; i < headers.length; i++) {

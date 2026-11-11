@@ -11,7 +11,10 @@ import java.util.List;
 public class ClassificationResult {
 
     private final String commentId;
+    private final String questionId;
+    private final String questionText;
     private final String cohort;
+    private final String text;
     private final List<ThemeResult> themes;
     private final String overallSentiment;    // positive / neutral / negative / mixed
     private final double confidence;          // 0.0 – 1.0
@@ -29,7 +32,10 @@ public class ClassificationResult {
     private final int outputTokens;
 
     public ClassificationResult(String commentId,
+                                String questionId,
+                                String questionText,
                                 String cohort,
+                                String text,
                                 List<ThemeResult> themes,
                                 String overallSentiment,
                                 double confidence,
@@ -41,7 +47,10 @@ public class ClassificationResult {
                                 int inputTokens,
                                 int outputTokens) {
         this.commentId        = commentId;
+        this.questionId       = questionId != null ? questionId : "";
+        this.questionText     = questionText != null ? questionText : "";
         this.cohort           = cohort != null ? cohort : "";
+        this.text             = text != null ? text : "";
         this.themes           = themes;
         this.overallSentiment = overallSentiment;
         this.confidence       = confidence;
@@ -53,6 +62,41 @@ public class ClassificationResult {
         this.timestamp        = java.time.Instant.now();
         this.inputTokens      = inputTokens;
         this.outputTokens     = outputTokens;
+    }
+
+    public ClassificationResult(String commentId,
+                                String cohort,
+                                String text,
+                                List<ThemeResult> themes,
+                                String overallSentiment,
+                                double confidence,
+                                boolean needsHumanReview,
+                                boolean containsSuggestion,
+                                String model,
+                                String promptVersion,
+                                String codebookVersion,
+                                int inputTokens,
+                                int outputTokens) {
+        this(commentId, "", "", cohort, text, themes, overallSentiment, confidence,
+             needsHumanReview, containsSuggestion, model, promptVersion, codebookVersion,
+             inputTokens, outputTokens);
+    }
+
+    public ClassificationResult(String commentId,
+                                String cohort,
+                                List<ThemeResult> themes,
+                                String overallSentiment,
+                                double confidence,
+                                boolean needsHumanReview,
+                                boolean containsSuggestion,
+                                String model,
+                                String promptVersion,
+                                String codebookVersion,
+                                int inputTokens,
+                                int outputTokens) {
+        this(commentId, cohort, "", themes, overallSentiment, confidence,
+                needsHumanReview, containsSuggestion, model, promptVersion, codebookVersion,
+                inputTokens, outputTokens);
     }
 
     public ClassificationResult(String commentId,
@@ -72,7 +116,10 @@ public class ClassificationResult {
     }
 
     public String getCommentId()          { return commentId; }
+    public String getQuestionId()         { return questionId; }
+    public String getQuestionText()       { return questionText; }
     public String getCohort()             { return cohort; }
+    public String getText()               { return text; }
     public List<ThemeResult> getThemes()  { return themes; }
     public String getOverallSentiment()   { return overallSentiment; }
     public double getConfidence()         { return confidence; }

@@ -11,6 +11,8 @@ public class RedactedComment {
 
     private final String commentId;
     private final String surveyId;
+    private final String questionId;
+    private final String questionText;
     private final String cohort;
     private final String redactedText;  // safe to send to Gemini (after approval of tier/policy)
 
@@ -22,14 +24,16 @@ public class RedactedComment {
     private final boolean veryShort;
     private final boolean veryLong;
 
-    public RedactedComment(String commentId, String surveyId, String cohort,
-                           String redactedText,
+    public RedactedComment(String commentId, String surveyId, String questionId, String questionText,
+                           String cohort, String redactedText,
                            int emailsRedacted, int phonesRedacted,
                            int mssvRedacted, int namesRedacted,
                            boolean veryShort, boolean veryLong) {
         this.commentId       = commentId;
         this.surveyId        = surveyId;
-        this.cohort          = cohort;
+        this.questionId      = questionId != null ? questionId : "";
+        this.questionText    = questionText != null ? questionText : "";
+        this.cohort          = cohort != null ? cohort : "";
         this.redactedText    = redactedText;
         this.emailsRedacted  = emailsRedacted;
         this.phonesRedacted  = phonesRedacted;
@@ -39,8 +43,20 @@ public class RedactedComment {
         this.veryLong        = veryLong;
     }
 
+    public RedactedComment(String commentId, String surveyId, String cohort,
+                           String redactedText,
+                           int emailsRedacted, int phonesRedacted,
+                           int mssvRedacted, int namesRedacted,
+                           boolean veryShort, boolean veryLong) {
+        this(commentId, surveyId, "", "", cohort, redactedText,
+             emailsRedacted, phonesRedacted, mssvRedacted, namesRedacted,
+             veryShort, veryLong);
+    }
+
     public String getCommentId()      { return commentId; }
     public String getSurveyId()       { return surveyId; }
+    public String getQuestionId()     { return questionId; }
+    public String getQuestionText()   { return questionText; }
     public String getCohort()         { return cohort; }
     public String getRedactedText()   { return redactedText; }
     public int getEmailsRedacted()    { return emailsRedacted; }
