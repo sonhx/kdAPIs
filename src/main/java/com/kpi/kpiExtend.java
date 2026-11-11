@@ -1622,6 +1622,7 @@ public class kpiExtend {
 				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, " +
 							   "dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, " +
 							   "dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, " +
+							   "pi.start_date, pi.end_date, " +
 							   "u.Email AS approved_by_name " +
 							   "FROM kpi_data_points dp WITH (NOLOCK) " +
 							   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
@@ -1632,7 +1633,7 @@ public class kpiExtend {
 			} catch (Exception e) {
 				logger.error("Error executing dpSql: " + e.getMessage());
 				try {
-					String fallbackDpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code " +
+					String fallbackDpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, pi.start_date, pi.end_date " +
 										   "FROM kpi_data_points dp WITH (NOLOCK) " +
 										   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
 										   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id " +
@@ -1651,7 +1652,13 @@ public class kpiExtend {
 					JSONObject joDp = new JSONObject();
 					joDp.put("data_id", row.get("data_id"));
 					joDp.put("period_id", row.get("period_id"));
-					joDp.put("period", row.get("period_code") != null ? row.get("period_code") : row.get("period_id"));
+					Object periodCodeObj = row.get("period_code");
+					String periodCodeStr = periodCodeObj != null ? periodCodeObj.toString() : null;
+					joDp.put("period", periodCodeStr != null ? periodCodeStr : row.get("period_id"));
+					joDp.put("period_code", periodCodeStr != null ? periodCodeStr : JSONObject.NULL);
+					joDp.put("period_name", periodCodeStr != null ? formatPeriodDisplay(periodCodeStr) : JSONObject.NULL);
+					joDp.put("start_date", row.get("start_date") != null ? row.get("start_date").toString() : JSONObject.NULL);
+					joDp.put("end_date", row.get("end_date") != null ? row.get("end_date").toString() : JSONObject.NULL);
 					
 					Object targetObj = row.get("target");
 					Object targetVal = JSONObject.NULL;
@@ -1715,6 +1722,8 @@ public class kpiExtend {
 				java.util.Date targetDeadline = null;
 				Integer targetPeriodId = null;
 				String targetPeriodCode = null;
+				java.sql.Date targetStartDate = null;
+				java.sql.Date targetEndDate = null;
 
 				String currentKpiCode = kpiRow.get("kpi_code") != null ? kpiRow.get("kpi_code").toString().trim().toUpperCase() : "";
 				boolean isKpiAutomated = isAutomatedKpi(currentKpiCode, null);
@@ -1765,14 +1774,18 @@ public class kpiExtend {
 
 						cInfo.put("currPid", currPid);
 						cInfo.put("cCode", cCode);
+						cInfo.put("cStartDate", cStart);
 						cInfo.put("cEndDate", cEndDate);
 						cInfo.put("prevPid", prevPid);
 						cInfo.put("pCode", pCode);
+						cInfo.put("pStartDate", pStart);
 						cInfo.put("pEndDate", pEndDate);
 						cyclePeriodMap.put(cycleId, cInfo);
 					}
 
+					java.sql.Date cStartDate = (java.sql.Date) cInfo.get("cStartDate");
 					java.sql.Date cEndDate = (java.sql.Date) cInfo.get("cEndDate");
+					java.sql.Date pStartDate = (java.sql.Date) cInfo.get("pStartDate");
 					java.sql.Date pEndDate = (java.sql.Date) cInfo.get("pEndDate");
 
 					List<JSONObject> kpiDps = dpMap.get(kpiId);
@@ -1792,14 +1805,20 @@ public class kpiExtend {
 						if (currHasData || cInfo.get("prevPid") == null) {
 							targetPeriodId = currPid;
 							targetPeriodCode = (String) cInfo.get("cCode");
+							targetStartDate = cStartDate;
+							targetEndDate = cEndDate;
 						} else {
 							targetPeriodId = (Integer) cInfo.get("prevPid");
 							targetPeriodCode = (String) cInfo.get("pCode");
+							targetStartDate = pStartDate;
+							targetEndDate = pEndDate;
 						}
 					} else {
 						// For manual KPIs, period of reporting is the PREVIOUS completed period
 						targetPeriodId = isCurrInProgress ? (Integer) cInfo.get("prevPid") : (Integer) cInfo.get("currPid");
 						targetPeriodCode = isCurrInProgress ? (String) cInfo.get("pCode") : (String) cInfo.get("cCode");
+						targetStartDate = isCurrInProgress ? pStartDate : cStartDate;
+						targetEndDate = isCurrInProgress ? pEndDate : cEndDate;
 					}
 					java.sql.Date effectiveEndDate = (isKpiAutomated || !isCurrInProgress) ? cEndDate : pEndDate;
 
@@ -1819,6 +1838,10 @@ public class kpiExtend {
 				joKpi.put("deadline", targetDeadline != null ? sdf.format(targetDeadline) : JSONObject.NULL);
 				joKpi.put("period_id", targetPeriodId != null ? targetPeriodId : JSONObject.NULL);
 				joKpi.put("period", targetPeriodCode != null ? targetPeriodCode : JSONObject.NULL);
+				joKpi.put("period_name", targetPeriodCode != null ? formatPeriodDisplay(targetPeriodCode) : JSONObject.NULL);
+				joKpi.put("start_date", targetStartDate != null ? targetStartDate.toString() : JSONObject.NULL);
+				joKpi.put("end_date", targetEndDate != null ? targetEndDate.toString() : JSONObject.NULL);
+				joKpi.put("cycle_type", cycleType != null ? cycleType : JSONObject.NULL);
 				joKpi.put("update_mode", isKpiAutomated ? "AUTOMATED" : "MANUAL");
 
 				KpiSyncScheduleInfo kpiSched = getKpiSyncScheduleInfo(currentKpiCode);
@@ -3309,6 +3332,10 @@ public class kpiExtend {
 		if (mTerm.find()) {
 			return "Học kỳ " + mTerm.group(2) + " (Năm học " + mTerm.group(1) + ")";
 		}
+		java.util.regex.Matcher mShortTerm = java.util.regex.Pattern.compile("^(\\d{4})-HK(\\d)$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s);
+		if (mShortTerm.find()) {
+			return "Học kỳ " + mShortTerm.group(2) + " năm " + mShortTerm.group(1);
+		}
 		// Schoolyear pattern e.g. SCHOOLYEAR_2024-2025 or 2024-2025 -> Năm học 2024-2025
 		if (s.startsWith("SCHOOLYEAR_")) {
 			return "Năm học " + s.substring(11);
@@ -3323,10 +3350,24 @@ public class kpiExtend {
 		if (s.matches("^\\d{4}$")) {
 			return "Năm " + s;
 		}
-		// Quarterly pattern e.g. QUARTERLY_2025_Q1 -> Quý 1 năm 2025
+		// Monthly pattern e.g. 2026-11 or 2026-M11 -> Tháng 11/2026
+		java.util.regex.Matcher mMonth = java.util.regex.Pattern.compile("^(\\d{4})-(?:M)?(\\d{1,2})$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s);
+		if (mMonth.find()) {
+			int monthNum = Integer.parseInt(mMonth.group(2));
+			return String.format("Tháng %02d/%s", monthNum, mMonth.group(1));
+		}
+		// Quarterly pattern e.g. QUARTERLY_2025_Q1 or 2025-Q1 -> Quý 1/2025
 		java.util.regex.Matcher mQ = java.util.regex.Pattern.compile("QUARTERLY_(\\d{4})_Q(\\d)").matcher(s);
 		if (mQ.find()) {
 			return "Quý " + mQ.group(2) + "/" + mQ.group(1);
+		}
+		java.util.regex.Matcher mShortQ = java.util.regex.Pattern.compile("^(\\d{4})-Q(\\d)$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s);
+		if (mShortQ.find()) {
+			return "Quý " + mShortQ.group(2) + "/" + mShortQ.group(1);
+		}
+		java.util.regex.Matcher mWeek = java.util.regex.Pattern.compile("^(\\d{4})-W(\\d{1,2})$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s);
+		if (mWeek.find()) {
+			return "Tuần " + mWeek.group(2) + "/" + mWeek.group(1);
 		}
 		return s;
 	}

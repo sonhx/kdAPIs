@@ -91,7 +91,8 @@ public class SurveyController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "period_id", required = false) String periodId,
             @RequestParam(value = "survey_title", required = false) String surveyTitle,
-            @RequestParam(value = "session_id", required = false) String sessionId) {
+            @RequestParam(value = "session_id", required = false) String sessionId,
+            @RequestParam(value = "department_id", required = false) String departmentId) {
         JSONObject jout = new JSONObject();
         try {
             if (file == null || file.isEmpty()) {
@@ -109,7 +110,8 @@ public class SurveyController {
                 file.getInputStream(),
                 originalFilename,
                 periodId,
-                "Admin"
+                "Admin",
+                departmentId
             );
             return res.toString();
         } catch (Exception e) {
