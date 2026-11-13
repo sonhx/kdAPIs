@@ -1298,9 +1298,10 @@ public class kpiServices {
 			@RequestParam(value = "period_id", required = false) Integer periodId,
 			@RequestParam(value = "department_id", required = false) String departmentId,
 			@RequestParam(value = "status", required = false) String status,
-			@RequestParam(value = "search", required = false) String search) {
-		System.out.println("-------getKpiReportEntries: cycleId=" + cycleId + ", periodId=" + periodId + ", deptId=" + departmentId + ", status=" + status + ", search=" + search);
-		JSONObject result = kpiExtend.getKpiReportEntries(cycleId, periodId, departmentId, status, search);
+			@RequestParam(value = "search", required = false) String search,
+			@RequestParam(value = "latest_only", required = false) Boolean latestOnly) {
+		System.out.println("-------getKpiReportEntries: cycleId=" + cycleId + ", periodId=" + periodId + ", deptId=" + departmentId + ", status=" + status + ", search=" + search + ", latestOnly=" + latestOnly);
+		JSONObject result = kpiExtend.getKpiReportEntries(cycleId, periodId, departmentId, status, search, latestOnly);
 		return result.toString();
 	}
 

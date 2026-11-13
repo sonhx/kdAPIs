@@ -3424,6 +3424,10 @@ public class kpiExtend {
 	}
 
 	public JSONObject getKpiReportEntries(Integer cycleId, Integer periodId, String departmentId, String status, String search) {
+		return getKpiReportEntries(cycleId, periodId, departmentId, status, search, null);
+	}
+
+	public JSONObject getKpiReportEntries(Integer cycleId, Integer periodId, String departmentId, String status, String search, Boolean latestOnly) {
 		JSONObject response = new JSONObject();
 		try {
 			StringBuilder sql = new StringBuilder();
@@ -3549,6 +3553,44 @@ public class kpiExtend {
 				item.put("notes", row.get("notes") != null ? row.get("notes").toString() : "");
 
 				entries.put(item);
+			}
+
+			if (Boolean.TRUE.equals(latestOnly)) {
+				Map<String, JSONObject> latestMap = new HashMap<>();
+				for (int i = 0; i < entries.length(); i++) {
+					JSONObject item = entries.getJSONObject(i);
+					String groupKey = item.optInt("kpi_id") + "_" + item.optInt("period_id");
+					JSONObject existing = latestMap.get(groupKey);
+					if (existing == null) {
+						latestMap.put(groupKey, item);
+					} else {
+						boolean itemHasData = !item.isNull("actual_value") && !item.optString("actual_value", "").trim().isEmpty();
+						boolean existHasData = !existing.isNull("actual_value") && !existing.optString("actual_value", "").trim().isEmpty();
+						if (itemHasData && !existHasData) {
+							latestMap.put(groupKey, item);
+						} else if (!itemHasData && existHasData) {
+							// keep existing
+						} else {
+							String timeItem = item.optString("updated_at", "");
+							String timeExist = existing.optString("updated_at", "");
+							int timeCmp = timeItem.compareTo(timeExist);
+							if (timeCmp > 0) {
+								latestMap.put(groupKey, item);
+							} else if (timeCmp == 0) {
+								int idItem = item.optInt("data_id", 0);
+								int idExist = existing.optInt("data_id", 0);
+								if (idItem > idExist) {
+									latestMap.put(groupKey, item);
+								}
+							}
+						}
+					}
+				}
+				JSONArray deduplicated = new JSONArray();
+				for (JSONObject jo : latestMap.values()) {
+					deduplicated.put(jo);
+				}
+				entries = deduplicated;
 			}
 
 			response.put("code", 200);
