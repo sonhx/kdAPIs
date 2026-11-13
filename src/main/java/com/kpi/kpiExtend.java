@@ -1814,13 +1814,13 @@ public class kpiExtend {
 							targetEndDate = pEndDate;
 						}
 					} else {
-						// For manual KPIs, period of reporting is the PREVIOUS completed period
-						targetPeriodId = isCurrInProgress ? (Integer) cInfo.get("prevPid") : (Integer) cInfo.get("currPid");
-						targetPeriodCode = isCurrInProgress ? (String) cInfo.get("pCode") : (String) cInfo.get("cCode");
-						targetStartDate = isCurrInProgress ? pStartDate : cStartDate;
-						targetEndDate = isCurrInProgress ? pEndDate : cEndDate;
+						// For manual KPIs, current active period is the in-progress calendar/academic period (e.g. Năm 2026)
+						targetPeriodId = (Integer) cInfo.get("currPid");
+						targetPeriodCode = (String) cInfo.get("cCode");
+						targetStartDate = cStartDate;
+						targetEndDate = cEndDate;
 					}
-					java.sql.Date effectiveEndDate = (isKpiAutomated || !isCurrInProgress) ? cEndDate : pEndDate;
+					java.sql.Date effectiveEndDate = cEndDate;
 
 					if (kpiRow.get("override_absolute_deadline_date") != null) {
 						targetDeadline = (java.sql.Date) kpiRow.get("override_absolute_deadline_date");
@@ -3219,8 +3219,9 @@ public class kpiExtend {
 			String cycleType = kpi.get("cycle_type") != null ? (String) kpi.get("cycle_type") : "schoolyear";
 			String kpiCode = (String) kpi.get("kpi_code");
 
-			// 2. Determine current period instance
-			int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, new Date());
+			// 2. Determine current reporting period instance (consistent with getKpisWithAssignments)
+			Date refDate = new Date();
+			int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, refDate);
 
 			// 3. Query all period instances for this cycle, sorted newest to oldest
 			String pSql = "SELECT TOP 12 period_id, period_code, start_date, end_date " +

@@ -732,4 +732,111 @@ public class CapaController {
         obj.put("notes", a.getNotes() != null ? a.getNotes() : JSONObject.NULL);
         return obj;
     }
+
+    // =========================================================================
+    // 8. EMAIL ALERT CONFIGURATION & DUE CAPA NOTIFICATIONS
+    // =========================================================================
+
+    private static volatile boolean emailAlertEnabled = true;
+    private static volatile int emailAlertDaysBeforeDue = 2;
+
+    @GetMapping("/alert-config")
+    public String getAlertConfig() {
+        JSONObject jout = new JSONObject();
+        try {
+            jout.put("code", 200);
+            jout.put("description", "Thành công");
+            jout.put("enabled", emailAlertEnabled);
+            jout.put("daysBeforeDue", emailAlertDaysBeforeDue);
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    @PostMapping("/alert-config")
+    public String updateAlertConfig(@RequestBody String bodyStr) {
+        JSONObject jout = new JSONObject();
+        try {
+            JSONObject jin = new JSONObject(bodyStr);
+            if (jin.has("enabled")) {
+                emailAlertEnabled = jin.getBoolean("enabled");
+            }
+            if (jin.has("daysBeforeDue")) {
+                emailAlertDaysBeforeDue = jin.getInt("daysBeforeDue");
+            }
+            jout.put("code", 200);
+            jout.put("description", "Cập nhật cấu hình cảnh báo email thành công");
+            jout.put("enabled", emailAlertEnabled);
+            jout.put("daysBeforeDue", emailAlertDaysBeforeDue);
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
+
+    @PostMapping("/send-due-alerts")
+    public String sendDueAlerts(@RequestBody(required = false) String bodyStr) {
+        JSONObject jout = new JSONObject();
+        try {
+            if (!emailAlertEnabled) {
+                jout.put("code", 400);
+                jout.put("description", "Tính năng gửi email cảnh báo tự động đang TẮT bởi Quản trị viên.");
+                return jout.toString();
+            }
+
+            int countSent = 0;
+            JSONArray sentList = new JSONArray();
+
+            if (bodyStr != null && !bodyStr.isBlank()) {
+                JSONObject jin = new JSONObject(bodyStr);
+                if (jin.has("capas")) {
+                    JSONArray capas = jin.getJSONArray("capas");
+                    com.email.SendMailTLS mailSender = new com.email.SendMailTLS();
+                    for (int i = 0; i < capas.length(); i++) {
+                        JSONObject c = capas.getJSONObject(i);
+                        String capaId = c.optString("id", "CAPA");
+                        String title = c.optString("title", "");
+                        String dept = c.optString("department", "Khoa/Phòng");
+                        String dueDate = c.optString("dueDate", "");
+                        String assignee = c.optString("assignee", "Trưởng đơn vị");
+
+                        String subject = "[QA-IMS CẢNH BÁO HẠN CAPA] Hồ sơ " + capaId + " sắp đến hạn hoàn thành (" + dueDate + ")";
+                        String content = "Kính gửi Lãnh đạo " + dept + ",\r\n\r\n"
+                                + "Hệ thống ĐBCL Học viện (QA-IMS) xin thông báo hồ sơ CAPA sau sắp đến thời hạn hoàn thành:\r\n"
+                                + "- Mã hồ sơ: " + capaId + "\r\n"
+                                + "- Tiêu đề: " + title + "\r\n"
+                                + "- Đơn vị chủ trì: " + dept + "\r\n"
+                                + "- Người phụ trách: " + assignee + "\r\n"
+                                + "- Hạn chót: " + dueDate + "\r\n\r\n"
+                                + "Đề nghị đơn vị khẩn trương rà soát, hoàn tất các biện pháp khắc phục và nộp minh chứng đề xuất khép vòng trên hệ thống QA-IMS.\r\n\r\n"
+                                + "Trân trọng,\r\nBan ĐBCL & TTKT Học viện.";
+
+                        String toEmail = "admin@ptit.edu.vn";
+                        try {
+                            mailSender.tlsmain(toEmail, subject, content);
+                            countSent++;
+                            sentList.put(capaId);
+                        } catch (Exception ex) {
+                            System.err.println("Could not send mail for " + capaId + ": " + ex.getMessage());
+                        }
+                    }
+                }
+            }
+
+            jout.put("code", 200);
+            jout.put("description", "Đã gửi " + countSent + " email cảnh báo");
+            jout.put("countSent", countSent);
+            jout.put("sentCapas", sentList);
+        } catch (Exception e) {
+            e.printStackTrace();
+            jout.put("code", 500);
+            jout.put("description", "Server error: " + e.getMessage());
+        }
+        return jout.toString();
+    }
 }
