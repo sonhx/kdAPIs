@@ -3426,13 +3426,140 @@ public class kpiExtend {
 	public JSONObject getKpiReportEntries(Integer cycleId, Integer periodId, String departmentId, String status, String search) {
 		JSONObject response = new JSONObject();
 		try {
+			StringBuilder sql = new StringBuilder();
+			sql.append("SELECT ")
+			   .append("  k.kpi_id, k.kpi_code, k.name AS kpi_name, k.category, k.unit, k.measurement, k.source, k.target, k.cycle, ")
+			   .append("  c.cycle_id, c.cycle_type, v.vertex_name, ")
+			   .append("  pi.period_id, pi.period_code, pi.start_date, pi.end_date, ")
+			   .append("  dp.data_id, dp.actual_value, dp.status_id, dp.updated_at, dp.updated_by, dp.notes, ")
+			   .append("  dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.is_approved, dp.approved_by, dp.approved_at, ")
+			   .append("  COALESCE(NULLIF(dp.department_id, ''), la.department_id) AS department_id, ")
+			   .append("  COALESCE(dp_o.ten, dp_o.tenVietTat, la_o.ten, la_o.tenVietTat, N'Toàn Học viện') AS department_name, ")
+			   .append("  COALESCE(p_up.fullname, u_up.Email, CAST(dp.updated_by AS VARCHAR(100))) AS updated_by_name, ")
+			   .append("  u_up.Email AS updated_by_email, ")
+			   .append("  COALESCE(p_ap.fullname, u_ap.Email, CAST(dp.approved_by AS VARCHAR(100))) AS approved_by_name ")
+			   .append("FROM kpi_definitions k WITH (NOLOCK) ")
+			   .append("LEFT JOIN vertex_members vm WITH (NOLOCK) ON k.kpi_id = vm.kpi_id ")
+			   .append("LEFT JOIN vertices_def v WITH (NOLOCK) ON vm.vertex_id = v.vertex_id ")
+			   .append("JOIN cycle_definitions c WITH (NOLOCK) ON k.cycle_id = c.cycle_id ")
+			   .append("JOIN period_instances pi WITH (NOLOCK) ON k.cycle_id = pi.cycle_id ")
+			   .append("LEFT JOIN kpi_data_points dp WITH (NOLOCK) ON k.kpi_id = dp.kpi_id AND pi.period_id = dp.period_id ")
+			   .append("LEFT JOIN orgs dp_o WITH (NOLOCK) ON CAST(dp.department_id AS VARCHAR(100)) = CAST(dp_o.id AS VARCHAR(100)) AND (dp_o.isDeleted = 0 OR dp_o.isDeleted IS NULL) ")
+			   .append("OUTER APPLY ( ")
+			   .append("  SELECT TOP 1 a.department_id ")
+			   .append("  FROM kpi_assignments a WITH (NOLOCK) ")
+			   .append("  WHERE a.kpi_id = k.kpi_id AND a.role = 'A' ")
+			   .append("  ORDER BY a.assignment_id DESC ")
+			   .append(") la ")
+			   .append("LEFT JOIN orgs la_o WITH (NOLOCK) ON CAST(la.department_id AS VARCHAR(100)) = CAST(la_o.id AS VARCHAR(100)) AND (la_o.isDeleted = 0 OR la_o.isDeleted IS NULL) ")
+			   .append("LEFT JOIN users u_up WITH (NOLOCK) ON (CAST(dp.updated_by AS VARCHAR(100)) = CAST(u_up.ID AS VARCHAR(100)) OR u_up.Email = CAST(dp.updated_by AS VARCHAR(100))) ")
+			   .append("LEFT JOIN personnel p_up WITH (NOLOCK) ON (p_up.emailCanBo = u_up.Email OR p_up.email = u_up.Email OR CAST(p_up.id AS VARCHAR(100)) = CAST(u_up.ID AS VARCHAR(100))) AND (p_up.isDeleted = 0 OR p_up.isDeleted IS NULL) ")
+			   .append("LEFT JOIN users u_ap WITH (NOLOCK) ON (CAST(dp.approved_by AS VARCHAR(100)) = CAST(u_ap.ID AS VARCHAR(100)) OR u_ap.Email = CAST(dp.approved_by AS VARCHAR(100))) ")
+			   .append("LEFT JOIN personnel p_ap WITH (NOLOCK) ON (p_ap.emailCanBo = u_ap.Email OR p_ap.email = u_ap.Email OR CAST(p_ap.id AS VARCHAR(100)) = CAST(u_ap.ID AS VARCHAR(100))) AND (p_ap.isDeleted = 0 OR p_ap.isDeleted IS NULL) ")
+			   .append("WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) ");
+
+			List<Object> params = new ArrayList<>();
+			if (cycleId != null && cycleId > 0) {
+				sql.append("AND k.cycle_id = ? ");
+				params.add(cycleId);
+			}
+			if (periodId != null && periodId > 0) {
+				sql.append("AND pi.period_id = ? ");
+				params.add(periodId);
+			}
+			if (departmentId != null && !departmentId.trim().isEmpty() && !"all".equalsIgnoreCase(departmentId.trim())) {
+				sql.append("AND (COALESCE(NULLIF(dp.department_id, ''), la.department_id) = ? OR COALESCE(dp_o.ten, la_o.ten) = ?) ");
+				params.add(departmentId.trim());
+				params.add(departmentId.trim());
+			}
+			if (status != null && !status.trim().isEmpty() && !"all".equalsIgnoreCase(status.trim())) {
+				if ("approved".equalsIgnoreCase(status.trim())) {
+					sql.append("AND dp.is_approved = 1 ");
+				} else if ("pending".equalsIgnoreCase(status.trim())) {
+					sql.append("AND (dp.is_approved = 0 OR dp.is_approved IS NULL) AND dp.actual_value IS NOT NULL ");
+				} else if ("data_only".equalsIgnoreCase(status.trim())) {
+					sql.append("AND dp.actual_value IS NOT NULL ");
+				}
+			}
+			if (search != null && !search.trim().isEmpty()) {
+				sql.append("AND (k.kpi_code LIKE ? OR k.name LIKE ?) ");
+				String sPattern = "%" + search.trim() + "%";
+				params.add(sPattern);
+				params.add(sPattern);
+			}
+
+			sql.append("ORDER BY k.kpi_code ASC, pi.start_date ASC");
+
+			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
+			JSONArray entries = new JSONArray();
+			for (Map<String, Object> row : rows) {
+				JSONObject item = new JSONObject();
+				item.put("kpi_id", row.get("kpi_id"));
+				item.put("kpi_code", row.get("kpi_code") != null ? row.get("kpi_code").toString() : "");
+				item.put("kpi_name", row.get("kpi_name") != null ? row.get("kpi_name").toString() : "");
+				item.put("category", row.get("category") != null ? row.get("category").toString() : "");
+				item.put("dimension_name", row.get("vertex_name") != null ? row.get("vertex_name").toString() : (row.get("category") != null ? row.get("category").toString() : ""));
+				item.put("unit", row.get("unit") != null ? row.get("unit").toString() : "");
+				item.put("measurement", row.get("measurement") != null ? row.get("measurement").toString() : "");
+				item.put("source", row.get("source") != null ? row.get("source").toString() : "");
+
+				Object targetObj = row.get("target");
+				if (targetObj != null) {
+					try {
+						item.put("target", Double.parseDouble(targetObj.toString().trim()));
+					} catch (Exception e) {
+						item.put("target", targetObj.toString());
+					}
+				} else {
+					item.put("target", JSONObject.NULL);
+				}
+
+				item.put("cycle", row.get("cycle") != null ? row.get("cycle").toString() : "");
+				item.put("cycle_name", row.get("cycle") != null ? row.get("cycle").toString() : "");
+				item.put("cycle_id", row.get("cycle_id"));
+				item.put("cycle_type", row.get("cycle_type") != null ? row.get("cycle_type").toString() : "");
+
+				item.put("period_id", row.get("period_id"));
+				String pCode = row.get("period_code") != null ? row.get("period_code").toString() : "";
+				item.put("period_code", pCode);
+				item.put("period_name", formatPeriodDisplay(pCode));
+
+				item.put("start_date", row.get("start_date") != null ? row.get("start_date").toString() : "");
+				item.put("end_date", row.get("end_date") != null ? row.get("end_date").toString() : "");
+
+				item.put("data_id", row.get("data_id") != null ? row.get("data_id") : JSONObject.NULL);
+				item.put("actual_value", row.get("actual_value") != null ? row.get("actual_value") : JSONObject.NULL);
+				item.put("status_id", row.get("status_id") != null ? row.get("status_id") : JSONObject.NULL);
+
+				item.put("is_approved", row.get("is_approved") != null && ((Number) row.get("is_approved")).intValue() == 1);
+
+				item.put("department_id", row.get("department_id") != null ? row.get("department_id").toString() : "");
+				item.put("department_name", row.get("department_name") != null ? row.get("department_name").toString() : "Toàn Học viện");
+
+				item.put("updated_by_name", row.get("updated_by_name") != null ? row.get("updated_by_name").toString() : JSONObject.NULL);
+				item.put("updated_by_email", row.get("updated_by_email") != null ? row.get("updated_by_email").toString() : JSONObject.NULL);
+				item.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+				item.put("entered_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+
+				item.put("approved_by_name", row.get("approved_by_name") != null ? row.get("approved_by_name").toString() : JSONObject.NULL);
+				item.put("approved_at", row.get("approved_at") != null ? row.get("approved_at").toString() : JSONObject.NULL);
+
+				item.put("evidence_link", row.get("evidence_link") != null ? row.get("evidence_link").toString() : "");
+				item.put("evidence_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : "");
+				item.put("notes", row.get("notes") != null ? row.get("notes").toString() : "");
+
+				entries.put(item);
+			}
+
 			response.put("code", 200);
 			response.put("description", "Success");
-			response.put("entries", new JSONArray());
+			response.put("entries", entries);
 		} catch (Exception e) {
+			logger.error("Error in getKpiReportEntries: " + e.getMessage(), e);
 			try {
 				response.put("code", 500);
 				response.put("description", e.getMessage());
+				response.put("entries", new JSONArray());
 			} catch (Exception ignored) {}
 		}
 		return response;
