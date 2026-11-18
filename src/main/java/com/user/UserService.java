@@ -1073,7 +1073,7 @@ public class UserService {
 				jout.put("is_admin", user.get("IsAdmin"));
 				jout.put("lock_doc", user.get("LockDoc"));
 				jout.put("lock_user", user.get("LockUser"));
-				jout.put("avatar", user.get("Avatar"));
+				jout.put("avatar", user.get("Avatar") != null ? user.get("Avatar") : "");
 
 				Object roleCodeObj = user.get("role_code");
 				String roleCode = roleCodeObj != null ? roleCodeObj.toString() : "CHUYEN_VIEN";
@@ -1146,7 +1146,7 @@ public class UserService {
 			}
 
 			// Query user with email (fast indexed query with NOLOCK)
-			String sql = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.role_code, u.IsAdmin, u.LockDoc, u.LockUser, u.Avatar "
+			String sql = "SELECT TOP 1 u.ID, u.Email, u.Hash, u.Status, u.role_code, u.IsAdmin, u.LockDoc, u.LockUser "
 					+ "FROM dbo.users u WITH (NOLOCK) "
 					+ "WHERE u.email=? AND (u.IsDeleted IS NULL OR u.IsDeleted='0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, email);
@@ -1193,11 +1193,13 @@ public class UserService {
 
 			// Fetch personnel details for display
 			String fullName = "";
+			String mobile = "";
 			try {
-				String pSql = "SELECT TOP 1 p.fullname FROM personnel p WITH (NOLOCK) WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
-				List<String> pNames = jdbcTemplate.queryForList(pSql, String.class, userEmail, userEmail);
-				if (!pNames.isEmpty() && pNames.get(0) != null) {
-					fullName = pNames.get(0);
+				String pSql = "SELECT TOP 1 p.fullname AS FullName, p.sdtCaNhan AS Mobile FROM personnel p WITH (NOLOCK) WHERE (p.emailCanBo = ? OR p.email = ?) AND p.isDeleted = 0";
+				List<Map<String, Object>> pRows = jdbcTemplate.queryForList(pSql, userEmail, userEmail);
+				if (!pRows.isEmpty()) {
+					fullName = pRows.get(0).get("FullName") != null ? pRows.get(0).get("FullName").toString() : "";
+					mobile = pRows.get(0).get("Mobile") != null ? pRows.get(0).get("Mobile").toString() : "";
 				}
 			} catch (Exception ex) {}
 
@@ -1208,7 +1210,7 @@ public class UserService {
 				jout.put("session_id", session);
 				jout.put("user_id", user_id != null ? user_id : "");
 				jout.put("full_name", fullName);
-				jout.put("mobile", user.get("Mobile") != null ? user.get("Mobile") : "");
+				jout.put("mobile", mobile);
 				jout.put("status", user.get("Status") != null ? user.get("Status") : 1);
 				jout.put("is_admin", user.get("IsAdmin") != null ? user.get("IsAdmin") : 0);
 				jout.put("lock_doc", user.get("LockDoc") != null ? user.get("LockDoc") : 0);
@@ -1455,7 +1457,7 @@ public class UserService {
 			}
 
 			String userId = (sst.sUserId != null && !sst.sUserId.trim().isEmpty()) ? sst.sUserId.trim() : String.valueOf(sst.UserID);
-			String sql = "SELECT TOP 1 u.ID, u.Email, u.Status, u.role_code, u.IsAdmin, u.LockDoc, u.LockUser, u.Avatar "
+			String sql = "SELECT TOP 1 u.ID, u.Email, u.Status, u.role_code, u.IsAdmin, u.LockDoc, u.LockUser "
 					+ "FROM dbo.users u WITH (NOLOCK) "
 					+ "WHERE u.ID = ? AND (u.IsDeleted IS NULL OR u.IsDeleted = '0')";
 			List<Map<String, Object>> users = jdbcTemplate.queryForList(sql, userId);

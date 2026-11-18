@@ -1,5 +1,17 @@
 package com.minhchung;
 
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Map;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
+import jakarta.servlet.http.HttpServletRequest;
+import com.config.Config;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -1010,6 +1022,150 @@ public class MCService {
                     os.write(buffer, 0, len);
                 }
                 os.flush();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Endpoint to view / download evidence file or metadata in a new tab.
+     * Used by inserted hyperlinks in ONLYOFFICE/Word, as well as preview drawers.
+     * GET /mc/view/{id}
+     */
+    @GetMapping("/view/{id}")
+    public void viewEvidenceFile(@PathVariable int id, HttpServletRequest request, HttpServletResponse response) {
+        try {
+            Map<String, Object> mc = mcExtend.getEvidenceById(id);
+            if (mc == null) {
+                response.setContentType("text/html;charset=UTF-8");
+                response.getWriter().write("<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Không tìm thấy minh chứng</title></head>"
+                        + "<body style='font-family:sans-serif;padding:40px;text-align:center;background:#F8FAFC;'>"
+                        + "<div style='max-width:500px;margin:0 auto;background:#fff;padding:30px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.08);'>"
+                        + "<h2 style='color:#DC2626;'>Không tìm thấy minh chứng</h2>"
+                        + "<p style='color:#64748B;'>Minh chứng với ID <strong>" + id + "</strong> không tồn tại trong hệ thống hoặc đã bị xóa.</p>"
+                        + "</div></body></html>");
+                return;
+            }
+
+            String path = (String) mc.get("path");
+            String tenFile = (String) mc.get("ten_file");
+            String tenMc = (String) mc.get("ten_mc");
+            String maMc = (String) mc.get("ma_mc");
+            String soNgayThang = (String) mc.get("so_ngay_thang");
+            String noiBanHanh = (String) mc.get("noi_ban_hanh");
+            String ocrContent = (String) mc.get("content");
+
+            File targetFile = null;
+            if (path != null && !path.trim().isEmpty()) {
+                String absPath = path.startsWith(Config.homePath) 
+                        ? path.replaceFirst(Config.homePath, Config.homeDir) 
+                        : (path.startsWith("/") ? Config.homeDir + path : Config.homeDir + "/" + path);
+                targetFile = new File(absPath);
+            }
+
+            if (targetFile != null && targetFile.exists() && targetFile.isFile()) {
+                String mimeType = Files.probeContentType(targetFile.toPath());
+                if (mimeType == null) {
+                    String lower = targetFile.getName().toLowerCase();
+                    if (lower.endsWith(".pdf")) mimeType = "application/pdf";
+                    else if (lower.endsWith(".png")) mimeType = "image/png";
+                    else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) mimeType = "image/jpeg";
+                    else if (lower.endsWith(".doc")) mimeType = "application/msword";
+                    else if (lower.endsWith(".docx")) mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                    else if (lower.endsWith(".xls")) mimeType = "application/vnd.ms-excel";
+                    else if (lower.endsWith(".xlsx")) mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                    else mimeType = "application/octet-stream";
+                }
+
+                response.setContentType(mimeType);
+                String safeName = (tenFile != null && !tenFile.isEmpty()) ? tenFile : targetFile.getName();
+                ContentDisposition disposition = ContentDisposition.inline()
+                        .filename(safeName, StandardCharsets.UTF_8)
+                        .build();
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, disposition.toString());
+                response.setContentLengthLong(targetFile.length());
+
+                try (InputStream in = new FileInputStream(targetFile); OutputStream out = response.getOutputStream()) {
+                    in.transferTo(out);
+                    out.flush();
+                }
+                return;
+            }
+
+            // Fallback HTML page if physical file is not yet uploaded on server
+            response.setContentType("text/html;charset=UTF-8");
+            StringBuilder html = new StringBuilder();
+            html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'>");
+            html.append("<title>Minh chứng [").append(maMc != null ? maMc : "").append("]</title>");
+            html.append("<meta name='viewport' content='width=device-width, initial-scale=1'>");
+            html.append("<style>");
+            html.append("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #F8FAFC; color: #1E293B; margin: 0; padding: 24px; }");
+            html.append(".container { max-width: 860px; margin: 0 auto; background: #FFF; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); overflow: hidden; border: 1px solid #E2E8F0; }");
+            html.append(".header { background: #4F46E5; color: #FFF; padding: 20px 24px; }");
+            html.append(".badge { display: inline-block; background: #EEF2FF; color: #4338CA; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 8px; font-family: monospace; }");
+            html.append(".title { font-size: 18px; font-weight: 700; margin: 0; line-height: 1.4; }");
+            html.append(".body { padding: 24px; }");
+            html.append(".meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #F1F5F9; padding: 14px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; }");
+            html.append(".alert { background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 12px 16px; border-radius: 4px; color: #92400E; font-size: 13px; margin-bottom: 20px; }");
+            html.append(".ocr-box { background: #FAFAFA; border: 1px solid #E2E8F0; border-radius: 8px; padding: 16px; max-height: 450px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: #334155; }");
+            html.append("</style></head><body>");
+            html.append("<div class='container'>");
+            html.append("<div class='header'>");
+            html.append("<div class='badge'>[").append(maMc != null ? maMc : "MINH CHỨNG").append("]</div>");
+            html.append("<h1 class='title'>").append(tenMc != null ? tenMc : "Chi tiết minh chứng").append("</h1>");
+            html.append("</div>");
+            html.append("<div class='body'>");
+            html.append("<div class='meta-grid'>");
+            html.append("<div><strong>Số / Ngày BH:</strong> ").append(soNgayThang != null && !soNgayThang.isEmpty() ? soNgayThang : "Chưa cập nhật").append("</div>");
+            html.append("<div><strong>Nơi ban hành:</strong> ").append(noiBanHanh != null && !noiBanHanh.isEmpty() ? noiBanHanh : "Chưa cập nhật").append("</div>");
+            html.append("<div><strong>Tên tệp gốc:</strong> ").append(tenFile != null && !tenFile.isEmpty() ? tenFile : "Chưa cập nhật").append("</div>");
+            html.append("<div><strong>Đường dẫn lưu:</strong> ").append(path != null && !path.isEmpty() ? path : "Chưa cấu hình").append("</div>");
+            html.append("</div>");
+            html.append("<div class='alert'>⚠️ <strong>Thông báo:</strong> Tệp tài liệu số hóa chưa có sẵn trên máy chủ lưu trữ (hoặc đang được đồng bộ). Dưới đây là thông tin trích xuất của minh chứng.</div>");
+            if (ocrContent != null && !ocrContent.trim().isEmpty()) {
+                html.append("<h3 style='margin: 0 0 10px 0; font-size: 15px; color: #0F172A;'>📝 Nội dung trích xuất văn bản (OCR):</h3>");
+                html.append("<div class='ocr-box'>").append(ocrContent.replace("<", "&lt;").replace(">", "&gt;")).append("</div>");
+            } else {
+                html.append("<p style='color: #94A3B8; font-style: italic; text-align: center; padding: 20px 0;'>Minh chứng này chưa có nội dung văn bản trích xuất OCR.</p>");
+            }
+            html.append("</div></div></body></html>");
+            response.getWriter().write(html.toString());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Endpoint to view raw evidence file by relative path.
+     * GET /mc/raw?path=/kdgd/doc/...
+     */
+    @GetMapping("/raw")
+    public void viewRawFile(@RequestParam(name = "path", required = false) String rawPath, HttpServletResponse response) {
+        try {
+            if (rawPath == null || rawPath.trim().isEmpty()) {
+                response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Missing path parameter");
+                return;
+            }
+            String absPath = rawPath.startsWith(Config.homePath) 
+                    ? rawPath.replaceFirst(Config.homePath, Config.homeDir) 
+                    : (rawPath.startsWith("/") ? Config.homeDir + rawPath : Config.homeDir + "/" + rawPath);
+            File file = new File(absPath);
+            if (!file.exists() || !file.isFile()) {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND, "File not found: " + rawPath);
+                return;
+            }
+            String mimeType = Files.probeContentType(file.toPath());
+            if (mimeType == null) mimeType = "application/pdf";
+            response.setContentType(mimeType);
+            ContentDisposition disposition = ContentDisposition.inline()
+                    .filename(file.getName(), StandardCharsets.UTF_8)
+                    .build();
+            response.setHeader(HttpHeaders.CONTENT_DISPOSITION, disposition.toString());
+            response.setContentLengthLong(file.length());
+            try (InputStream in = new FileInputStream(file); OutputStream out = response.getOutputStream()) {
+                in.transferTo(out);
+                out.flush();
             }
         } catch (Exception e) {
             e.printStackTrace();
