@@ -3,6 +3,7 @@ package com.system;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,6 +21,11 @@ public class SystemService {
 
     @Autowired
     private SystemExtend systemExtend;
+
+    @GetMapping(value = "/ping", produces = "application/json;charset=UTF-8")
+    public String ping() {
+        return "{\"status\":\"UP\",\"timestamp\":" + System.currentTimeMillis() + "}";
+    }
 
     @PostMapping("/purgeallseason")
     public String purgeAllSeason(@RequestBody String sReq) {

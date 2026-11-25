@@ -559,11 +559,30 @@ public class NotificationExtend {
 
             List<Map<String, Object>> rawRows = jdbcTemplate.queryForList(querySql.toString(), params.toArray());
 
+            // Deduplicate: for each (notification_code, entity_id) pair, keep only the latest row.
+            // rawRows is already sorted by delivered_at DESC so the first occurrence is the most recent.
+            Map<String, Map<String, Object>> dedupeMap = new LinkedHashMap<>();
+            for (Map<String, Object> r : rawRows) {
+                String dCode = r.get("notification_code") != null ? r.get("notification_code").toString() : "";
+                String dEnt  = r.get("entity_id")          != null ? r.get("entity_id").toString()          : "";
+                // Only deduplicate alert-type notifications with a real entity_id.
+                // If entity_id is blank keep them all (system/generic notifications).
+                String dedupeKey = dCode + "|" + dEnt;
+                if (!dEnt.isBlank()) {
+                    dedupeMap.putIfAbsent(dedupeKey, r);
+                } else {
+                    // No entity_id — use delivery_id as unique key so they are always kept
+                    String delivId = r.get("delivery_id") != null ? r.get("delivery_id").toString() : UUID.randomUUID().toString();
+                    dedupeMap.put(delivId, r);
+                }
+            }
+            List<Map<String, Object>> dedupedRows = new ArrayList<>(dedupeMap.values());
+
             // Process and group rows in Java
             Map<String, List<Map<String, Object>>> personalBuckets = new LinkedHashMap<>();
             Map<String, List<Map<String, Object>>> groupBuckets = new LinkedHashMap<>();
 
-            for (Map<String, Object> r : rawRows) {
+            for (Map<String, Object> r : dedupedRows) {
                 String title = (String) r.get("title");
                 String message = (String) r.get("message");
                 String code = (String) r.get("notification_code");
@@ -735,13 +754,25 @@ public class NotificationExtend {
 
     private int getUnreadCountInternal(String userId, int retentionDays) {
         try {
+            // Count unread notifications deduplicated the same way as the display:
+            // for items WITH entity_id: one entry per (notification_code, entity_id) pair.
+            // for items WITHOUT entity_id: each row is counted independently.
             String sql =
-                "SELECT COUNT(*) FROM (SELECT n.notification_code, n.category, CAST(n.created_at AS DATE) as cdate " +
-                "FROM user_notifications un " +
-                "JOIN notifications n ON n.id = un.notification_id " +
-                "WHERE un.user_id = ? AND un.is_read = 0 AND un.is_archived = 0 AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
-                "  AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE()) " +
-                "GROUP BY n.notification_code, n.category, CAST(n.created_at AS DATE)) as grp";
+                "SELECT COUNT(*) FROM (" +
+                "  SELECT " +
+                "    CASE WHEN ISNULL(CAST(n.entity_id AS NVARCHAR(100)),'') <> '' " +
+                "         THEN n.notification_code + '|' + CAST(n.entity_id AS NVARCHAR(100)) " +
+                "         ELSE CAST(un.id AS NVARCHAR(50)) END AS dedup_key " +
+                "  FROM user_notifications un " +
+                "  JOIN notifications n ON n.id = un.notification_id " +
+                "  WHERE un.user_id = ? AND un.is_read = 0 AND un.is_archived = 0 " +
+                "    AND (n.is_deleted = 0 OR n.is_deleted IS NULL) " +
+                "    AND un.delivered_at >= DATEADD(day, -" + retentionDays + ", GETDATE()) " +
+                "  GROUP BY " +
+                "    CASE WHEN ISNULL(CAST(n.entity_id AS NVARCHAR(100)),'') <> '' " +
+                "         THEN n.notification_code + '|' + CAST(n.entity_id AS NVARCHAR(100)) " +
+                "         ELSE CAST(un.id AS NVARCHAR(50)) END" +
+                ") AS deduped";
             Integer cnt = jdbcTemplate.queryForObject(sql, Integer.class, userId);
             return cnt != null ? cnt : 0;
         } catch (Exception e) {

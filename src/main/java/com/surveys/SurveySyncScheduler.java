@@ -30,6 +30,9 @@ public class SurveySyncScheduler {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @Autowired(required = false)
+    private com.system.monitor.CronJobMonitorService cronJobMonitorService;
+
     @Value("${slink.api-key}")
     private String slinkApiKey;
 
@@ -80,56 +83,70 @@ public class SurveySyncScheduler {
                 return;
             }
         }
-        System.out.println("Starting Slink Survey Sync...");
-        try {
-            int page = 1;
-            int limit = 200;
-            boolean hasMore = true;
-            
-            String cleanApiKey = slinkApiKey != null ? slinkApiKey.replace("\"", "").trim() : "";
-            org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
-            requestFactory.setConnectTimeout(10000);
-            requestFactory.setReadTimeout(10000);
-            RestTemplate restTemplate = new RestTemplate(requestFactory);
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("x-api-key", cleanApiKey);
-            HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            while (hasMore) {
-                String url = "https://gw.aisoftech.vn/ptit/slink/internal/khao-sat/page?page=" + page + "&limit=" + limit;
-                ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
-                String responseBody = response.getBody() != null ? new String(response.getBody(), java.nio.charset.StandardCharsets.UTF_8) : "{}";
-                
-                JSONObject jRes = new JSONObject(responseBody);
-                if (jRes.has("success") && jRes.getBoolean("success")) {
-                    JSONObject data = jRes.getJSONObject("data");
-                    JSONArray items = data.getJSONArray("result");
-                    
-                    if (items.length() == 0) {
-                        hasMore = false;
-                        break;
-                    }
-                    
-                    for (int i = 0; i < items.length(); i++) {
-                        JSONObject survey = items.getJSONObject(i);
-                        updateSurveyMetadata(survey);
-                    }
-                    
-                    int total = data.getInt("total");
-                    if (page * limit >= total) {
-                        hasMore = false;
-                    } else {
-                        page++;
-                    }
-                } else {
-                    hasMore = false;
-                }
+        if (cronJobMonitorService != null) {
+            cronJobMonitorService.executeMonitoredJob(
+                "SLINK_SURVEY_SYNC",
+                "Đồng bộ danh sách khảo sát S-Link",
+                "SLINK",
+                this::doSyncSurveysInternal
+            );
+        } else {
+            try {
+                doSyncSurveysInternal();
+            } catch (Exception e) {
+                System.out.println("Error in syncSurveys: " + e.getMessage());
+                e.printStackTrace();
             }
-            System.out.println("Slink Survey Sync Completed successfully.");
-        } catch (Exception e) {
-            System.out.println("Error in syncSurveys: " + e.getMessage());
-            e.printStackTrace();
         }
+    }
+
+    private void doSyncSurveysInternal() throws Exception {
+        System.out.println("Starting Slink Survey Sync...");
+        int page = 1;
+        int limit = 200;
+        boolean hasMore = true;
+        
+        String cleanApiKey = slinkApiKey != null ? slinkApiKey.replace("\"", "").trim() : "";
+        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(10000);
+        requestFactory.setReadTimeout(10000);
+        RestTemplate restTemplate = new RestTemplate(requestFactory);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("x-api-key", cleanApiKey);
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        while (hasMore) {
+            String url = "https://gw.aisoftech.vn/ptit/slink/internal/khao-sat/page?page=" + page + "&limit=" + limit;
+            ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
+            String responseBody = response.getBody() != null ? new String(response.getBody(), java.nio.charset.StandardCharsets.UTF_8) : "{}";
+            
+            JSONObject jRes = new JSONObject(responseBody);
+            if (jRes.has("success") && jRes.getBoolean("success")) {
+                JSONObject data = jRes.getJSONObject("data");
+                JSONArray items = data.getJSONArray("result");
+                
+                if (items.length() == 0) {
+                    hasMore = false;
+                    break;
+                }
+                
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject survey = items.getJSONObject(i);
+                    updateSurveyMetadata(survey);
+                }
+                
+                int total = data.getInt("total");
+                if (page * limit >= total) {
+                    hasMore = false;
+                } else {
+                    page++;
+                }
+            } else {
+                hasMore = false;
+            }
+        }
+        System.out.println("Slink Survey Sync Completed successfully.");
     }
 
     private void updateSurveyMetadata(JSONObject survey) {
@@ -425,18 +442,31 @@ public class SurveySyncScheduler {
                 return;
             }
         }
-        System.out.println("Starting Slink Survey Details Sync...");
-        try {
-            // Find active surveys to sync
-            List<String> activeSurveyIds = jdbcTemplate.queryForList("SELECT id FROM surveys WHERE is_active = 1", String.class);
-            for (String surveyId : activeSurveyIds) {
-                syncSurveyDetailsById(surveyId);
+
+        if (cronJobMonitorService != null) {
+            cronJobMonitorService.executeMonitoredJob(
+                "SLINK_SURVEY_DETAILS_SYNC",
+                "Đồng bộ chi tiết câu hỏi & kết quả khảo sát S-Link",
+                "SLINK",
+                this::doSyncOngoingSurveyDetailsInternal
+            );
+        } else {
+            try {
+                doSyncOngoingSurveyDetailsInternal();
+            } catch (Exception e) {
+                System.out.println("Error in syncOngoingSurveyDetails: " + e.getMessage());
+                e.printStackTrace();
             }
-            System.out.println("Slink Survey Details Sync Completed successfully.");
-        } catch (Exception e) {
-            System.out.println("Error in syncOngoingSurveyDetails: " + e.getMessage());
-            e.printStackTrace();
         }
+    }
+
+    private void doSyncOngoingSurveyDetailsInternal() throws Exception {
+        System.out.println("Starting Slink Survey Details Sync...");
+        List<String> activeSurveyIds = jdbcTemplate.queryForList("SELECT id FROM surveys WHERE is_active = 1", String.class);
+        for (String surveyId : activeSurveyIds) {
+            syncSurveyDetailsById(surveyId);
+        }
+        System.out.println("Slink Survey Details Sync Completed successfully.");
     }
 
     public int syncSurveyDetailsById(String surveyId) {
