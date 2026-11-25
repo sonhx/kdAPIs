@@ -570,17 +570,24 @@ public class KpiT101Controller {
             }
             if (periodId == null) periodId = 1;
 
-            // Check if record exists in kpi_data_points
-            String checkSql = "SELECT TOP 1 data_id FROM dbo.kpi_data_points WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC";
-            List<Integer> existingIds = jdbcTemplate.query(checkSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, periodId);
+            // Check if record exists in kpi_data_points (respecting period manual lock)
+            String checkSql = "SELECT TOP 1 data_id, is_auto_locked FROM dbo.kpi_data_points WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC";
+            List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(checkSql, kpiId, periodId);
 
-            if (!existingIds.isEmpty()) {
-                int dataId = existingIds.get(0);
-                String updateSql = "UPDATE dbo.kpi_data_points SET actual_value = ?, updated_at = GETDATE(), notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiT101Controller' WHERE data_id = ?";
-                jdbcTemplate.update(updateSql, actualValue, notes, dataId);
-                log.info("Updated kpi_data_points (data_id: {}) for KPI T1.01: {}%", dataId, actualValue);
+            if (!existingRows.isEmpty()) {
+                Map<String, Object> existing = existingRows.get(0);
+                int dataId = ((Number) existing.get("data_id")).intValue();
+                boolean isLocked = existing.get("is_auto_locked") != null &&
+                        (Boolean.TRUE.equals(existing.get("is_auto_locked")) || "1".equals(existing.get("is_auto_locked").toString()));
+                if (isLocked) {
+                    log.info("Auto-sync IGNORED for KPI T1.01 period {}: Period is locked by manual entry.", periodId);
+                } else {
+                    String updateSql = "UPDATE dbo.kpi_data_points SET actual_value = ?, updated_at = GETDATE(), notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiT101Controller' WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)";
+                    jdbcTemplate.update(updateSql, actualValue, notes, dataId);
+                    log.info("Updated kpi_data_points (data_id: {}) for KPI T1.01: {}%", dataId, actualValue);
+                }
             } else {
-                String insertSql = "INSERT INTO dbo.kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes, entry_source, updated_by_system) VALUES (?, ?, ?, GETDATE(), 5, ?, 'AUTOMATED_SYNC', 'KpiT101Controller')";
+                String insertSql = "INSERT INTO dbo.kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes, entry_source, updated_by_system, is_auto_locked) VALUES (?, ?, ?, GETDATE(), 5, ?, 'AUTOMATED_SYNC', 'KpiT101Controller', 0)";
                 jdbcTemplate.update(insertSql, kpiId, periodId, actualValue, notes);
                 log.info("Inserted new kpi_data_points for KPI T1.01: {}%", actualValue);
             }

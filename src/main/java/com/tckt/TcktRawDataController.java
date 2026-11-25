@@ -556,25 +556,29 @@ public class TcktRawDataController {
                 }
                 String notes = notesBuilder.toString();
 
-                // 2. Lookup existing kpi_data_points row
+                // 2. Lookup existing kpi_data_points row (respecting period manual lock)
                 List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(
-                    "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC",
+                    "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC",
                     kpiId
                 );
 
                 int dataId;
                 if (!dpRows.isEmpty()) {
                     dataId = (int) dpRows.get(0).get("data_id");
-                    String updateDpSql = "UPDATE kpi_data_points SET " +
-                        "actual_value = ?, notes = ?, entry_source = 'AUTOMATED_SYNC', " +
-                        "updated_by_system = 'TcktRawDataController', updated_at = SYSDATETIME() " +
-                        "WHERE data_id = ?";
-                    jdbcTemplate.update(updateDpSql, actualValue, notes, dataId);
+                    boolean isLocked = dpRows.get(0).get("is_auto_locked") != null &&
+                            (Boolean.TRUE.equals(dpRows.get(0).get("is_auto_locked")) || "1".equals(dpRows.get(0).get("is_auto_locked").toString()));
+                    if (!isLocked) {
+                        String updateDpSql = "UPDATE kpi_data_points SET " +
+                            "actual_value = ?, notes = ?, entry_source = 'AUTOMATED_SYNC', " +
+                            "updated_by_system = 'TcktRawDataController', updated_at = SYSDATETIME() " +
+                            "WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)";
+                        jdbcTemplate.update(updateDpSql, actualValue, notes, dataId);
+                    }
                 } else {
                     String insertDpSql = "INSERT INTO kpi_data_points (" +
                         "kpi_id, period_id, actual_value, target, status_id, notes, " +
-                        "entry_source, updated_by_system, updated_at" +
-                        ") VALUES (?, 1, ?, 0.0, 5, ?, 'AUTOMATED_SYNC', 'TcktRawDataController', SYSDATETIME())";
+                        "entry_source, updated_by_system, is_auto_locked, updated_at" +
+                        ") VALUES (?, 1, ?, 0.0, 5, ?, 'AUTOMATED_SYNC', 'TcktRawDataController', 0, SYSDATETIME())";
                     jdbcTemplate.update(insertDpSql, kpiId, actualValue, notes);
 
                     dataId = jdbcTemplate.queryForObject(

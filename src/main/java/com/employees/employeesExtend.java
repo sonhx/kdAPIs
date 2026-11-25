@@ -25,38 +25,46 @@ public class employeesExtend {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
-	/*@jakarta.annotation.PostConstruct
-	public void initIndexes() {
-		java.util.concurrent.CompletableFuture.runAsync(() -> {
-			try {
-				String sqlOrgs = 
-					"IF EXISTS (SELECT * FROM sys.tables WHERE name = 'orgs') BEGIN " +
-					"  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_orgs_level_isDeleted' AND object_id = OBJECT_ID('orgs')) " +
-					"    CREATE INDEX IX_orgs_level_isDeleted ON orgs(level, isDeleted) INCLUDE (id, ten, maDonVi, donViChaId); " +
-					"  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_orgs_donViChaId' AND object_id = OBJECT_ID('orgs')) " +
-					"    CREATE INDEX IX_orgs_donViChaId ON orgs(donViChaId); " +
-					"END";
-				jdbcTemplate.execute(sqlOrgs);
-	
-				String sqlPersonnel = 
-					"IF EXISTS (SELECT * FROM sys.tables WHERE name = 'personnel') BEGIN " +
-					"  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_personnel_isDeleted_email' AND object_id = OBJECT_ID('personnel')) " +
-					"    CREATE INDEX IX_personnel_isDeleted_email ON personnel(isDeleted, emailCanBo) INCLUDE (id, fullname, donViL3Id, donViChinhId); " +
-					"END";
-				jdbcTemplate.execute(sqlPersonnel);
-			} catch (Exception e) {
-				System.err.println("Notice: Employee indexes initialization: " + e.getMessage());
-			}
-		});
-	}*/
+	/*
+	 * @jakarta.annotation.PostConstruct
+	 * public void initIndexes() {
+	 * java.util.concurrent.CompletableFuture.runAsync(() -> {
+	 * try {
+	 * String sqlOrgs =
+	 * "IF EXISTS (SELECT * FROM sys.tables WHERE name = 'orgs') BEGIN " +
+	 * "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_orgs_level_isDeleted' AND object_id = OBJECT_ID('orgs')) "
+	 * +
+	 * "    CREATE INDEX IX_orgs_level_isDeleted ON orgs(level, isDeleted) INCLUDE (id, ten, maDonVi, donViChaId); "
+	 * +
+	 * "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_orgs_donViChaId' AND object_id = OBJECT_ID('orgs')) "
+	 * +
+	 * "    CREATE INDEX IX_orgs_donViChaId ON orgs(donViChaId); " +
+	 * "END";
+	 * jdbcTemplate.execute(sqlOrgs);
+	 * 
+	 * String sqlPersonnel =
+	 * "IF EXISTS (SELECT * FROM sys.tables WHERE name = 'personnel') BEGIN " +
+	 * "  IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_personnel_isDeleted_email' AND object_id = OBJECT_ID('personnel')) "
+	 * +
+	 * "    CREATE INDEX IX_personnel_isDeleted_email ON personnel(isDeleted, emailCanBo) INCLUDE (id, fullname, donViL3Id, donViChinhId); "
+	 * +
+	 * "END";
+	 * jdbcTemplate.execute(sqlPersonnel);
+	 * } catch (Exception e) {
+	 * System.err.println("Notice: Employee indexes initialization: " +
+	 * e.getMessage());
+	 * }
+	 * });
+	 * }
+	 */
 
 	/**
 	 * Save a KPI assignment to the kpi_assignments table
 	 * 
-	 * @param kpiId The KPI ID to assign
+	 * @param kpiId        The KPI ID to assign
 	 * @param departmentId The department ID to assign to
-	 * @param role The role associated with the assignment (char(1))
-	 * @param assignedBy The user ID who is making the assignment
+	 * @param role         The role associated with the assignment (char(1))
+	 * @param assignedBy   The user ID who is making the assignment
 	 * @return JSONObject with response code and assignment ID
 	 */
 	@Transactional
@@ -94,12 +102,12 @@ public class employeesExtend {
 				// Update existing assignment
 				String updateSql = "UPDATE kpi_assignments SET department_id = ?, role = ?, assigned_date = GETDATE(), assigned_by = ? WHERE kpi_id = ?";
 				int rowsAffected = jdbcTemplate.update(updateSql, departmentId, role, assignedBy, kpiId);
-				
+
 				if (rowsAffected > 0) {
 					// Get the assignment_id of the updated row
 					String selectSql = "SELECT TOP 1 assignment_id FROM kpi_assignments WHERE kpi_id = ? ORDER BY assignment_id DESC";
 					Integer assignmentId = jdbcTemplate.queryForObject(selectSql, Integer.class, kpiId);
-					
+
 					response.put("code", 200);
 					response.put("description", "Thành công");
 					response.put("assignment_id", assignmentId);
@@ -111,14 +119,14 @@ public class employeesExtend {
 				// Insert into kpi_assignments table
 				String sql = "INSERT INTO kpi_assignments (kpi_id, department_id, role, assigned_date, assigned_by) "
 						+ "VALUES (?, ?, ?, GETDATE(), ?)";
-				
+
 				int rowsAffected = jdbcTemplate.update(sql, kpiId, departmentId, role, assignedBy);
-				
+
 				if (rowsAffected > 0) {
 					// Get the inserted assignment_id
 					String selectSql = "SELECT IDENT_CURRENT('kpi_assignments') as assignment_id";
 					Integer assignmentId = jdbcTemplate.queryForObject(selectSql, Integer.class);
-					
+
 					response.put("code", 200);
 					response.put("description", "Thành công");
 					response.put("assignment_id", assignmentId);
@@ -150,7 +158,7 @@ public class employeesExtend {
 					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
 					"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
 					"ORDER BY k.kpi_id ASC";
-			
+
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
 			for (Map<String, Object> row : rows) {
 				JSONObject joKpi = new JSONObject();
@@ -185,7 +193,7 @@ public class employeesExtend {
 					"FROM kpi_definitions k " +
 					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
 					"WHERE kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
-			
+
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId);
 			if (!rows.isEmpty()) {
 				Map<String, Object> row = rows.get(0);
@@ -220,7 +228,7 @@ public class employeesExtend {
 					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
 					"WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
 					"ORDER BY k.kpi_id ASC";
-			
+
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, category);
 			for (Map<String, Object> row : rows) {
 				JSONObject joKpi = new JSONObject();
@@ -244,18 +252,18 @@ public class employeesExtend {
 	/**
 	 * Add a new KPI definition to the kpi_definitions table
 	 * 
-	 * @param code KPI code (e.g., T1.01)
-	 * @param name KPI name/description
-	 * @param category KPI category
-	 * @param unit Unit of measurement
+	 * @param code        KPI code (e.g., T1.01)
+	 * @param name        KPI name/description
+	 * @param category    KPI category
+	 * @param unit        Unit of measurement
 	 * @param measurement Calculation formula
-	 * @param source Source of data collection
-	 * @param cycle Reporting frequency
+	 * @param source      Source of data collection
+	 * @param cycle       Reporting frequency
 	 * @return JSONObject with response code and KPI ID
 	 */
 	@Transactional
-	public JSONObject addKpiDefinition(String code, String name, String category, String unit, 
-										String measurement, String source, String cycle) {
+	public JSONObject addKpiDefinition(String code, String name, String category, String unit,
+			String measurement, String source, String cycle) {
 		JSONObject response = new JSONObject();
 		try {
 			// Validate inputs
@@ -297,7 +305,7 @@ public class employeesExtend {
 
 			// Check if code already exists
 			String checkSql = "SELECT COUNT(*) as cnt FROM kpi_definitions WHERE kpi_code = ?";
-			Integer count = jdbcTemplate.queryForObject(checkSql, new Object[]{code}, Integer.class);
+			Integer count = jdbcTemplate.queryForObject(checkSql, new Object[] { code }, Integer.class);
 			if (count != null && count > 0) {
 				response.put("code", 409);
 				response.put("description", "KPI code already exists");
@@ -307,14 +315,14 @@ public class employeesExtend {
 			// Insert into kpi_definitions table
 			String sql = "INSERT INTO kpi_definitions (kpi_code, name, category, unit, measurement, source, cycle) "
 					+ "VALUES (?, ?, ?, ?, ?, ?, ?)";
-			
+
 			int rowsAffected = jdbcTemplate.update(sql, code, name, category, unit, measurement, source, cycle);
-			
+
 			if (rowsAffected > 0) {
 				// Get the inserted kpi_id
 				String selectSql = "SELECT IDENT_CURRENT('kpi_definitions') as kpi_id";
 				Integer kpiId = jdbcTemplate.queryForObject(selectSql, Integer.class);
-				
+
 				response.put("code", 201);
 				response.put("description", "Thành công");
 				response.put("kpi_id", kpiId);
@@ -330,24 +338,23 @@ public class employeesExtend {
 		}
 		return response;
 	}
-	
-	
+
 	@Transactional
-	public JSONObject editKpiDefinition(int kpiId, String code, String name, String category, String unit, 
-										String formula, String dataSource, String frequency) {
+	public JSONObject editKpiDefinition(int kpiId, String code, String name, String category, String unit,
+			String formula, String dataSource, String frequency) {
 		JSONObject response = new JSONObject();
 		try {
-			
+
 			// validate kpi_id
-			if (kpiId<=0) {
+			if (kpiId <= 0) {
 				response.put("code", 400);
 				response.put("description", "KPI ID is required and must be greater than 0");
 				return response;
 			}
-						
+
 			// Check if code already exists
 			String checkSql = "SELECT COUNT(*) as cnt FROM kpi_definitions WHERE code = ?";
-			Integer count = jdbcTemplate.queryForObject(checkSql, new Object[]{code}, Integer.class);
+			Integer count = jdbcTemplate.queryForObject(checkSql, new Object[] { code }, Integer.class);
 			if (count != null && count > 0) {
 				response.put("code", 409);
 				response.put("description", "KPI code already exists");
@@ -359,24 +366,45 @@ public class employeesExtend {
 			StringBuilder sql = new StringBuilder("UPDATE kpi_definitions SET ");
 			List<Object> parameters = new ArrayList<>();
 
-			if (code != null) { sql.append("code = ?, "); parameters.add(code); }
-			if (name != null) { sql.append("name = ?, "); parameters.add(name); }
-			if (category != null) { sql.append("category = ?, "); parameters.add(category); }
-			if (unit != null) { sql.append("unit = ?, "); parameters.add(unit); }
-			if (formula != null) { sql.append("formula = ?, "); parameters.add(formula); }
-			if (dataSource != null) { sql.append("data_source = ?, "); parameters.add(dataSource); }
-			if (frequency != null) { sql.append("frequency = ?, "); parameters.add(frequency); }
+			if (code != null) {
+				sql.append("code = ?, ");
+				parameters.add(code);
+			}
+			if (name != null) {
+				sql.append("name = ?, ");
+				parameters.add(name);
+			}
+			if (category != null) {
+				sql.append("category = ?, ");
+				parameters.add(category);
+			}
+			if (unit != null) {
+				sql.append("unit = ?, ");
+				parameters.add(unit);
+			}
+			if (formula != null) {
+				sql.append("formula = ?, ");
+				parameters.add(formula);
+			}
+			if (dataSource != null) {
+				sql.append("data_source = ?, ");
+				parameters.add(dataSource);
+			}
+			if (frequency != null) {
+				sql.append("frequency = ?, ");
+				parameters.add(frequency);
+			}
 
 			// Remove the trailing comma and space if at least one field is being updated
 			if (parameters.isEmpty()) {
-			    throw new IllegalArgumentException("No fields provided for update.");
+				throw new IllegalArgumentException("No fields provided for update.");
 			}
-			sql.setLength(sql.length() - 2); 
+			sql.setLength(sql.length() - 2);
 
 			// Append the WHERE clause
 			sql.append(" WHERE kpi_id = ?");
 			parameters.add(kpiId);
-			
+
 			// Execute the query
 			int rowsAffected = jdbcTemplate.update(sql.toString(), parameters.toArray());
 			if (rowsAffected > 0) {
@@ -393,7 +421,6 @@ public class employeesExtend {
 		}
 		return response;
 	}
-
 
 	/**
 	 * Soft-delete a KPI definition by marking it as deleted
@@ -414,7 +441,7 @@ public class employeesExtend {
 
 			// Check if KPI exists and is not already deleted
 			String checkSql = "SELECT COUNT(*) as cnt FROM kpi_definitions WHERE kpi_id = ? AND (is_deleted = 0 OR is_deleted IS NULL)";
-			Integer count = jdbcTemplate.queryForObject(checkSql, new Object[]{kpiId}, Integer.class);
+			Integer count = jdbcTemplate.queryForObject(checkSql, new Object[] { kpiId }, Integer.class);
 			if (count == null || count == 0) {
 				response.put("code", 404);
 				response.put("description", "KPI not found or already deleted");
@@ -459,7 +486,7 @@ public class employeesExtend {
 					"FROM kpi_assignments " +
 					"WHERE department_id = ? " +
 					"ORDER BY assignment_id DESC";
-			
+
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, departmentId);
 			for (Map<String, Object> row : rows) {
 				JSONObject joAssignment = new JSONObject();
@@ -490,14 +517,16 @@ public class employeesExtend {
 				return jsaAssignments;
 			}
 
-			// Try to join with kpi_definitions if it exists; if not, return basic assignments
+			// Try to join with kpi_definitions if it exists; if not, return basic
+			// assignments
 			String sql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by, " +
-					"ISNULL(k.kpi_code, '') as kpi_code, ISNULL(k.name, '') as kpi_name, ISNULL(k.category, '') as category " +
+					"ISNULL(k.kpi_code, '') as kpi_code, ISNULL(k.name, '') as kpi_name, ISNULL(k.category, '') as category "
+					+
 					"FROM kpi_assignments a " +
 					"LEFT JOIN kpi_definitions k ON a.kpi_id = k.kpi_id " +
 					"WHERE a.department_id = ? " +
 					"ORDER BY a.assignment_id DESC";
-			
+
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, departmentId);
 			for (Map<String, Object> row : rows) {
 				JSONObject joAssignment = new JSONObject();
@@ -520,9 +549,11 @@ public class employeesExtend {
 
 	/**
 	 * Get all KPI definitions with assignment status for a department.
-	 * If a KPI is not assigned to the department, assigned=false and assignment fields are null.
+	 * If a KPI is not assigned to the department, assigned=false and assignment
+	 * fields are null.
 	 * 
-	 * @param departmentId The department to check assignments for (can be null to indicate no department)
+	 * @param departmentId The department to check assignments for (can be null to
+	 *                     indicate no department)
 	 * @return JSONArray of KPIs with assignment status
 	 */
 	public JSONArray getKpisWithAssignmentStatus(Integer departmentId) {
@@ -533,20 +564,20 @@ public class employeesExtend {
 			if (departmentId == null || departmentId <= 0) {
 				// No department specified: return all KPIs with assigned=false
 				sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, "
-					+ "NULL as assignment_id, NULL as role, NULL as assigned_date, NULL as assigned_by "
-					+ "FROM kpi_definitions k "
-					+ "WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) "
-					+ "ORDER BY k.kpi_id ASC";
+						+ "NULL as assignment_id, NULL as role, NULL as assigned_date, NULL as assigned_by "
+						+ "FROM kpi_definitions k "
+						+ "WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) "
+						+ "ORDER BY k.kpi_id ASC";
 				rows = jdbcTemplate.queryForList(sql);
 			} else {
 				// Join to assignments for the given department (take any matching assignment)
 				sql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, "
-					+ "a.assignment_id, a.role, a.assigned_date, a.assigned_by "
-					+ "FROM kpi_definitions k "
-					+ "LEFT JOIN (SELECT assignment_id, kpi_id, role, assigned_date, assigned_by FROM kpi_assignments WHERE department_id = ?) a "
-					+ "ON a.kpi_id = k.kpi_id "
-					+ "WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) "
-					+ "ORDER BY k.kpi_id ASC";
+						+ "a.assignment_id, a.role, a.assigned_date, a.assigned_by "
+						+ "FROM kpi_definitions k "
+						+ "LEFT JOIN (SELECT assignment_id, kpi_id, role, assigned_date, assigned_by FROM kpi_assignments WHERE department_id = ?) a "
+						+ "ON a.kpi_id = k.kpi_id "
+						+ "WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) "
+						+ "ORDER BY k.kpi_id ASC";
 				rows = jdbcTemplate.queryForList(sql, departmentId);
 			}
 
@@ -593,16 +624,18 @@ public class employeesExtend {
 		JSONArray jsaResult = new JSONArray();
 		try {
 			// 1. Fetch all active KPI definitions
-			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight, " +
-							"k.cycle_id, c.cycle_type, k.target, " +
-							"k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date, " +
-							"c.default_deadline_offset_days, c.default_deadline_offset_weeks, c.deadline_type, v.vertex_name " +
-							"FROM kpi_definitions k WITH (NOLOCK) " +
-							"LEFT JOIN vertex_members m WITH (NOLOCK) ON k.kpi_id = m.kpi_id " +
-							"LEFT JOIN vertices_def v WITH (NOLOCK) ON m.vertex_id = v.vertex_id " +
-							"LEFT JOIN cycle_definitions c WITH (NOLOCK) ON k.cycle_id = c.cycle_id " +
-							"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
-							"ORDER BY k.kpi_id ASC";
+			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight, "
+					+
+					"k.cycle_id, c.cycle_type, k.target, " +
+					"k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date, "
+					+
+					"c.default_deadline_offset_days, c.default_deadline_offset_weeks, c.deadline_type, v.vertex_name " +
+					"FROM kpi_definitions k WITH (NOLOCK) " +
+					"LEFT JOIN vertex_members m WITH (NOLOCK) ON k.kpi_id = m.kpi_id " +
+					"LEFT JOIN vertices_def v WITH (NOLOCK) ON m.vertex_id = v.vertex_id " +
+					"LEFT JOIN cycle_definitions c WITH (NOLOCK) ON k.cycle_id = c.cycle_id " +
+					"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+					"ORDER BY k.kpi_id ASC";
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql);
 
 			java.util.Map<Integer, java.sql.Date> cycleEndDates = new java.util.HashMap<>();
@@ -611,7 +644,7 @@ public class employeesExtend {
 
 			// 2. Fetch all KPI assignments
 			String assignSql = "SELECT assignment_id, kpi_id, department_id, role, assigned_date, assigned_by " +
-							   "FROM kpi_assignments WITH (NOLOCK)";
+					"FROM kpi_assignments WITH (NOLOCK)";
 			List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql);
 
 			// Group assignments by kpi_id
@@ -623,18 +656,20 @@ public class employeesExtend {
 					joAssign.put("assignment_id", row.get("assignment_id"));
 					joAssign.put("department_id", row.get("department_id"));
 					joAssign.put("role", row.get("role") != null ? row.get("role").toString().trim() : JSONObject.NULL);
-					joAssign.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
+					joAssign.put("assigned_date",
+							row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
 					joAssign.put("assigned_by", row.get("assigned_by"));
-					
+
 					assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
 				}
 			}
 
 			// 3. Fetch all KPI data points
-			String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
-						   "FROM kpi_data_points dp WITH (NOLOCK) " +
-						   "INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
-						   "LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id";
+			String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code "
+					+
+					"FROM kpi_data_points dp WITH (NOLOCK) " +
+					"INNER JOIN kpi_definitions k WITH (NOLOCK) ON dp.kpi_id = k.kpi_id " +
+					"LEFT JOIN period_instances pi WITH (NOLOCK) ON dp.period_id = pi.period_id";
 			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql);
 
 			// Group data points by kpi_id
@@ -646,7 +681,7 @@ public class employeesExtend {
 					joDp.put("data_id", row.get("data_id"));
 					joDp.put("period_id", row.get("period_id"));
 					joDp.put("period", row.get("period_code") != null ? row.get("period_code") : row.get("period_id"));
-					
+
 					Object targetObj = row.get("target");
 					Object targetVal = JSONObject.NULL;
 					if (targetObj != null) {
@@ -657,17 +692,27 @@ public class employeesExtend {
 						}
 					}
 					joDp.put("target_value", targetVal);
-					
+
 					joDp.put("actual_value", row.get("actual_value"));
 					joDp.put("status_id", row.get("status_id"));
 					joDp.put("status", row.get("status_id"));
-					joDp.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
-					joDp.put("department_id", row.get("department_id") != null ? row.get("department_id") : JSONObject.NULL);
+					joDp.put("updated_at",
+							row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+					joDp.put("department_id",
+							row.get("department_id") != null ? row.get("department_id") : JSONObject.NULL);
 					joDp.put("notes", row.get("notes") != null ? row.get("notes").toString() : JSONObject.NULL);
-					joDp.put("evidence_link", row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
-					joDp.put("evidence_file_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : JSONObject.NULL);
-					joDp.put("evidence_file_size", row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString() : JSONObject.NULL);
-					joDp.put("evidence_file_uploaded_at", row.get("evidence_file_uploaded_at") != null ? row.get("evidence_file_uploaded_at").toString() : JSONObject.NULL);
+					joDp.put("evidence_link",
+							row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_name",
+							row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString()
+									: JSONObject.NULL);
+					joDp.put("evidence_file_size",
+							row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString()
+									: JSONObject.NULL);
+					joDp.put("evidence_file_uploaded_at",
+							row.get("evidence_file_uploaded_at") != null
+									? row.get("evidence_file_uploaded_at").toString()
+									: JSONObject.NULL);
 
 					dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
 				}
@@ -686,8 +731,9 @@ public class employeesExtend {
 				joKpi.put("source", kpiRow.get("source"));
 				joKpi.put("cycle", kpiRow.get("cycle"));
 				joKpi.put("weight", kpiRow.get("weight") != null ? ((Number) kpiRow.get("weight")).doubleValue() : 1.0);
-				joKpi.put("vertex_name", kpiRow.get("vertex_name") != null ? kpiRow.get("vertex_name") : JSONObject.NULL);
-				
+				joKpi.put("vertex_name",
+						kpiRow.get("vertex_name") != null ? kpiRow.get("vertex_name") : JSONObject.NULL);
+
 				Object targetObj = kpiRow.get("target");
 				Object targetVal = JSONObject.NULL;
 				if (targetObj != null) {
@@ -707,7 +753,8 @@ public class employeesExtend {
 					java.sql.Date currEndDate = cycleEndDates.get(cycleId);
 					if (currEndDate == null) {
 						int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, refDate);
-						List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
+						List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList(
+								"SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
 						if (!currPeriodDetail.isEmpty()) {
 							currEndDate = (java.sql.Date) currPeriodDetail.get(0).get("end_date");
 							cycleEndDates.put(cycleId, currEndDate);
@@ -718,17 +765,25 @@ public class employeesExtend {
 						if (kpiRow.get("override_absolute_deadline_date") != null) {
 							currDeadline = (java.sql.Date) kpiRow.get("override_absolute_deadline_date");
 						} else {
-							int offsetDays = kpiRow.get("override_deadline_offset_days") != null ? ((Number) kpiRow.get("override_deadline_offset_days")).intValue() : 
-								(kpiRow.get("default_deadline_offset_days") != null ? ((Number) kpiRow.get("default_deadline_offset_days")).intValue() : 0);
-							int offsetWeeks = kpiRow.get("override_deadline_offset_weeks") != null ? ((Number) kpiRow.get("override_deadline_offset_weeks")).intValue() : 
-								(kpiRow.get("default_deadline_offset_weeks") != null ? ((Number) kpiRow.get("default_deadline_offset_weeks")).intValue() : 0);
-							String deadlineType = kpiRow.get("deadline_type") != null ? (String) kpiRow.get("deadline_type") : "CALENDAR";
-							
+							int offsetDays = kpiRow.get("override_deadline_offset_days") != null
+									? ((Number) kpiRow.get("override_deadline_offset_days")).intValue()
+									: (kpiRow.get("default_deadline_offset_days") != null
+											? ((Number) kpiRow.get("default_deadline_offset_days")).intValue()
+											: 0);
+							int offsetWeeks = kpiRow.get("override_deadline_offset_weeks") != null
+									? ((Number) kpiRow.get("override_deadline_offset_weeks")).intValue()
+									: (kpiRow.get("default_deadline_offset_weeks") != null
+											? ((Number) kpiRow.get("default_deadline_offset_weeks")).intValue()
+											: 0);
+							String deadlineType = kpiRow.get("deadline_type") != null
+									? (String) kpiRow.get("deadline_type")
+									: "CALENDAR";
+
 							currDeadline = calculateDeadline(currEndDate, offsetDays, offsetWeeks, deadlineType);
 						}
 					}
 				}
-				
+
 				joKpi.put("deadline", currDeadline != null ? sdf.format(currDeadline) : JSONObject.NULL);
 
 				List<JSONObject> assignments = assignmentsMap.get(kpiId);
@@ -761,140 +816,166 @@ public class employeesExtend {
 		return jsaResult;
 	}
 
-
 	/**
-	 * Get vertex data (KPI definitions, assignments, and integrated data points containing normalized scores)
+	 * Get vertex data (KPI definitions, assignments, and integrated data points
+	 * containing normalized scores)
 	 * filtered by a specific category.
 	 * * @param category the category to filter by
-	 * @return JSONArray of KPIs belonging to the category, with their associated assignments and combined data points.
+	 * 
+	 * @return JSONArray of KPIs belonging to the category, with their associated
+	 *         assignments and combined data points.
 	 */
 	public JSONArray getVertexDataByCategory(String category) {
-	    JSONArray jsaResult = new JSONArray();
-	    try {
-	        // 1. Fetch KPI definitions matching category
-	        String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight, v.vertex_name " +
-	                        "FROM kpi_definitions k " +
-	                        "LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
-	                        "LEFT JOIN vertices_def v ON m.vertex_id = v.vertex_id " +
-	                        "WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
-	                        "ORDER BY k.kpi_id ASC";
-	        List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql, category);
+		JSONArray jsaResult = new JSONArray();
+		try {
+			// 1. Fetch KPI definitions matching category
+			String kpiSql = "SELECT k.kpi_id, k.kpi_code, k.name as kpi_name, k.category, k.unit, k.measurement, k.source, k.cycle, ISNULL(m.weight, 1.0) as weight, v.vertex_name "
+					+
+					"FROM kpi_definitions k " +
+					"LEFT JOIN vertex_members m ON k.kpi_id = m.kpi_id " +
+					"LEFT JOIN vertices_def v ON m.vertex_id = v.vertex_id " +
+					"WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+					"ORDER BY k.kpi_id ASC";
+			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiSql, category);
 
-	        // Extract KPIs IDs to target sub-queries for optimized fetch performance
-	        if (kpiRows.isEmpty()) {
-	            return jsaResult;
-	        }
+			// Extract KPIs IDs to target sub-queries for optimized fetch performance
+			if (kpiRows.isEmpty()) {
+				return jsaResult;
+			}
 
-	        // 2. Fetch KPI assignments only for the scoped category 
-	        String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by " +
-	                           "FROM kpi_assignments a " +
-	                           "INNER JOIN kpi_definitions k ON a.kpi_id = k.kpi_id " +
-	                           "WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
-	        List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql, category);
+			// 2. Fetch KPI assignments only for the scoped category
+			String assignSql = "SELECT a.assignment_id, a.kpi_id, a.department_id, a.role, a.assigned_date, a.assigned_by "
+					+
+					"FROM kpi_assignments a " +
+					"INNER JOIN kpi_definitions k ON a.kpi_id = k.kpi_id " +
+					"WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
+			List<Map<String, Object>> assignRows = jdbcTemplate.queryForList(assignSql, category);
 
-	        // Group assignments by kpi_id
-	        Map<Integer, List<JSONObject>> assignmentsMap = new HashMap<>();
-	        for (Map<String, Object> row : assignRows) {
-	            Integer kpiId = (Integer) row.get("kpi_id");
-	            if (kpiId != null) {
-	                JSONObject joAssign = new JSONObject();
-	                joAssign.put("assignment_id", row.get("assignment_id"));
-	                joAssign.put("department_id", row.get("department_id"));
-	                joAssign.put("role", row.get("role") != null ? row.get("role").toString().trim() : JSONObject.NULL);
-	                joAssign.put("assigned_date", row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
-	                joAssign.put("assigned_by", row.get("assigned_by"));
-	                
-	                assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
-	            }
-	        }
+			// Group assignments by kpi_id
+			Map<Integer, List<JSONObject>> assignmentsMap = new HashMap<>();
+			for (Map<String, Object> row : assignRows) {
+				Integer kpiId = (Integer) row.get("kpi_id");
+				if (kpiId != null) {
+					JSONObject joAssign = new JSONObject();
+					joAssign.put("assignment_id", row.get("assignment_id"));
+					joAssign.put("department_id", row.get("department_id"));
+					joAssign.put("role", row.get("role") != null ? row.get("role").toString().trim() : JSONObject.NULL);
+					joAssign.put("assigned_date",
+							row.get("assigned_date") != null ? row.get("assigned_date").toString() : JSONObject.NULL);
+					joAssign.put("assigned_by", row.get("assigned_by"));
 
-	        // 3. Fetch integrated KPI data points (Now contains actual, target, and normalized_score combined)
-	        String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, dp.target_value, dp.normalized_score, " +
-	                       "dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, " +
-	                       "dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
-	                       "FROM kpi_data_points dp " +
-	                       "INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
-	                       "LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
-	                       "WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
-	        List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql, category);
+					assignmentsMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joAssign);
+				}
+			}
 
-	        // Group combined data points by kpi_id
-	        Map<Integer, List<JSONObject>> dpMap = new HashMap<>();
-	        for (Map<String, Object> row : dpRows) {
-	            Integer kpiId = (Integer) row.get("kpi_id");
-	            if (kpiId != null) {
-	                JSONObject joDp = new JSONObject();
-	                joDp.put("data_id", row.get("data_id"));
-	                joDp.put("period_id", row.get("period_id"));
-	                joDp.put("period", row.get("period_code") != null ? row.get("period_code") : row.get("period_id"));
-	                joDp.put("actual_value", row.get("actual_value") != null ? ((Number) row.get("actual_value")).doubleValue() : JSONObject.NULL);
-	                joDp.put("target_value", row.get("target_value") != null ? ((Number) row.get("target_value")).doubleValue() : JSONObject.NULL);
-	                
-	                // Mapped from combined table layout
-	                joDp.put("normalized_value", row.get("normalized_score") != null ? ((Number) row.get("normalized_score")).doubleValue() : JSONObject.NULL);
-	                
-	                joDp.put("status_id", row.get("status_id"));
-	                joDp.put("status", row.get("status_id"));
-	                joDp.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
-	                joDp.put("department_id", row.get("department_id") != null ? row.get("department_id") : JSONObject.NULL);
-	                joDp.put("notes", row.get("notes") != null ? row.get("notes").toString() : JSONObject.NULL);
-	                joDp.put("evidence_link", row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
-	                joDp.put("evidence_file_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : JSONObject.NULL);
-	                joDp.put("evidence_file_size", row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString() : JSONObject.NULL);
-	                joDp.put("evidence_file_uploaded_at", row.get("evidence_file_uploaded_at") != null ? row.get("evidence_file_uploaded_at").toString() : JSONObject.NULL);
+			// 3. Fetch integrated KPI data points (Now contains actual, target, and
+			// normalized_score combined)
+			String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, dp.target_value, dp.normalized_score, "
+					+
+					"dp.status_id, dp.updated_at, dp.department_id, dp.notes, dp.evidence_link, " +
+					"dp.evidence_file_name, dp.evidence_file_size, dp.evidence_file_uploaded_at, pi.period_code " +
+					"FROM kpi_data_points dp " +
+					"INNER JOIN kpi_definitions k ON dp.kpi_id = k.kpi_id " +
+					"LEFT JOIN period_instances pi ON dp.period_id = pi.period_id " +
+					"WHERE k.category = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
+			List<Map<String, Object>> dpRows = jdbcTemplate.queryForList(dpSql, category);
 
-	                dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
-	            }
-	        }
+			// Group combined data points by kpi_id
+			Map<Integer, List<JSONObject>> dpMap = new HashMap<>();
+			for (Map<String, Object> row : dpRows) {
+				Integer kpiId = (Integer) row.get("kpi_id");
+				if (kpiId != null) {
+					JSONObject joDp = new JSONObject();
+					joDp.put("data_id", row.get("data_id"));
+					joDp.put("period_id", row.get("period_id"));
+					joDp.put("period", row.get("period_code") != null ? row.get("period_code") : row.get("period_id"));
+					joDp.put("actual_value",
+							row.get("actual_value") != null ? ((Number) row.get("actual_value")).doubleValue()
+									: JSONObject.NULL);
+					joDp.put("target_value",
+							row.get("target_value") != null ? ((Number) row.get("target_value")).doubleValue()
+									: JSONObject.NULL);
 
-	        // 4. Assemble clean structural object tree
-	        for (Map<String, Object> kpiRow : kpiRows) {
-	            Integer kpiId = (Integer) kpiRow.get("kpi_id");
-	            JSONObject joKpi = new JSONObject();
-	            joKpi.put("kpi_id", kpiId);
-	            joKpi.put("kpi_code", kpiRow.get("kpi_code"));
-	            joKpi.put("kpi_name", kpiRow.get("kpi_name"));
-	            joKpi.put("category", kpiRow.get("category"));
-	            joKpi.put("unit", kpiRow.get("unit"));
-	            joKpi.put("measurement", kpiRow.get("measurement"));
-	            joKpi.put("source", kpiRow.get("source"));
-	            joKpi.put("cycle", kpiRow.get("cycle"));
-	            joKpi.put("weight", kpiRow.get("weight") != null ? ((Number) kpiRow.get("weight")).doubleValue() : 1.0);
-	            joKpi.put("vertex_name", kpiRow.get("vertex_name") != null ? kpiRow.get("vertex_name") : JSONObject.NULL);
+					// Mapped from combined table layout
+					joDp.put("normalized_value",
+							row.get("normalized_score") != null ? ((Number) row.get("normalized_score")).doubleValue()
+									: JSONObject.NULL);
 
-	            // Populate Assignments Mapping
-	            List<JSONObject> assignments = assignmentsMap.get(kpiId);
-	            if (assignments == null || assignments.isEmpty()) {
-	                joKpi.put("assignment_status", "unassigned");
-	                joKpi.put("assignments", new JSONArray());
-	            } else {
-	                joKpi.put("assignment_status", "assigned");
-	                JSONArray jsaAssigns = new JSONArray();
-	                for (JSONObject joAssign : assignments) {
-	                    jsaAssigns.put(joAssign);
-	                }
-	                joKpi.put("assignments", jsaAssigns);
-	            }
+					joDp.put("status_id", row.get("status_id"));
+					joDp.put("status", row.get("status_id"));
+					joDp.put("updated_at",
+							row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+					joDp.put("department_id",
+							row.get("department_id") != null ? row.get("department_id") : JSONObject.NULL);
+					joDp.put("notes", row.get("notes") != null ? row.get("notes").toString() : JSONObject.NULL);
+					joDp.put("evidence_link",
+							row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
+					joDp.put("evidence_file_name",
+							row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString()
+									: JSONObject.NULL);
+					joDp.put("evidence_file_size",
+							row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString()
+									: JSONObject.NULL);
+					joDp.put("evidence_file_uploaded_at",
+							row.get("evidence_file_uploaded_at") != null
+									? row.get("evidence_file_uploaded_at").toString()
+									: JSONObject.NULL);
 
-	            // Populate Optimized Data points node (which now natively holds normalized values!)
-	            List<JSONObject> dataPoints = dpMap.get(kpiId);
-	            JSONArray jsaDps = new JSONArray();
-	            if (dataPoints != null) {
-	                for (JSONObject joDp : dataPoints) {
-	                    jsaDps.put(joDp);
-	                }
-	            }
-	            joKpi.put("data_points", jsaDps);
+					dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
+				}
+			}
 
-	            // Backward Compatibility: Keeps frontend components from breaking if they look for the legacy node
-	            joKpi.put("normalized_values", jsaDps); 
+			// 4. Assemble clean structural object tree
+			for (Map<String, Object> kpiRow : kpiRows) {
+				Integer kpiId = (Integer) kpiRow.get("kpi_id");
+				JSONObject joKpi = new JSONObject();
+				joKpi.put("kpi_id", kpiId);
+				joKpi.put("kpi_code", kpiRow.get("kpi_code"));
+				joKpi.put("kpi_name", kpiRow.get("kpi_name"));
+				joKpi.put("category", kpiRow.get("category"));
+				joKpi.put("unit", kpiRow.get("unit"));
+				joKpi.put("measurement", kpiRow.get("measurement"));
+				joKpi.put("source", kpiRow.get("source"));
+				joKpi.put("cycle", kpiRow.get("cycle"));
+				joKpi.put("weight", kpiRow.get("weight") != null ? ((Number) kpiRow.get("weight")).doubleValue() : 1.0);
+				joKpi.put("vertex_name",
+						kpiRow.get("vertex_name") != null ? kpiRow.get("vertex_name") : JSONObject.NULL);
 
-	            jsaResult.put(joKpi);
-	        }
-	    } catch (Exception e) {
-	        e.printStackTrace();
-	    }
-	    return jsaResult;
+				// Populate Assignments Mapping
+				List<JSONObject> assignments = assignmentsMap.get(kpiId);
+				if (assignments == null || assignments.isEmpty()) {
+					joKpi.put("assignment_status", "unassigned");
+					joKpi.put("assignments", new JSONArray());
+				} else {
+					joKpi.put("assignment_status", "assigned");
+					JSONArray jsaAssigns = new JSONArray();
+					for (JSONObject joAssign : assignments) {
+						jsaAssigns.put(joAssign);
+					}
+					joKpi.put("assignments", jsaAssigns);
+				}
+
+				// Populate Optimized Data points node (which now natively holds normalized
+				// values!)
+				List<JSONObject> dataPoints = dpMap.get(kpiId);
+				JSONArray jsaDps = new JSONArray();
+				if (dataPoints != null) {
+					for (JSONObject joDp : dataPoints) {
+						jsaDps.put(joDp);
+					}
+				}
+				joKpi.put("data_points", jsaDps);
+
+				// Backward Compatibility: Keeps frontend components from breaking if they look
+				// for the legacy node
+				joKpi.put("normalized_values", jsaDps);
+
+				jsaResult.put(joKpi);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return jsaResult;
 	}
 
 	@Transactional
@@ -906,25 +987,25 @@ public class employeesExtend {
 			String checkExists = "SELECT COUNT(*) FROM vertex_members WHERE kpi_id = ?";
 			String updateSql = "UPDATE vertex_members SET weight = ? WHERE kpi_id = ?";
 			String insertSql = "INSERT INTO vertex_members (vertex_id, kpi_id, weight) VALUES (?, ?, ?)";
-			
+
 			for (int i = 0; i < weightsArray.length(); i++) {
 				JSONObject item = weightsArray.getJSONObject(i);
 				int kpiId = item.getInt("kpi_id");
 				double weight = item.getDouble("weight");
-				
+
 				// 1. Resolve vertex_code from kpi_code
 				String kpiCode = jdbcTemplate.queryForObject(getKpiInfo, String.class, kpiId);
 				if (kpiCode == null || kpiCode.isEmpty()) {
 					continue;
 				}
 				String vertexCode = kpiCode.substring(0, 1);
-				
+
 				// 2. Get vertex_id from vertices_def
 				Integer vertexId = jdbcTemplate.queryForObject(getVertexId, Integer.class, vertexCode);
 				if (vertexId == null) {
 					continue;
 				}
-				
+
 				// 3. Update or Insert
 				Integer exists = jdbcTemplate.queryForObject(checkExists, Integer.class, kpiId);
 				if (exists != null && exists > 0) {
@@ -956,11 +1037,16 @@ public class employeesExtend {
 			}
 			if (count == null || count == 0) {
 				try {
-					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('GLOBAL_DEFAULT', 1, 1, 12, 0, 5, 0, 'BUSINESS')");
-					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('monthly', 1, 1, 1, 0, 5, 0, 'CALENDAR')");
-					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('quarterly', 1, 1, 3, 0, 15, 0, 'CALENDAR')");
-					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('semester', 1, 1, 6, 0, 15, 0, 'CALENDAR')");
-					jdbcTemplate.update("INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('yearly', 1, 1, 12, 0, 30, 0, 'CALENDAR')");
+					jdbcTemplate.update(
+							"INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('GLOBAL_DEFAULT', 1, 1, 12, 0, 5, 0, 'BUSINESS')");
+					jdbcTemplate.update(
+							"INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('monthly', 1, 1, 1, 0, 5, 0, 'CALENDAR')");
+					jdbcTemplate.update(
+							"INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('quarterly', 1, 1, 3, 0, 15, 0, 'CALENDAR')");
+					jdbcTemplate.update(
+							"INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('semester', 1, 1, 6, 0, 15, 0, 'CALENDAR')");
+					jdbcTemplate.update(
+							"INSERT INTO cycle_definitions (cycle_type, start_month, start_day, duration_months, duration_weeks, default_deadline_offset_days, default_deadline_offset_weeks, deadline_type) VALUES ('yearly', 1, 1, 12, 0, 30, 0, 'CALENDAR')");
 				} catch (Exception ex) {
 					ex.printStackTrace();
 				}
@@ -1006,10 +1092,11 @@ public class employeesExtend {
 			// 2. Fetch KPIs and deadline settings
 			JSONArray jsaKpis = new JSONArray();
 			String sqlKpis = "SELECT k.kpi_id, k.kpi_code, k.name, k.category, k.cycle, k.cycle_id, " +
-							 "k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date " +
-							 "FROM kpi_definitions k " +
-							 "WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
-							 "ORDER BY k.kpi_code ASC";
+					"k.override_deadline_offset_days, k.override_deadline_offset_weeks, k.override_absolute_deadline_date "
+					+
+					"FROM kpi_definitions k " +
+					"WHERE (k.is_deleted = 0 OR k.is_deleted IS NULL) " +
+					"ORDER BY k.kpi_code ASC";
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(sqlKpis);
 			for (Map<String, Object> row : kpiRows) {
 				JSONObject joKpi = new JSONObject();
@@ -1019,9 +1106,16 @@ public class employeesExtend {
 				joKpi.put("category", row.get("category"));
 				joKpi.put("cycle", row.get("cycle"));
 				joKpi.put("cycle_id", row.get("cycle_id") != null ? row.get("cycle_id") : JSONObject.NULL);
-				joKpi.put("override_deadline_offset_days", row.get("override_deadline_offset_days") != null ? row.get("override_deadline_offset_days") : JSONObject.NULL);
-				joKpi.put("override_deadline_offset_weeks", row.get("override_deadline_offset_weeks") != null ? row.get("override_deadline_offset_weeks") : JSONObject.NULL);
-				joKpi.put("override_absolute_deadline_date", row.get("override_absolute_deadline_date") != null ? row.get("override_absolute_deadline_date").toString() : JSONObject.NULL);
+				joKpi.put("override_deadline_offset_days",
+						row.get("override_deadline_offset_days") != null ? row.get("override_deadline_offset_days")
+								: JSONObject.NULL);
+				joKpi.put("override_deadline_offset_weeks",
+						row.get("override_deadline_offset_weeks") != null ? row.get("override_deadline_offset_weeks")
+								: JSONObject.NULL);
+				joKpi.put("override_absolute_deadline_date",
+						row.get("override_absolute_deadline_date") != null
+								? row.get("override_absolute_deadline_date").toString()
+								: JSONObject.NULL);
 				jsaKpis.put(joKpi);
 			}
 			response.put("kpis", jsaKpis);
@@ -1071,11 +1165,12 @@ public class employeesExtend {
 	}
 
 	@Transactional
-	public JSONObject saveKpiDeadlineOverride(int kpiId, Boolean hasOverride, Integer offsetDays, Integer offsetWeeks, String absoluteDate) {
+	public JSONObject saveKpiDeadlineOverride(int kpiId, Boolean hasOverride, Integer offsetDays, Integer offsetWeeks,
+			String absoluteDate) {
 		JSONObject response = new JSONObject();
 		try {
 			String sql = "UPDATE kpi_definitions SET override_deadline_offset_days = ?, override_deadline_offset_weeks = ?, override_absolute_deadline_date = ? WHERE kpi_id = ?";
-			
+
 			if (hasOverride == null || !hasOverride) {
 				jdbcTemplate.update(sql, null, null, null, kpiId);
 			} else {
@@ -1108,11 +1203,11 @@ public class employeesExtend {
 	public Date calculateDeadline(Date endDate, int offsetDays, int offsetWeeks, String deadlineType) {
 		Calendar cal = Calendar.getInstance();
 		cal.setTime(endDate);
-		
+
 		if (offsetWeeks > 0) {
 			cal.add(Calendar.WEEK_OF_YEAR, offsetWeeks);
 		}
-		
+
 		boolean isBusiness = "BUSINESS".equalsIgnoreCase(deadlineType);
 		if (offsetDays > 0) {
 			int added = 0;
@@ -1128,12 +1223,12 @@ public class employeesExtend {
 				}
 			}
 		}
-		
+
 		cal.set(Calendar.HOUR_OF_DAY, 23);
 		cal.set(Calendar.MINUTE, 59);
 		cal.set(Calendar.SECOND, 59);
 		cal.set(Calendar.MILLISECOND, 999);
-		
+
 		return cal.getTime();
 	}
 
@@ -1169,18 +1264,23 @@ public class employeesExtend {
 		}
 
 		List<Map<String, Object>> cycleDefs = jdbcTemplate.queryForList(
-			"SELECT start_month, start_day, duration_months, duration_weeks FROM cycle_definitions WHERE cycle_id = ?", cycleId);
-		
+				"SELECT start_month, start_day, duration_months, duration_weeks FROM cycle_definitions WHERE cycle_id = ?",
+				cycleId);
+
 		int startMonth = 1;
 		int startDay = 1;
 		int durationMonths = 1;
 		int durationWeeks = 0;
 		if (!cycleDefs.isEmpty()) {
 			Map<String, Object> row = cycleDefs.get(0);
-			if (row.get("start_month") != null) startMonth = ((Number) row.get("start_month")).intValue();
-			if (row.get("start_day") != null) startDay = ((Number) row.get("start_day")).intValue();
-			if (row.get("duration_months") != null) durationMonths = ((Number) row.get("duration_months")).intValue();
-			if (row.get("duration_weeks") != null) durationWeeks = ((Number) row.get("duration_weeks")).intValue();
+			if (row.get("start_month") != null)
+				startMonth = ((Number) row.get("start_month")).intValue();
+			if (row.get("start_day") != null)
+				startDay = ((Number) row.get("start_day")).intValue();
+			if (row.get("duration_months") != null)
+				durationMonths = ((Number) row.get("duration_months")).intValue();
+			if (row.get("duration_weeks") != null)
+				durationWeeks = ((Number) row.get("duration_weeks")).intValue();
 		}
 
 		Calendar anchorCal = Calendar.getInstance();
@@ -1189,11 +1289,11 @@ public class employeesExtend {
 		anchorCal.set(Calendar.MINUTE, 0);
 		anchorCal.set(Calendar.SECOND, 0);
 		anchorCal.set(Calendar.MILLISECOND, 0);
-		
+
 		anchorCal.set(Calendar.YEAR, year);
 		anchorCal.set(Calendar.MONTH, startMonth - 1);
 		anchorCal.set(Calendar.DAY_OF_MONTH, startDay);
-		
+
 		int anchorYear = year;
 		if (date.before(anchorCal.getTime())) {
 			anchorYear = year - 1;
@@ -1202,7 +1302,7 @@ public class employeesExtend {
 
 		Calendar periodStart = (Calendar) anchorCal.clone();
 		Calendar periodEnd = (Calendar) anchorCal.clone();
-		
+
 		if (durationWeeks > 0) {
 			while (true) {
 				periodEnd = (Calendar) periodStart.clone();
@@ -1217,7 +1317,8 @@ public class employeesExtend {
 			cp.endDate = new java.sql.Date(periodEnd.getTimeInMillis());
 			cp.code = anchorYear + "-W" + periodStart.get(Calendar.WEEK_OF_YEAR);
 		} else {
-			if (durationMonths <= 0) durationMonths = 1;
+			if (durationMonths <= 0)
+				durationMonths = 1;
 			while (true) {
 				periodEnd = (Calendar) periodStart.clone();
 				periodEnd.add(Calendar.MONTH, durationMonths);
@@ -1246,9 +1347,12 @@ public class employeesExtend {
 			} else if (durationMonths == 3) {
 				int sMonth = periodStart.get(Calendar.MONTH) + 1;
 				int qIdx = 1;
-				if (sMonth >= 12 || sMonth < 3) qIdx = 2;
-				else if (sMonth >= 3 && sMonth < 6) qIdx = 3;
-				else if (sMonth >= 6 && sMonth < 9) qIdx = 4;
+				if (sMonth >= 12 || sMonth < 3)
+					qIdx = 2;
+				else if (sMonth >= 3 && sMonth < 6)
+					qIdx = 3;
+				else if (sMonth >= 6 && sMonth < 9)
+					qIdx = 4;
 				cp.code = anchorYear + "-Q" + qIdx;
 			} else if (durationMonths == 1) {
 				int pYear = periodStart.get(Calendar.YEAR);
@@ -1264,7 +1368,8 @@ public class employeesExtend {
 
 	public int getOrCreatePeriodInstance(int cycleId, String cycleType, Date date) {
 		String sql = "SELECT period_id FROM period_instances WHERE cycle_id = ? AND ? BETWEEN start_date AND end_date";
-		List<Integer> ids = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getInt("period_id"), cycleId, new java.sql.Date(date.getTime()));
+		List<Integer> ids = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getInt("period_id"), cycleId,
+				new java.sql.Date(date.getTime()));
 		if (!ids.isEmpty()) {
 			return ids.get(0);
 		}
@@ -1274,9 +1379,10 @@ public class employeesExtend {
 		try {
 			String insertSql = "INSERT INTO period_instances (cycle_id, period_code, start_date, end_date) VALUES (?, ?, ?, ?)";
 			jdbcTemplate.update(insertSql, cycleId, cp.code, cp.startDate, cp.endDate);
-			
-			return jdbcTemplate.queryForObject("SELECT period_id FROM period_instances WHERE cycle_id = ? AND period_code = ? AND start_date = ?", 
-				Integer.class, cycleId, cp.code, cp.startDate);
+
+			return jdbcTemplate.queryForObject(
+					"SELECT period_id FROM period_instances WHERE cycle_id = ? AND period_code = ? AND start_date = ?",
+					Integer.class, cycleId, cp.code, cp.startDate);
 		} catch (Exception e) {
 			try {
 				return jdbcTemplate.queryForObject(sql, Integer.class, cycleId, new java.sql.Date(date.getTime()));
@@ -1288,15 +1394,16 @@ public class employeesExtend {
 	}
 
 	@Transactional
-	public JSONObject saveKpiValue(int kpiId, Integer deptId, Double actualValue, String notes, String evidenceLink, String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
+	public JSONObject saveKpiValue(int kpiId, Integer deptId, Double actualValue, String notes, String evidenceLink,
+			String fileName, String fileSize, int userId, boolean isAdmin, Date referenceDate) {
 		JSONObject response = new JSONObject();
 		try {
 			String kpiQuery = "SELECT k.kpi_code, k.cycle_id, c.cycle_type FROM kpi_definitions k JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ? AND (k.is_deleted = 0 OR k.is_deleted IS NULL)";
 			System.out.println("Executing KPI Query: " + kpiQuery);
 			List<Map<String, Object>> kpiRows = jdbcTemplate.queryForList(kpiQuery, kpiId);
-			
+
 			System.out.println("KPI Rows: " + kpiRows);
-			
+
 			if (kpiRows.isEmpty()) {
 				response.put("code", 404);
 				response.put("description", "Không tìm thấy chỉ số KPI.");
@@ -1307,49 +1414,62 @@ public class employeesExtend {
 
 			Date refDate = referenceDate != null ? referenceDate : new Date();
 			int currPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, refDate);
-			
-			List<Map<String, Object>> currPeriodInfo = jdbcTemplate.queryForList("SELECT start_date FROM period_instances WHERE period_id = ?", currPeriodId);
+
+			List<Map<String, Object>> currPeriodInfo = jdbcTemplate
+					.queryForList("SELECT start_date FROM period_instances WHERE period_id = ?", currPeriodId);
 			java.sql.Date currStartDate = (java.sql.Date) currPeriodInfo.get(0).get("start_date");
 			Calendar prevCal = Calendar.getInstance();
 			prevCal.setTime(currStartDate);
 			prevCal.add(Calendar.DAY_OF_YEAR, -1);
 			int prevPeriodId = getOrCreatePeriodInstance(cycleId, cycleType, prevCal.getTime());
 
-			List<Map<String, Object>> prevPeriodInfo = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", prevPeriodId);
+			List<Map<String, Object>> prevPeriodInfo = jdbcTemplate
+					.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", prevPeriodId);
 			java.sql.Date prevEndDate = (java.sql.Date) prevPeriodInfo.get(0).get("end_date");
-			
+
 			List<Map<String, Object>> deadlineConfig = jdbcTemplate.queryForList(
-				"SELECT override_deadline_offset_days, override_deadline_offset_weeks, override_absolute_deadline_date, " +
-				"default_deadline_offset_days, default_deadline_offset_weeks, deadline_type " +
-				"FROM kpi_definitions k LEFT JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ?", kpiId);
-			
+					"SELECT override_deadline_offset_days, override_deadline_offset_weeks, override_absolute_deadline_date, "
+							+
+							"default_deadline_offset_days, default_deadline_offset_weeks, deadline_type " +
+							"FROM kpi_definitions k LEFT JOIN cycle_definitions c ON k.cycle_id = c.cycle_id WHERE k.kpi_id = ?",
+					kpiId);
+
 			Date prevDeadline = null;
 			if (!deadlineConfig.isEmpty()) {
 				Map<String, Object> conf = deadlineConfig.get(0);
 				if (conf.get("override_absolute_deadline_date") != null) {
 					prevDeadline = (java.sql.Date) conf.get("override_absolute_deadline_date");
 				} else {
-					int offsetDays = conf.get("override_deadline_offset_days") != null ? ((Number) conf.get("override_deadline_offset_days")).intValue() : 
-						(conf.get("default_deadline_offset_days") != null ? ((Number) conf.get("default_deadline_offset_days")).intValue() : 0);
-					int offsetWeeks = conf.get("override_deadline_offset_weeks") != null ? ((Number) conf.get("override_deadline_offset_weeks")).intValue() : 
-						(conf.get("default_deadline_offset_weeks") != null ? ((Number) conf.get("default_deadline_offset_weeks")).intValue() : 0);
-					String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type") : "CALENDAR";
+					int offsetDays = conf.get("override_deadline_offset_days") != null
+							? ((Number) conf.get("override_deadline_offset_days")).intValue()
+							: (conf.get("default_deadline_offset_days") != null
+									? ((Number) conf.get("default_deadline_offset_days")).intValue()
+									: 0);
+					int offsetWeeks = conf.get("override_deadline_offset_weeks") != null
+							? ((Number) conf.get("override_deadline_offset_weeks")).intValue()
+							: (conf.get("default_deadline_offset_weeks") != null
+									? ((Number) conf.get("default_deadline_offset_weeks")).intValue()
+									: 0);
+					String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type")
+							: "CALENDAR";
 					prevDeadline = calculateDeadline(prevEndDate, offsetDays, offsetWeeks, deadlineType);
 				}
 			}
 
-			String saveKpiCode = !kpiRows.isEmpty() && kpiRows.get(0).get("kpi_code") != null ? kpiRows.get(0).get("kpi_code").toString().trim().toUpperCase() : "";
+			String saveKpiCode = !kpiRows.isEmpty() && kpiRows.get(0).get("kpi_code") != null
+					? kpiRows.get(0).get("kpi_code").toString().trim().toUpperCase()
+					: "";
 			boolean isSaveKpiAutomated = com.kpi.kpiExtend.isAutomatedKpi(saveKpiCode, null);
 			if (!isSaveKpiAutomated) {
 				try {
 					Integer autoCount = jdbcTemplate.queryForObject(
-						"SELECT COUNT(*) FROM kpi_assignments WHERE kpi_id = ? AND update_mode = 'AUTOMATED'",
-						Integer.class, kpiId
-					);
+							"SELECT COUNT(*) FROM kpi_assignments WHERE kpi_id = ? AND update_mode = 'AUTOMATED'",
+							Integer.class, kpiId);
 					if (autoCount != null && autoCount > 0) {
 						isSaveKpiAutomated = true;
 					}
-				} catch (Exception ignored) {}
+				} catch (Exception ignored) {
+				}
 			}
 
 			int targetPeriodId;
@@ -1358,14 +1478,18 @@ public class employeesExtend {
 				targetPeriodId = currPeriodId;
 				isLocked = false;
 				try {
-					jdbcTemplate.update("UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = ?", kpiId);
-				} catch (Exception ignored) {}
+					jdbcTemplate.update(
+							"UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = ?",
+							kpiId);
+				} catch (Exception ignored) {
+				}
 			} else if (prevDeadline != null && !refDate.after(prevDeadline)) {
 				targetPeriodId = prevPeriodId;
 			} else {
 				targetPeriodId = currPeriodId;
-				
-				List<Map<String, Object>> currPeriodDetail = jdbcTemplate.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
+
+				List<Map<String, Object>> currPeriodDetail = jdbcTemplate
+						.queryForList("SELECT end_date FROM period_instances WHERE period_id = ?", currPeriodId);
 				java.sql.Date currEndDate = (java.sql.Date) currPeriodDetail.get(0).get("end_date");
 				Date currDeadline = null;
 				if (!deadlineConfig.isEmpty()) {
@@ -1373,11 +1497,18 @@ public class employeesExtend {
 					if (conf.get("override_absolute_deadline_date") != null) {
 						currDeadline = (java.sql.Date) conf.get("override_absolute_deadline_date");
 					} else {
-						int offsetDays = conf.get("override_deadline_offset_days") != null ? ((Number) conf.get("override_deadline_offset_days")).intValue() : 
-							(conf.get("default_deadline_offset_days") != null ? ((Number) conf.get("default_deadline_offset_days")).intValue() : 0);
-						int offsetWeeks = conf.get("override_deadline_offset_weeks") != null ? ((Number) conf.get("override_deadline_offset_weeks")).intValue() : 
-							(conf.get("default_deadline_offset_weeks") != null ? ((Number) conf.get("default_deadline_offset_weeks")).intValue() : 0);
-						String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type") : "CALENDAR";
+						int offsetDays = conf.get("override_deadline_offset_days") != null
+								? ((Number) conf.get("override_deadline_offset_days")).intValue()
+								: (conf.get("default_deadline_offset_days") != null
+										? ((Number) conf.get("default_deadline_offset_days")).intValue()
+										: 0);
+						int offsetWeeks = conf.get("override_deadline_offset_weeks") != null
+								? ((Number) conf.get("override_deadline_offset_weeks")).intValue()
+								: (conf.get("default_deadline_offset_weeks") != null
+										? ((Number) conf.get("default_deadline_offset_weeks")).intValue()
+										: 0);
+						String deadlineType = conf.get("deadline_type") != null ? (String) conf.get("deadline_type")
+								: "CALENDAR";
 						currDeadline = calculateDeadline(currEndDate, offsetDays, offsetWeeks, deadlineType);
 					}
 				}
@@ -1401,27 +1532,37 @@ public class employeesExtend {
 					+ " WHERE kpi_id = ? "
 					+ " AND period_id = ? AND (department_id = ? "
 					+ " OR (department_id IS NULL AND ? IS NULL))";
-			List<Map<String, Object>> existList = jdbcTemplate.queryForList(queryExist, kpiId, targetPeriodId, deptId, deptId);
-			
+			List<Map<String, Object>> existList = jdbcTemplate.queryForList(queryExist, kpiId, targetPeriodId, deptId,
+					deptId);
+
 			System.out.println("Exist List: " + existList);
-			
+
 			int dataId;
 			String changeType;
 			String finalNotes = notes;
 			String finalEvidenceLink = evidenceLink;
 			String finalFileName = fileName;
 			String finalFileSize = fileSize;
-			String finalFileUploadedAt = fileName != null && !fileName.isEmpty() ? new java.text.SimpleDateFormat("yyyy-MM-dd").format(new Date()) : null;
+			String finalFileUploadedAt = fileName != null && !fileName.isEmpty()
+					? new java.text.SimpleDateFormat("yyyy-MM-dd").format(new Date())
+					: null;
 
 			if (!existList.isEmpty()) {
 				Map<String, Object> existing = existList.get(0);
 				dataId = ((Number) existing.get("data_id")).intValue();
-				
+
 				String dbNotes = existing.get("notes") != null ? existing.get("notes").toString() : "";
-				String dbEvidenceLink = existing.get("evidence_link") != null ? existing.get("evidence_link").toString() : "";
-				String dbFileName = existing.get("evidence_file_name") != null ? existing.get("evidence_file_name").toString() : "";
-				String dbFileSize = existing.get("evidence_file_size") != null ? existing.get("evidence_file_size").toString() : "";
-				String dbFileUploadedAt = existing.get("evidence_file_uploaded_at") != null ? existing.get("evidence_file_uploaded_at").toString() : null;
+				String dbEvidenceLink = existing.get("evidence_link") != null ? existing.get("evidence_link").toString()
+						: "";
+				String dbFileName = existing.get("evidence_file_name") != null
+						? existing.get("evidence_file_name").toString()
+						: "";
+				String dbFileSize = existing.get("evidence_file_size") != null
+						? existing.get("evidence_file_size").toString()
+						: "";
+				String dbFileUploadedAt = existing.get("evidence_file_uploaded_at") != null
+						? existing.get("evidence_file_uploaded_at").toString()
+						: null;
 
 				if (notes == null || notes.trim().isEmpty()) {
 					finalNotes = dbNotes;
@@ -1435,20 +1576,27 @@ public class employeesExtend {
 					finalFileUploadedAt = dbFileUploadedAt;
 				}
 
-				String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), updated_by = ?, notes = ?, evidence_link = ?, evidence_file_name = ?, evidence_file_size = ?, evidence_file_uploaded_at = ? WHERE data_id = ?";
-				jdbcTemplate.update(updateSql, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, dataId);
+				String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), updated_by = ?, notes = ?, evidence_link = ?, evidence_file_name = ?, evidence_file_size = ?, evidence_file_uploaded_at = ?, entry_source = 'MANUAL_INPUT', is_auto_locked = 1, locked_at = GETDATE(), locked_by = ? WHERE data_id = ?";
+				jdbcTemplate.update(updateSql, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName,
+						finalFileSize, finalFileUploadedAt, userId, dataId);
 				changeType = "UPDATE";
 			} else {
-				String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, updated_by, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at, department_id) VALUES (?, ?, ?, GETDATE(), 5, ?, ?, ?, ?, ?, ?, ?)";
-				jdbcTemplate.update(insertSql, kpiId, targetPeriodId, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, deptId);
-				
-				dataId = jdbcTemplate.queryForObject("SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND (department_id = ? OR (department_id IS NULL AND ? IS NULL)) ORDER BY data_id DESC", Integer.class, kpiId, targetPeriodId, deptId, deptId);
+				String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, updated_by, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at, department_id, entry_source, is_auto_locked, locked_at, locked_by) VALUES (?, ?, ?, GETDATE(), 5, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_INPUT', 1, GETDATE(), ?)";
+				jdbcTemplate.update(insertSql, kpiId, targetPeriodId, actualValue, userId, finalNotes,
+						finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, deptId, userId);
+
+				dataId = jdbcTemplate.queryForObject(
+						"SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND (department_id = ? OR (department_id IS NULL AND ? IS NULL)) ORDER BY data_id DESC",
+						Integer.class, kpiId, targetPeriodId, deptId, deptId);
 				changeType = "CREATE";
 			}
 
-			int nextVersionNum = jdbcTemplate.queryForObject("SELECT ISNULL(MAX(version_number), 0) + 1 FROM kpi_value_versions WHERE data_id = ?", Integer.class, dataId);
-			String versionSql = "INSERT INTO kpi_value_versions (data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, updated_at, updated_by, change_type, version_number, department_id) VALUES (?, ?, ?, ?, ?, ?, GETDATE(), ?, ?, ?, ?)";
-			jdbcTemplate.update(versionSql, dataId, actualValue, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, userId, changeType, nextVersionNum, deptId);
+			int nextVersionNum = jdbcTemplate.queryForObject(
+					"SELECT ISNULL(MAX(version_number), 0) + 1 FROM kpi_value_versions WHERE data_id = ?",
+					Integer.class, dataId);
+			String versionSql = "INSERT INTO kpi_value_versions (data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, updated_at, updated_by, change_type, version_number, department_id, entry_source, is_auto_locked) VALUES (?, ?, ?, ?, ?, ?, GETDATE(), ?, ?, ?, ?, 'MANUAL_INPUT', 1)";
+			jdbcTemplate.update(versionSql, dataId, actualValue, finalNotes, finalEvidenceLink, finalFileName,
+					finalFileSize, userId, changeType, nextVersionNum, deptId);
 
 			response.put("code", 200);
 			response.put("description", "Đã cập nhật số liệu KPI và lưu hồ sơ minh chứng thành công!");
@@ -1466,15 +1614,22 @@ public class employeesExtend {
 	public JSONArray getKpiValueHistory(int kpiId, String deptId) {
 		JSONArray jsa = new JSONArray();
 		try {
-			String safeDeptId = (deptId != null && !deptId.trim().isEmpty() && !"null".equalsIgnoreCase(deptId.trim())) ? deptId.trim() : null;
-			String sql = "SELECT v.version_id, v.data_id, v.actual_value, v.notes, v.evidence_link, v.evidence_file_name, v.evidence_file_size, v.updated_at, v.change_type, v.version_number, " +
-						 "COALESCE(p.fullname, u.Email, CAST(v.updated_by AS VARCHAR(100)), N'Hệ thống') as updated_by_name " +
-						 "FROM kpi_value_versions v " +
-						 "JOIN kpi_data_points d ON v.data_id = d.data_id " +
-						 "LEFT JOIN users u ON (CAST(v.updated_by AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) OR u.Email = CAST(v.updated_by AS VARCHAR(100))) " +
-						 "LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email OR CAST(p.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100))) " +
-						 "WHERE d.kpi_id = ? AND (v.department_id = ? OR (v.department_id IS NULL AND ? IS NULL) OR ? IS NULL) " +
-						 "ORDER BY v.version_number DESC";
+			String safeDeptId = (deptId != null && !deptId.trim().isEmpty() && !"null".equalsIgnoreCase(deptId.trim()))
+					? deptId.trim()
+					: null;
+			String sql = "SELECT v.version_id, v.data_id, v.actual_value, v.notes, v.evidence_link, v.evidence_file_name, v.evidence_file_size, v.updated_at, v.change_type, v.version_number, "
+					+
+					"COALESCE(p.fullname, u.Email, CAST(v.updated_by AS VARCHAR(100)), N'Hệ thống') as updated_by_name "
+					+
+					"FROM kpi_value_versions v " +
+					"JOIN kpi_data_points d ON v.data_id = d.data_id " +
+					"LEFT JOIN users u ON (CAST(v.updated_by AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100)) OR u.Email = CAST(v.updated_by AS VARCHAR(100))) "
+					+
+					"LEFT JOIN personnel p ON (p.emailCanBo = u.Email OR p.email = u.Email OR CAST(p.id AS VARCHAR(100)) = CAST(u.ID AS VARCHAR(100))) "
+					+
+					"WHERE d.kpi_id = ? AND (v.department_id = ? OR (v.department_id IS NULL AND ? IS NULL) OR ? IS NULL) "
+					+
+					"ORDER BY v.version_number DESC";
 			List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, kpiId, safeDeptId, safeDeptId, safeDeptId);
 			for (Map<String, Object> row : rows) {
 				JSONObject jo = new JSONObject();
@@ -1482,13 +1637,20 @@ public class employeesExtend {
 				jo.put("data_id", row.get("data_id"));
 				jo.put("actual_value", row.get("actual_value"));
 				jo.put("notes", row.get("notes") != null ? row.get("notes").toString() : JSONObject.NULL);
-				jo.put("evidence_link", row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
-				jo.put("evidence_file_name", row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString() : JSONObject.NULL);
-				jo.put("evidence_file_size", row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString() : JSONObject.NULL);
-				jo.put("updated_at", row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
+				jo.put("evidence_link",
+						row.get("evidence_link") != null ? row.get("evidence_link").toString() : JSONObject.NULL);
+				jo.put("evidence_file_name",
+						row.get("evidence_file_name") != null ? row.get("evidence_file_name").toString()
+								: JSONObject.NULL);
+				jo.put("evidence_file_size",
+						row.get("evidence_file_size") != null ? row.get("evidence_file_size").toString()
+								: JSONObject.NULL);
+				jo.put("updated_at",
+						row.get("updated_at") != null ? row.get("updated_at").toString() : JSONObject.NULL);
 				jo.put("change_type", row.get("change_type"));
 				jo.put("version_number", row.get("version_number"));
-				jo.put("updated_by_name", row.get("updated_by_name") != null ? row.get("updated_by_name").toString() : "Hệ thống");
+				jo.put("updated_by_name",
+						row.get("updated_by_name") != null ? row.get("updated_by_name").toString() : "Hệ thống");
 				jsa.put(jo);
 			}
 		} catch (Exception e) {

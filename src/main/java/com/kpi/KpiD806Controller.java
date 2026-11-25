@@ -622,10 +622,10 @@ public class KpiD806Controller {
                 level, getLevelTitle(level), level
             );
 
-            // Upsert into kpi_data_points
+            // Upsert into kpi_data_points (respecting period manual lock)
             String checkExistSql = periodId != null
-                ? "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ?"
-                : "SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC";
+                ? "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WHERE kpi_id = ? AND period_id = ?"
+                : "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WHERE kpi_id = ? ORDER BY data_id DESC";
 
             List<Map<String, Object>> existingDp = periodId != null
                 ? jdbcTemplate.queryForList(checkExistSql, kpiId, periodId)
@@ -633,15 +633,21 @@ public class KpiD806Controller {
 
             if (!existingDp.isEmpty()) {
                 long dataId = ((Number) existingDp.get(0).get("data_id")).longValue();
-                jdbcTemplate.update(
-                    "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), notes = ? WHERE data_id = ?",
-                    (double) level, note, dataId
-                );
-                log.info("Synced KPI D8.06 (Level {}) into existing kpi_data_points id: {}", level, dataId);
+                boolean isLocked = existingDp.get(0).get("is_auto_locked") != null &&
+                        (Boolean.TRUE.equals(existingDp.get(0).get("is_auto_locked")) || "1".equals(existingDp.get(0).get("is_auto_locked").toString()));
+                if (isLocked) {
+                    log.info("Auto-sync IGNORED for KPI D8.06 (data_id: {}): Period is locked by manual entry.", dataId);
+                } else {
+                    jdbcTemplate.update(
+                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiD806Controller' WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)",
+                        (double) level, note, dataId
+                    );
+                    log.info("Synced KPI D8.06 (Level {}) into existing kpi_data_points id: {}", level, dataId);
+                }
             } else {
                 jdbcTemplate.update(
-                    "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, target, status_id, notes, updated_at) " +
-                    "VALUES (?, ?, ?, 4.0, 1, ?, GETDATE())",
+                    "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, target, status_id, notes, entry_source, updated_by_system, is_auto_locked, updated_at) " +
+                    "VALUES (?, ?, ?, 4.0, 1, ?, 'AUTOMATED_SYNC', 'KpiD806Controller', 0, GETDATE())",
                     kpiId, periodId, (double) level, note
                 );
                 log.info("Inserted new kpi_data_points row for KPI D8.06 (Level {})", level);

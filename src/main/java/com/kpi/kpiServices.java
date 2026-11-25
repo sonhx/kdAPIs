@@ -308,7 +308,8 @@ public class kpiServices {
 			String dataSource = jin.has("source") ? jin.getString("source").trim() : null;
 			String frequency = jin.has("cycle") ? jin.getString("cycle").trim() : null;
 			String target = jin.has("target") ? String.valueOf(jin.get("target")).trim() : null;
-			String targetRationale = jin.has("target_rationale") ? jin.getString("target_rationale").trim() : (jin.has("targetRationale") ? jin.getString("targetRationale").trim() : null);
+			String targetRationale = jin.has("target_rationale") ? jin.getString("target_rationale").trim()
+					: (jin.has("targetRationale") ? jin.getString("targetRationale").trim() : null);
 
 			// Call service to add KPI definition
 			JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, formula, dataSource,
@@ -350,7 +351,8 @@ public class kpiServices {
 			}
 
 			String originalName = file.getOriginalFilename();
-			if (originalName == null || (!originalName.endsWith(".xlsx") && !originalName.endsWith(".xls") && !originalName.endsWith(".csv"))) {
+			if (originalName == null || (!originalName.endsWith(".xlsx") && !originalName.endsWith(".xls")
+					&& !originalName.endsWith(".csv"))) {
 				jout.put("code", 400);
 				jout.put("description", "Vui lòng tải lên tệp Excel (.xlsx, .xls) hoặc CSV.");
 				return jout.toString();
@@ -374,16 +376,19 @@ public class kpiServices {
 				try {
 					workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(is);
 					org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheetAt(0);
-					
-					// Assuming Row 0 is header: kpi_code, name, measurement, unit, source, cycle, category, target_value, deparment in charge, approve body
+
+					// Assuming Row 0 is header: kpi_code, name, measurement, unit, source, cycle,
+					// category, target_value, deparment in charge, approve body
 					for (int i = 1; i <= sheet.getLastRowNum(); i++) {
 						org.apache.poi.ss.usermodel.Row row = sheet.getRow(i);
-						if (row == null) continue;
-						
+						if (row == null)
+							continue;
+
 						org.apache.poi.ss.usermodel.DataFormatter formatter = new org.apache.poi.ss.usermodel.DataFormatter();
 						String code = formatter.formatCellValue(row.getCell(0));
-						if (code == null || code.trim().isEmpty()) continue;
-						
+						if (code == null || code.trim().isEmpty())
+							continue;
+
 						String name = formatter.formatCellValue(row.getCell(1));
 						String measurement = formatter.formatCellValue(row.getCell(2));
 						String unit = formatter.formatCellValue(row.getCell(3));
@@ -393,8 +398,9 @@ public class kpiServices {
 						String target = formatter.formatCellValue(row.getCell(7));
 						String departmentInCharge = formatter.formatCellValue(row.getCell(8));
 						String approveBody = formatter.formatCellValue(row.getCell(9));
-						
-						JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, measurement, source, cycle, target);
+
+						JSONObject addResult = kpiExtend.addKpiDefinition(code, name, category, unit, measurement,
+								source, cycle, target);
 						if (addResult.getInt("code") == 201) {
 							successCount++;
 							Integer kpiId = addResult.getInt("kpi_id");
@@ -421,7 +427,8 @@ public class kpiServices {
 						}
 					}
 				} finally {
-					if (workbook != null) workbook.close();
+					if (workbook != null)
+						workbook.close();
 				}
 			}
 
@@ -432,7 +439,11 @@ public class kpiServices {
 			jout.put("errors", errors);
 		} catch (Exception e) {
 			e.printStackTrace();
-			try { jout.put("code", 500); jout.put("description", "Lỗi tải tệp: " + e.getMessage()); } catch (Exception ignored) {}
+			try {
+				jout.put("code", 500);
+				jout.put("description", "Lỗi tải tệp: " + e.getMessage());
+			} catch (Exception ignored) {
+			}
 		}
 		System.out.println("RES(uploadKpiDefinitions):" + jout.toString());
 		return jout.toString();
@@ -496,17 +507,25 @@ public class kpiServices {
 
 			// Extract parameters
 			int kpiId = jin.has("kpi_id") ? jin.getInt("kpi_id") : 0;
-			String code = jin.has("code") ? jin.getString("code").trim() : (jin.has("kpi_code") ? jin.getString("kpi_code").trim() : null);
-			String name = jin.has("name") ? jin.getString("name").trim() : (jin.has("kpi_name") ? jin.getString("kpi_name").trim() : null);
-			String category = jin.has("category") ? jin.getString("category").trim() : (jin.has("category_code") ? jin.getString("category_code").trim() : null);
+			String code = jin.has("code") ? jin.getString("code").trim()
+					: (jin.has("kpi_code") ? jin.getString("kpi_code").trim() : null);
+			String name = jin.has("name") ? jin.getString("name").trim()
+					: (jin.has("kpi_name") ? jin.getString("kpi_name").trim() : null);
+			String category = jin.has("category") ? jin.getString("category").trim()
+					: (jin.has("category_code") ? jin.getString("category_code").trim() : null);
 			String unit = jin.has("unit") ? jin.getString("unit").trim() : null;
-			String formula = jin.has("formula") ? jin.getString("formula").trim() : (jin.has("measurement") ? jin.getString("measurement").trim() : null);
-			String dataSource = jin.has("data_source") ? jin.getString("data_source").trim() : (jin.has("source") ? jin.getString("source").trim() : null);
-			String frequency = jin.has("frequency") ? jin.getString("frequency").trim() : (jin.has("cycle") ? jin.getString("cycle").trim() : null);
+			String formula = jin.has("formula") ? jin.getString("formula").trim()
+					: (jin.has("measurement") ? jin.getString("measurement").trim() : null);
+			String dataSource = jin.has("data_source") ? jin.getString("data_source").trim()
+					: (jin.has("source") ? jin.getString("source").trim() : null);
+			String frequency = jin.has("frequency") ? jin.getString("frequency").trim()
+					: (jin.has("cycle") ? jin.getString("cycle").trim() : null);
 			String target = jin.has("target") ? jin.getString("target").trim() : null;
-			String targetRationale = jin.has("target_rationale") ? jin.getString("target_rationale").trim() : (jin.has("targetRationale") ? jin.getString("targetRationale").trim() : null);
+			String targetRationale = jin.has("target_rationale") ? jin.getString("target_rationale").trim()
+					: (jin.has("targetRationale") ? jin.getString("targetRationale").trim() : null);
 			String description = jin.has("description") ? jin.getString("description").trim() : null;
-			String modifiedBy = jin.has("modified_by") ? jin.getString("modified_by").trim() : (jin.has("user_email") ? jin.getString("user_email").trim() : "Admin");
+			String modifiedBy = jin.has("modified_by") ? jin.getString("modified_by").trim()
+					: (jin.has("user_email") ? jin.getString("user_email").trim() : "Admin");
 
 			// Call service to update KPI definition with change auditing
 			JSONObject editResult = kpiExtend.editKpiDefinition(kpiId, code, name, category, unit, formula, dataSource,
@@ -532,13 +551,15 @@ public class kpiServices {
 	/**
 	 * GET /kpi/definition/history/{kpiId} or GET /kpi/definition/history
 	 */
-	@GetMapping(value = {"/definition/history/{kpiId}", "/definition/history"}, produces = "application/json;charset=UTF-8")
+	@GetMapping(value = { "/definition/history/{kpiId}",
+			"/definition/history" }, produces = "application/json;charset=UTF-8")
 	public String getKpiDefinitionHistory(@PathVariable(required = false) Integer kpiId,
-	                                      @RequestParam(required = false) Integer kpi_id,
-	                                      @RequestParam(required = false) String code,
-	                                      @RequestParam(required = false) String kpi_code) {
+			@RequestParam(required = false) Integer kpi_id,
+			@RequestParam(required = false) String code,
+			@RequestParam(required = false) String kpi_code) {
 		int targetKpiId = kpiId != null ? kpiId : (kpi_id != null ? kpi_id : 0);
-		String targetCode = (code != null && !code.trim().isEmpty()) ? code.trim() : ((kpi_code != null && !kpi_code.trim().isEmpty()) ? kpi_code.trim() : null);
+		String targetCode = (code != null && !code.trim().isEmpty()) ? code.trim()
+				: ((kpi_code != null && !kpi_code.trim().isEmpty()) ? kpi_code.trim() : null);
 		System.out.println("-------getKpiDefinitionHistory for kpiId: " + targetKpiId + ", code: " + targetCode);
 		JSONObject jout = new JSONObject();
 		try {
@@ -615,7 +636,8 @@ public class kpiServices {
 					kpiId = assignment.getInt("kpi_id");
 				}
 
-				String departmentId = assignment.isNull("department_id") ? null : assignment.optString("department_id", null);
+				String departmentId = assignment.isNull("department_id") ? null
+						: assignment.optString("department_id", null);
 
 				String role = assignment.optString("role", "A");
 				String rawAssignedBy = null;
@@ -623,7 +645,9 @@ public class kpiServices {
 					rawAssignedBy = assignment.get("assigned_by").toString().trim();
 				else if (assignment.has("assignedBy") && !assignment.isNull("assignedBy"))
 					rawAssignedBy = assignment.get("assignedBy").toString().trim();
-				String assignedBy = (rawAssignedBy == null || rawAssignedBy.isEmpty() || rawAssignedBy.equals("null")) ? "" : rawAssignedBy;
+				String assignedBy = (rawAssignedBy == null || rawAssignedBy.isEmpty() || rawAssignedBy.equals("null"))
+						? ""
+						: rawAssignedBy;
 				String rawAssignedTo = null;
 				if (assignment.has("assigned_to") && !assignment.isNull("assigned_to"))
 					rawAssignedTo = assignment.get("assigned_to").toString().trim();
@@ -631,28 +655,35 @@ public class kpiServices {
 					rawAssignedTo = assignment.get("assignedTo").toString().trim();
 				else if (assignment.has("employee_id") && !assignment.isNull("employee_id"))
 					rawAssignedTo = assignment.get("employee_id").toString().trim();
-				String assignedTo = (rawAssignedTo == null || rawAssignedTo.isEmpty() || rawAssignedTo.equals("null")) ? assignedBy : rawAssignedTo;
+				String assignedTo = (rawAssignedTo == null || rawAssignedTo.isEmpty() || rawAssignedTo.equals("null"))
+						? assignedBy
+						: rawAssignedTo;
 
 				if (kpiId != null) {
 					System.out.println("Saving/Deleting assignment: kpiId=" + kpiId + ", departmentId=" + departmentId
 							+ ", role=" + role + ", assignedBy=" + assignedBy + ", assignedTo=" + assignedTo);
-					JSONObject saveRes = kpiExtend.saveAssignment(kpiId, departmentId, role, assignedBy, assignedTo, false);
+					JSONObject saveRes = kpiExtend.saveAssignment(kpiId, departmentId, role, assignedBy, assignedTo,
+							false);
 
 					if (saveRes != null && saveRes.optInt("code") == 200) {
 						if (kpiCode == null || kpiCode.isBlank()) {
 							try {
-								kpiCode = jdbcTemplate.queryForObject("SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
-							} catch (Exception e) {}
+								kpiCode = jdbcTemplate.queryForObject(
+										"SELECT kpi_code FROM kpi_definitions WHERE kpi_id = ?", String.class, kpiId);
+							} catch (Exception e) {
+							}
 						}
 						String finalCode = (kpiCode != null && !kpiCode.isBlank()) ? kpiCode : String.valueOf(kpiId);
 
 						if ("B".equalsIgnoreCase(role)) {
 							if (!assignedBy.isEmpty()) {
-								approverToKpis.computeIfAbsent(assignedBy, k -> new java.util.LinkedHashSet<>()).add(finalCode);
+								approverToKpis.computeIfAbsent(assignedBy, k -> new java.util.LinkedHashSet<>())
+										.add(finalCode);
 							}
 						} else {
 							if (departmentId != null && !departmentId.isBlank()) {
-								deptToKpis.computeIfAbsent(departmentId, k -> new java.util.LinkedHashSet<>()).add(finalCode);
+								deptToKpis.computeIfAbsent(departmentId, k -> new java.util.LinkedHashSet<>())
+										.add(finalCode);
 							}
 						}
 					}
@@ -666,7 +697,8 @@ public class kpiServices {
 				for (Map.Entry<String, java.util.Set<String>> entry : approverToKpis.entrySet()) {
 					String approverId = entry.getKey();
 					java.util.Set<String> kpiCodes = entry.getValue();
-					if (kpiCodes.isEmpty()) continue;
+					if (kpiCodes.isEmpty())
+						continue;
 
 					try {
 						String title;
@@ -680,26 +712,27 @@ public class kpiServices {
 						} else {
 							String codesJoined = String.join(", ", kpiCodes);
 							title = "Phân công phê duyệt KPI (" + kpiCodes.size() + " chỉ số)";
-							message = "Bạn đã được phân công phê duyệt " + kpiCodes.size() + " chỉ số KPI: " + codesJoined + ".";
+							message = "Bạn đã được phân công phê duyệt " + kpiCodes.size() + " chỉ số KPI: "
+									+ codesJoined + ".";
 							actionUrl = "/kpi";
 						}
 
 						notificationExtend.dispatchNotification(
-							"KPI_ASSIGNED",
-							"KPI",
-							"info",
-							title,
-							message,
-							null,
-							null,
-							"KPI_ASSIGNMENT",
-							null,
-							actionUrl,
-							"SYSTEM",
-							java.util.Collections.singletonList(approverId)
-						);
+								"KPI_ASSIGNED",
+								"KPI",
+								"info",
+								title,
+								message,
+								null,
+								null,
+								"KPI_ASSIGNMENT",
+								null,
+								actionUrl,
+								"SYSTEM",
+								java.util.Collections.singletonList(approverId));
 					} catch (Exception notifEx) {
-						System.err.println("Error dispatching aggregated approver notification: " + notifEx.getMessage());
+						System.err
+								.println("Error dispatching aggregated approver notification: " + notifEx.getMessage());
 					}
 				}
 
@@ -707,7 +740,8 @@ public class kpiServices {
 				for (Map.Entry<String, java.util.Set<String>> entry : deptToKpis.entrySet()) {
 					String deptId = entry.getKey();
 					java.util.Set<String> kpiCodes = entry.getValue();
-					if (kpiCodes.isEmpty()) continue;
+					if (kpiCodes.isEmpty())
+						continue;
 
 					try {
 						String title;
@@ -721,26 +755,27 @@ public class kpiServices {
 						} else {
 							String codesJoined = String.join(", ", kpiCodes);
 							title = "Phân công chỉ số KPI (" + kpiCodes.size() + " chỉ số)";
-							message = "Đơn vị đã được phân công thực hiện/nhập liệu " + kpiCodes.size() + " chỉ số KPI: " + codesJoined + ".";
+							message = "Đơn vị đã được phân công thực hiện/nhập liệu " + kpiCodes.size()
+									+ " chỉ số KPI: " + codesJoined + ".";
 							actionUrl = "/kpi";
 						}
 
 						notificationExtend.dispatchNotification(
-							"KPI_ASSIGNED",
-							"KPI",
-							"info",
-							title,
-							message,
-							"TRUONG_DON_VI",
-							deptId,
-							"KPI_ASSIGNMENT",
-							null,
-							actionUrl,
-							"SYSTEM",
-							null
-						);
+								"KPI_ASSIGNED",
+								"KPI",
+								"info",
+								title,
+								message,
+								"TRUONG_DON_VI",
+								deptId,
+								"KPI_ASSIGNMENT",
+								null,
+								actionUrl,
+								"SYSTEM",
+								null);
 					} catch (Exception notifEx) {
-						System.err.println("Error dispatching aggregated department notification: " + notifEx.getMessage());
+						System.err.println(
+								"Error dispatching aggregated department notification: " + notifEx.getMessage());
 					}
 				}
 			}
@@ -916,7 +951,8 @@ public class kpiServices {
 			jout.put("code", 500);
 			jout.put("description", "Server error: " + e.getMessage());
 		}
-		//System.out.println("RES(getKpiDefinitionsWithAssignments): code=200, count=" + (kpis != null ? kpis.length() : 0));
+		// System.out.println("RES(getKpiDefinitionsWithAssignments): code=200, count="
+		// + (kpis != null ? kpis.length() : 0));
 		return jout.toString();
 	}
 
@@ -1043,7 +1079,8 @@ public class kpiServices {
 					Map<String, Object> uRow = userRows.get(0);
 					int adminVal = uRow.get("IsAdmin") != null ? ((Number) uRow.get("IsAdmin")).intValue() : 0;
 					String email = uRow.get("Email") != null ? uRow.get("Email").toString() : "";
-					if (adminVal == 1 || "admin@ptit.edu.vn".equalsIgnoreCase(email) || "sonhx@ptit.edu.vn".equalsIgnoreCase(email)) {
+					if (adminVal == 1 || "admin@ptit.edu.vn".equalsIgnoreCase(email)
+							|| "sonhx@ptit.edu.vn".equalsIgnoreCase(email)) {
 						isAdmin = true;
 					}
 				}
@@ -1097,7 +1134,8 @@ public class kpiServices {
 					if (!utf8Decoded.contains("\uFFFD") && !utf8Decoded.contains("ï¿½") && utf8Decoded.length() > 0) {
 						originalName = utf8Decoded;
 					}
-				} catch (Exception e) {}
+				} catch (Exception e) {
+				}
 			}
 
 			String safeKpiCode = kpiCode.replaceAll("[^a-zA-Z0-9_-]", "");
@@ -1153,7 +1191,8 @@ public class kpiServices {
 				contentType = "application/octet-stream";
 			}
 			String encodedHeaderName = java.net.URLEncoder.encode(file.getName(), "UTF-8").replace("+", "%20");
-			String contentDisposition = "inline; filename=\"" + file.getName().replaceAll("[^a-zA-Z0-9._-]", "_") + "\"; filename*=UTF-8''" + encodedHeaderName;
+			String contentDisposition = "inline; filename=\"" + file.getName().replaceAll("[^a-zA-Z0-9._-]", "_")
+					+ "\"; filename*=UTF-8''" + encodedHeaderName;
 
 			return org.springframework.http.ResponseEntity.ok()
 					.contentType(org.springframework.http.MediaType.parseMediaType(contentType))
@@ -1172,7 +1211,8 @@ public class kpiServices {
 			JSONObject jin = new JSONObject(sReq);
 			String sessionId = jin.getString("session_id");
 			int kpiId = jin.getInt("kpi_id");
-			String deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.get("department_id").toString()
+			String deptId = jin.has("department_id") && !jin.isNull("department_id")
+					? jin.get("department_id").toString()
 					: null;
 			double actualValue = jin.getDouble("actual_value");
 			String notes = jin.has("notes") && !jin.isNull("notes") ? jin.getString("notes") : "";
@@ -1219,21 +1259,25 @@ public class kpiServices {
 			} catch (Exception ex) {
 				ex.printStackTrace();
 			}
-			
-			Integer explicitPeriodId = jin.has("period_id") && !jin.isNull("period_id") ? jin.getInt("period_id") : null;
-			String explicitPeriodCode = jin.has("period_code") && !jin.isNull("period_code") ? jin.getString("period_code")
+
+			Integer explicitPeriodId = jin.has("period_id") && !jin.isNull("period_id") ? jin.getInt("period_id")
+					: null;
+			String explicitPeriodCode = jin.has("period_code") && !jin.isNull("period_code")
+					? jin.getString("period_code")
 					: (jin.has("period") && !jin.isNull("period") ? jin.getString("period") : null);
 			boolean isBackfill = jin.has("is_backfill") && !jin.isNull("is_backfill") && jin.getBoolean("is_backfill");
 
-			System.out.println("-------chkpnt #1:" + kpiId + ", dept:" + deptId + ", value:" + actualValue + ", notes:" + notes
-					+ ", evidenceLink:" + evidenceLink + ", fileName:" + fileName + ", fileSize:" + fileSize
-					+ ", userId:" + sst.UserID + ", isAdmin:" + isAdmin + ", referenceDate:" + referenceDate
-					+ ", explicitPeriodId:" + explicitPeriodId + ", explicitPeriodCode:" + explicitPeriodCode + ", isBackfill:" + isBackfill);
+			System.out.println(
+					"-------chkpnt #1:" + kpiId + ", dept:" + deptId + ", value:" + actualValue + ", notes:" + notes
+							+ ", evidenceLink:" + evidenceLink + ", fileName:" + fileName + ", fileSize:" + fileSize
+							+ ", userId:" + sst.UserID + ", isAdmin:" + isAdmin + ", referenceDate:" + referenceDate
+							+ ", explicitPeriodId:" + explicitPeriodId + ", explicitPeriodCode:" + explicitPeriodCode
+							+ ", isBackfill:" + isBackfill);
 
 			JSONObject result = kpiExtend.saveKpiValue(kpiId, deptId, actualValue, notes, evidenceLink, fileName,
 					fileSize, sst.UserID, isAdmin, referenceDate, explicitPeriodId, explicitPeriodCode, isBackfill);
 			System.out.println("-------chkpnt #2: result=" + result.toString());
-			
+
 			jout.put("code", result.getInt("code"));
 			jout.put("description", result.getString("description"));
 			if (result.has("data_id"))
@@ -1290,7 +1334,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/report/entries - Aggregated report of KPI entries across cycles for Admin
+	 * GET /kpi/report/entries - Aggregated report of KPI entries across cycles for
+	 * Admin
 	 */
 	@GetMapping("/report/entries")
 	public String getKpiReportEntries(
@@ -1300,7 +1345,8 @@ public class kpiServices {
 			@RequestParam(value = "status", required = false) String status,
 			@RequestParam(value = "search", required = false) String search,
 			@RequestParam(value = "latest_only", required = false) Boolean latestOnly) {
-		System.out.println("-------getKpiReportEntries: cycleId=" + cycleId + ", periodId=" + periodId + ", deptId=" + departmentId + ", status=" + status + ", search=" + search + ", latestOnly=" + latestOnly);
+		System.out.println("-------getKpiReportEntries: cycleId=" + cycleId + ", periodId=" + periodId + ", deptId="
+				+ departmentId + ", status=" + status + ", search=" + search + ", latestOnly=" + latestOnly);
 		JSONObject result = kpiExtend.getKpiReportEntries(cycleId, periodId, departmentId, status, search, latestOnly);
 		return result.toString();
 	}
@@ -1308,19 +1354,22 @@ public class kpiServices {
 	private void onKpiSyncCompleted(String kpiCode) {
 		try {
 			String safeCode = kpiCode != null ? kpiCode.replace("'", "''") : "";
-			jdbcTemplate.execute("SET QUOTED_IDENTIFIER ON; UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = (SELECT TOP 1 kpi_id FROM kpi_definitions WHERE kpi_code = '" + safeCode + "' AND (is_deleted = 0 OR is_deleted IS NULL));");
+			jdbcTemplate.execute(
+					"SET QUOTED_IDENTIFIER ON; UPDATE kpi_assignments SET last_synced_at = GETDATE(), sync_status = 'SUCCESS' WHERE kpi_id = (SELECT TOP 1 kpi_id FROM kpi_definitions WHERE kpi_code = '"
+							+ safeCode + "' AND (is_deleted = 0 OR is_deleted IS NULL));");
 		} catch (Exception e) {
 			System.err.println("Error updating kpi_assignments last_synced_at for " + kpiCode + ": " + e.getMessage());
 		}
 		try {
 			kpiExtend.invalidateKpisWithAssignmentsCache();
-		} catch (Exception ignored) {}
+		} catch (Exception ignored) {
+		}
 	}
 
 	/**
 	 * POST / GET /kpi/calculate/n306 - Manually trigger calculation for KPI N3.06
 	 */
-	@RequestMapping(value = {"/calculate/n306", "/calculate-n306"})
+	@RequestMapping(value = { "/calculate/n306", "/calculate-n306" })
 	public String calculateN306() {
 		System.out.println("-------calculateN306 requested");
 		JSONObject result = kpiN306CalculationService.calculateAndSaveN306(null);
@@ -1331,7 +1380,7 @@ public class kpiServices {
 	/**
 	 * POST / GET /kpi/calculate/n308 - Manually trigger calculation for KPI N3.08
 	 */
-	@RequestMapping(value = {"/calculate/n308", "/calculate-n308"})
+	@RequestMapping(value = { "/calculate/n308", "/calculate-n308" })
 	public String calculateN308() {
 		System.out.println("-------calculateN308 requested");
 		JSONObject result = kpiN308CalculationService.calculateAndSaveN308(null);
@@ -1342,7 +1391,7 @@ public class kpiServices {
 	/**
 	 * POST / GET /kpi/calculate/g205 - Manually trigger calculation for KPI G2.05
 	 */
-	@RequestMapping(value = {"/calculate/g205", "/calculate-g205", "/calculate/g2.05"})
+	@RequestMapping(value = { "/calculate/g205", "/calculate-g205", "/calculate/g2.05" })
 	public String calculateG205() {
 		System.out.println("-------calculateG205 requested");
 		JSONObject result = kpiG205CalculationService.calculateAndSaveG205(null);
@@ -1353,7 +1402,7 @@ public class kpiServices {
 	/**
 	 * POST / GET /kpi/calculate/n303 - Manually trigger calculation for KPI N3.03
 	 */
-	@RequestMapping(value = {"/calculate/n303", "/calculate-n303", "/calculate/n3.03"})
+	@RequestMapping(value = { "/calculate/n303", "/calculate-n303", "/calculate/n3.03" })
 	public String calculateN303() {
 		System.out.println("-------calculateN303 requested");
 		JSONObject result = kpiN303CalculationService.calculateAndSaveN303(null);
@@ -1364,7 +1413,7 @@ public class kpiServices {
 	/**
 	 * POST / GET /kpi/calculate/g201 - Manually trigger calculation for KPI G2.01
 	 */
-	@RequestMapping(value = {"/calculate/g201", "/calculate-g201", "/calculate/g2.01"})
+	@RequestMapping(value = { "/calculate/g201", "/calculate-g201", "/calculate/g2.01" })
 	public String calculateG201() {
 		System.out.println("-------calculateG201 requested");
 		JSONObject result = kpiG201CalculationService.calculateAndSaveG201(null);
@@ -1375,7 +1424,7 @@ public class kpiServices {
 	/**
 	 * POST / GET /kpi/calculate/k605 - Manually trigger calculation for KPI K6.05
 	 */
-	@RequestMapping(value = {"/calculate/k605", "/calculate-k605", "/calculate/k6.05"})
+	@RequestMapping(value = { "/calculate/k605", "/calculate-k605", "/calculate/k6.05" })
 	public String calculateK605() {
 		System.out.println("-------calculateK605 requested");
 		JSONObject result = kpiK605CalculationService.calculateAndSaveK605(null);
@@ -1386,7 +1435,7 @@ public class kpiServices {
 	/**
 	 * POST / GET /kpi/calculate/d807 - Manually trigger calculation for KPI D8.07
 	 */
-	@RequestMapping(value = {"/calculate/d807", "/calculate-d807", "/calculate/d8.07"})
+	@RequestMapping(value = { "/calculate/d807", "/calculate-d807", "/calculate/d8.07" })
 	public String calculateD807() {
 		System.out.println("-------calculateD807 requested");
 		JSONObject result = kpiD807CalculationService.calculateAndSaveD807(null);
@@ -1397,7 +1446,7 @@ public class kpiServices {
 	/**
 	 * POST / GET /kpi/calculate/d804 - Manually trigger calculation for KPI D8.04
 	 */
-	@RequestMapping(value = {"/calculate/d804", "/calculate-d804", "/calculate/d8.04"})
+	@RequestMapping(value = { "/calculate/d804", "/calculate-d804", "/calculate/d8.04" })
 	public String calculateD804() {
 		System.out.println("-------calculateD804 requested");
 		JSONObject result = kpiD804CalculationService.calculateAndSaveD804(null);
@@ -1408,19 +1457,28 @@ public class kpiServices {
 	/**
 	 * Generic trigger by KPI code (e.g. /kpi/sync/K6.05 or /kpi/sync/k605)
 	 */
-	@RequestMapping(value = {"/sync/{code}"})
+	@RequestMapping(value = { "/sync/{code}" })
 	public String syncKpiByCode(@PathVariable("code") String code) {
-		if (code == null) return "{\"status\":\"ERROR\",\"message\":\"Missing code\"}";
+		if (code == null)
+			return "{\"status\":\"ERROR\",\"message\":\"Missing code\"}";
 		String c = code.trim().toUpperCase().replace(".", "");
 		switch (c) {
-			case "K605": return calculateK605();
-			case "D807": return calculateD807();
-			case "D804": return calculateD804();
-			case "G201": return calculateG201();
-			case "G205": return calculateG205();
-			case "N303": return calculateN303();
-			case "N306": return calculateN306();
-			case "N308": return calculateN308();
+			case "K605":
+				return calculateK605();
+			case "D807":
+				return calculateD807();
+			case "D804":
+				return calculateD804();
+			case "G201":
+				return calculateG201();
+			case "G205":
+				return calculateG205();
+			case "N303":
+				return calculateN303();
+			case "N306":
+				return calculateN306();
+			case "N308":
+				return calculateN308();
 			default:
 				JSONObject err = new JSONObject();
 				err.put("status", "ERROR");
@@ -1437,7 +1495,9 @@ public class kpiServices {
 			JSONObject jin = new JSONObject(sReq);
 			String sessionId = jin.optString("session_id", "");
 			int kpiId = jin.getInt("kpi_id");
-			String deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.get("department_id").toString() : null;
+			String deptId = jin.has("department_id") && !jin.isNull("department_id")
+					? jin.get("department_id").toString()
+					: null;
 
 			struct_session sst = sessionService.getSessionInfo(sessionId);
 			String userId = sst != null ? String.valueOf(sst.UserID) : "system";
@@ -1461,7 +1521,9 @@ public class kpiServices {
 			JSONObject jin = new JSONObject(sReq);
 			String sessionId = jin.optString("session_id", "");
 			int kpiId = jin.getInt("kpi_id");
-			String deptId = jin.has("department_id") && !jin.isNull("department_id") ? jin.get("department_id").toString() : null;
+			String deptId = jin.has("department_id") && !jin.isNull("department_id")
+					? jin.get("department_id").toString()
+					: null;
 
 			struct_session sst = sessionService.getSessionInfo(sessionId);
 			String userId = sst != null ? String.valueOf(sst.UserID) : "system";
@@ -1481,7 +1543,7 @@ public class kpiServices {
 	 * POST /kpi/employee-assignments/assign or POST /kpi/employee-assignments
 	 * Save/update employee KPI assignment(s)
 	 */
-	@PostMapping(value = {"/employee-assignments/assign", "/employee-assignments"})
+	@PostMapping(value = { "/employee-assignments/assign", "/employee-assignments" })
 	public String assignEmployeeKpi(@RequestBody String sReq) {
 		System.out.println("-------assignEmployeeKpi:" + sReq);
 		JSONObject jout = new JSONObject();
@@ -1495,14 +1557,19 @@ public class kpiServices {
 				for (int i = 0; i < jsAssignments.length(); i++) {
 					JSONObject item = jsAssignments.getJSONObject(i);
 					Integer assignmentId = item.has("assignment_id") ? item.getInt("assignment_id") : null;
-					Integer employeeId = item.has("employee_id") ? item.getInt("employee_id") : (item.has("assigned_to") ? item.getInt("assigned_to") : null);
+					Integer employeeId = item.has("employee_id") ? item.getInt("employee_id")
+							: (item.has("assigned_to") ? item.getInt("assigned_to") : null);
 					String assignedBy = item.optString("assigned_by", "system");
-					Boolean allowManualOverride = item.has("allow_manual_override") ? item.getBoolean("allow_manual_override") : null;
+					Boolean allowManualOverride = item.has("allow_manual_override")
+							? item.getBoolean("allow_manual_override")
+							: null;
 					Boolean isOverridden = item.has("is_overridden") ? item.getBoolean("is_overridden") : null;
 
-					JSONObject res = kpiExtend.saveEmployeeAssignment(assignmentId, employeeId, assignedBy, allowManualOverride, isOverridden);
+					JSONObject res = kpiExtend.saveEmployeeAssignment(assignmentId, employeeId, assignedBy,
+							allowManualOverride, isOverridden);
 					results.put(res);
-					if (res.optInt("code") == 200) count++;
+					if (res.optInt("code") == 200)
+						count++;
 				}
 				jout.put("code", 200);
 				jout.put("description", "Thành công");
@@ -1512,12 +1579,15 @@ public class kpiServices {
 			}
 
 			Integer assignmentId = jin.has("assignment_id") ? jin.getInt("assignment_id") : null;
-			Integer employeeId = jin.has("employee_id") ? jin.getInt("employee_id") : (jin.has("assigned_to") ? jin.getInt("assigned_to") : null);
+			Integer employeeId = jin.has("employee_id") ? jin.getInt("employee_id")
+					: (jin.has("assigned_to") ? jin.getInt("assigned_to") : null);
 			String assignedBy = jin.optString("assigned_by", "system");
-			Boolean allowManualOverride = jin.has("allow_manual_override") ? jin.getBoolean("allow_manual_override") : null;
+			Boolean allowManualOverride = jin.has("allow_manual_override") ? jin.getBoolean("allow_manual_override")
+					: null;
 			Boolean isOverridden = jin.has("is_overridden") ? jin.getBoolean("is_overridden") : null;
 
-			JSONObject res = kpiExtend.saveEmployeeAssignment(assignmentId, employeeId, assignedBy, allowManualOverride, isOverridden);
+			JSONObject res = kpiExtend.saveEmployeeAssignment(assignmentId, employeeId, assignedBy, allowManualOverride,
+					isOverridden);
 			return res.toString();
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -1528,7 +1598,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * POST /kpi/employee-assignments/batch - Batch assign employees to KPI assignments
+	 * POST /kpi/employee-assignments/batch - Batch assign employees to KPI
+	 * assignments
 	 */
 	@PostMapping("/employee-assignments/batch")
 	public String batchAssignEmployeeKpi(@RequestBody String sReq) {
@@ -1536,7 +1607,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/employee-assignments/by-department/{departmentId} - Get all employee assignments for a department
+	 * GET /kpi/employee-assignments/by-department/{departmentId} - Get all employee
+	 * assignments for a department
 	 */
 	@GetMapping("/employee-assignments/by-department/{departmentId}")
 	public String getEmployeeAssignmentsByDepartment(@PathVariable Object departmentId) {
@@ -1557,7 +1629,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/employee-assignments/by-employee/{employeeId} - Get all KPI assignments for a specific employee
+	 * GET /kpi/employee-assignments/by-employee/{employeeId} - Get all KPI
+	 * assignments for a specific employee
 	 */
 	@GetMapping("/employee-assignments/by-employee/{employeeId}")
 	public String getEmployeeAssignmentsByEmployee(@PathVariable Integer employeeId) {
@@ -1578,7 +1651,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * GET /kpi/employee-assignments/{employeeAssignmentId} - Get single employee assignment
+	 * GET /kpi/employee-assignments/{employeeAssignmentId} - Get single employee
+	 * assignment
 	 */
 	@GetMapping("/employee-assignments/{employeeAssignmentId}")
 	public String getEmployeeAssignmentById(@PathVariable Integer employeeAssignmentId) {
@@ -1603,7 +1677,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * PUT /kpi/employee-assignments/{employeeAssignmentId} - Update employee assignment status / override flags
+	 * PUT /kpi/employee-assignments/{employeeAssignmentId} - Update employee
+	 * assignment status / override flags
 	 */
 	@PutMapping("/employee-assignments/{employeeAssignmentId}")
 	public String updateEmployeeAssignment(@PathVariable Integer employeeAssignmentId, @RequestBody String sReq) {
@@ -1611,10 +1686,12 @@ public class kpiServices {
 		JSONObject jout = new JSONObject();
 		try {
 			JSONObject jin = new JSONObject(sReq);
-			Boolean allowManualOverride = jin.has("allow_manual_override") ? jin.getBoolean("allow_manual_override") : null;
+			Boolean allowManualOverride = jin.has("allow_manual_override") ? jin.getBoolean("allow_manual_override")
+					: null;
 			Boolean isOverridden = jin.has("is_overridden") ? jin.getBoolean("is_overridden") : null;
 
-			JSONObject result = kpiExtend.updateEmployeeAssignmentFlags(employeeAssignmentId, allowManualOverride, isOverridden);
+			JSONObject result = kpiExtend.updateEmployeeAssignmentFlags(employeeAssignmentId, allowManualOverride,
+					isOverridden);
 			return result.toString();
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -1625,7 +1702,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * DELETE /kpi/employee-assignments/{employeeAssignmentId} - Delete employee assignment
+	 * DELETE /kpi/employee-assignments/{employeeAssignmentId} - Delete employee
+	 * assignment
 	 */
 	@DeleteMapping("/employee-assignments/{employeeAssignmentId}")
 	public String deleteEmployeeAssignment(@PathVariable Integer employeeAssignmentId) {
@@ -1643,7 +1721,8 @@ public class kpiServices {
 	}
 
 	/**
-	 * DELETE /kpi/employee-assignments/by-assignment/{assignmentId} - Delete employee assignment by department assignment_id
+	 * DELETE /kpi/employee-assignments/by-assignment/{assignmentId} - Delete
+	 * employee assignment by department assignment_id
 	 */
 	@DeleteMapping("/employee-assignments/by-assignment/{assignmentId}")
 	public String deleteEmployeeAssignmentByAssignmentId(@PathVariable Integer assignmentId) {
@@ -1661,9 +1740,11 @@ public class kpiServices {
 	}
 
 	/**
-	 * POST /kpi/recalculate-vertices - Recalculate and update all vertex targets, actuals, and scores
+	 * POST /kpi/recalculate-vertices - Recalculate and update all vertex targets,
+	 * actuals, and scores
 	 */
-	@RequestMapping(value = "/recalculate-vertices", method = {RequestMethod.GET, RequestMethod.POST}, produces = "application/json;charset=UTF-8")
+	@RequestMapping(value = "/recalculate-vertices", method = { RequestMethod.GET,
+			RequestMethod.POST }, produces = "application/json;charset=UTF-8")
 	public String recalculateVertices() {
 		System.out.println("-------recalculateVertices");
 		JSONObject jout = new JSONObject();
@@ -1680,5 +1761,38 @@ public class kpiServices {
 			jout.put("description", "Lỗi tính toán lại đỉnh chiều: " + e.getMessage());
 		}
 		return jout.toString();
+	}
+
+	/**
+	 * POST /kpi/unlockAutoSync - Unlock a specific period from manual override lock
+	 * so automated updates can resume
+	 */
+	@PostMapping(value = "/unlockAutoSync", produces = "application/json;charset=UTF-8")
+	public String unlockAutoSync(@RequestBody String sReq) {
+		JSONObject jout = new JSONObject();
+		try {
+			JSONObject jin = new JSONObject(sReq);
+			String sessionId = jin.optString("session_id", "");
+			struct_session sst = sessionService.getSessionInfo(sessionId);
+			if (sst == null) {
+				jout.put("code", 401);
+				jout.put("description", "Phiên đăng nhập hết hạn hoặc không hợp lệ.");
+				return jout.toString();
+			}
+
+			int kpiId = jin.getInt("kpi_id");
+			int periodId = jin.getInt("period_id");
+			String deptId = jin.has("department_id") && !jin.isNull("department_id")
+					? jin.get("department_id").toString()
+					: null;
+
+			JSONObject res = kpiExtend.unlockPeriodAutoSync(kpiId, periodId, deptId, String.valueOf(sst.UserID));
+			return res.toString();
+		} catch (Exception e) {
+			e.printStackTrace();
+			jout.put("code", 500);
+			jout.put("description", "Lỗi khi mở khóa tự động cập nhật: " + e.getMessage());
+			return jout.toString();
+		}
 	}
 }

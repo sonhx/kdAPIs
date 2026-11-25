@@ -283,25 +283,32 @@ public class KpiQ704CalculationService {
                 );
 
                 // Upsert kpi_data_points for Q7.04 (Academy-level institutional record: department_id IS NULL)
-                String checkExistSql = "SELECT TOP 1 data_id FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC OPTION (MAXDOP 1)";
-                List<Integer> existingDataIds = jdbcTemplate.query(checkExistSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, periodId);
+                String checkExistSql = "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC OPTION (MAXDOP 1)";
+                List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(checkExistSql, kpiId, periodId);
 
                 int dataId;
                 int statusId = (actualValue >= targetVal) ? 5 : 4; // 5: Achieved, 4: Warning
 
-                if (!existingDataIds.isEmpty()) {
-                    dataId = existingDataIds.get(0);
-                    String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE data_id = ?";
-                    jdbcTemplate.update(updateSql, actualValue, statusId, toNVarChar(notes), dataId);
-                    log.info("Updated institutional kpi_data_points (data_id: {}) for KPI Q7.04 period {}: {} Điểm", dataId, periodCode, actualValue);
+                if (!existingRows.isEmpty()) {
+                    Map<String, Object> existing = existingRows.get(0);
+                    dataId = ((Number) existing.get("data_id")).intValue();
+                    boolean isLocked = existing.get("is_auto_locked") != null &&
+                            (Boolean.TRUE.equals(existing.get("is_auto_locked")) || "1".equals(existing.get("is_auto_locked").toString()));
+                    if (isLocked) {
+                        log.info("Auto-sync IGNORED for institutional KPI Q7.04 period {}: Period is locked by manual entry.", periodCode);
+                    } else {
+                        String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiQ704CalculationService' WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)";
+                        jdbcTemplate.update(updateSql, actualValue, statusId, toNVarChar(notes), dataId);
+                        log.info("Updated institutional kpi_data_points (data_id: {}) for KPI Q7.04 period {}: {} Điểm", dataId, periodCode, actualValue);
+                    }
                 } else {
-                    String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes) VALUES (?, ?, ?, GETDATE(), ?, ?)";
+                    String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes, entry_source, updated_by_system, is_auto_locked) VALUES (?, ?, ?, GETDATE(), ?, ?, 'AUTOMATED_SYNC', 'KpiQ704CalculationService', 0)";
                     jdbcTemplate.update(insertSql, kpiId, periodId, actualValue, statusId, toNVarChar(notes));
-                    dataId = jdbcTemplate.queryForObject(checkExistSql, Integer.class, kpiId, periodId);
+                    dataId = jdbcTemplate.queryForObject("SELECT TOP 1 data_id FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC OPTION (MAXDOP 1)", Integer.class, kpiId, periodId);
                     log.info("Inserted new institutional kpi_data_points (data_id: {}) for KPI Q7.04 period {}: {} Điểm", dataId, periodCode, actualValue);
                 }
 
-                // ALSO upsert department-level records for assigned departments in kpi_assignments
+                // ALSO upsert department-level records for assigned departments in kpi_assignments (respecting lock)
                 try {
                     List<String> assignedDeptIds = jdbcTemplate.queryForList(
                         "SELECT DISTINCT department_id FROM kpi_assignments WITH (NOLOCK) WHERE kpi_id = ? AND department_id IS NOT NULL OPTION (MAXDOP 1)",
@@ -309,13 +316,18 @@ public class KpiQ704CalculationService {
                     );
                     for (String deptId : assignedDeptIds) {
                         if (deptId != null && !deptId.trim().isEmpty() && !"null".equalsIgnoreCase(deptId.trim())) {
-                            String deptCheckSql = "SELECT TOP 1 data_id FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC OPTION (MAXDOP 1)";
-                            List<Integer> deptDataIds = jdbcTemplate.query(deptCheckSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, periodId, deptId);
-                            if (!deptDataIds.isEmpty()) {
-                                jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE data_id = ?",
-                                    actualValue, statusId, toNVarChar(notes), deptDataIds.get(0));
+                            String deptCheckSql = "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC OPTION (MAXDOP 1)";
+                            List<Map<String, Object>> deptRows = jdbcTemplate.queryForList(deptCheckSql, kpiId, periodId, deptId);
+                            if (!deptRows.isEmpty()) {
+                                Map<String, Object> dRow = deptRows.get(0);
+                                boolean dLocked = dRow.get("is_auto_locked") != null &&
+                                        (Boolean.TRUE.equals(dRow.get("is_auto_locked")) || "1".equals(dRow.get("is_auto_locked").toString()));
+                                if (!dLocked) {
+                                    jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiQ704CalculationService' WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)",
+                                        actualValue, statusId, toNVarChar(notes), dRow.get("data_id"));
+                                }
                             } else {
-                                jdbcTemplate.update("INSERT INTO kpi_data_points (kpi_id, period_id, department_id, actual_value, updated_at, status_id, notes) VALUES (?, ?, ?, ?, GETDATE(), ?, ?)",
+                                jdbcTemplate.update("INSERT INTO kpi_data_points (kpi_id, period_id, department_id, actual_value, updated_at, status_id, notes, entry_source, updated_by_system, is_auto_locked) VALUES (?, ?, ?, ?, GETDATE(), ?, ?, 'AUTOMATED_SYNC', 'KpiQ704CalculationService', 0)",
                                     kpiId, periodId, deptId, actualValue, statusId, toNVarChar(notes));
                             }
                         }
@@ -324,10 +336,10 @@ public class KpiQ704CalculationService {
                     log.warn("Notice syncing department-specific data points for Q7.04: {}", exDept.getMessage());
                 }
 
-                // AND update any legacy / orphan data points for this KPI and period (e.g. data_id = 759)
+                // AND update any unlocked legacy / orphan data points for this KPI and period
                 try {
                     jdbcTemplate.update(
-                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE kpi_id = ? AND period_id = ?",
+                        "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiQ704CalculationService' WHERE kpi_id = ? AND period_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)",
                         actualValue, statusId, toNVarChar(notes), kpiId, periodId
                     );
                 } catch (Exception exLegacy) {
@@ -448,16 +460,21 @@ public class KpiQ704CalculationService {
                 result.put("period_code", fPcode);
                 result.put("message", "Đã đồng bộ thành công số liệu mới nhất cho KPI Q7.04!");
 
-                // Ensure institutional and department kpi_data_points have this latest value
+                // Ensure institutional and department kpi_data_points have this latest value (respecting manual lock)
                 try {
-                    String checkExistSql = "SELECT TOP 1 data_id FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC OPTION (MAXDOP 1)";
-                    List<Integer> existingDataIds = jdbcTemplate.query(checkExistSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, fPid);
+                    String checkExistSql = "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND department_id IS NULL ORDER BY data_id DESC OPTION (MAXDOP 1)";
+                    List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(checkExistSql, kpiId, fPid);
                     int sId = (fVal >= targetVal) ? 5 : 4;
-                    if (!existingDataIds.isEmpty()) {
-                        jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE data_id = ?",
-                            fVal, sId, toNVarChar(fNotes), existingDataIds.get(0));
+                    if (!existingRows.isEmpty()) {
+                        Map<String, Object> existing = existingRows.get(0);
+                        boolean isLocked = existing.get("is_auto_locked") != null &&
+                                (Boolean.TRUE.equals(existing.get("is_auto_locked")) || "1".equals(existing.get("is_auto_locked").toString()));
+                        if (!isLocked) {
+                            jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiQ704CalculationService' WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)",
+                                fVal, sId, toNVarChar(fNotes), existing.get("data_id"));
+                        }
                     } else {
-                        jdbcTemplate.update("INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes) VALUES (?, ?, ?, GETDATE(), ?, ?)",
+                        jdbcTemplate.update("INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, notes, entry_source, updated_by_system, is_auto_locked) VALUES (?, ?, ?, GETDATE(), ?, ?, 'AUTOMATED_SYNC', 'KpiQ704CalculationService', 0)",
                             kpiId, fPid, fVal, sId, toNVarChar(fNotes));
                     }
                     List<String> assignedDeptIds = jdbcTemplate.queryForList(
@@ -466,13 +483,18 @@ public class KpiQ704CalculationService {
                     );
                     for (String deptId : assignedDeptIds) {
                         if (deptId != null && !deptId.trim().isEmpty() && !"null".equalsIgnoreCase(deptId.trim())) {
-                            String deptCheckSql = "SELECT TOP 1 data_id FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC OPTION (MAXDOP 1)";
-                            List<Integer> deptDataIds = jdbcTemplate.query(deptCheckSql, (rs, rowNum) -> rs.getInt("data_id"), kpiId, fPid, deptId);
-                            if (!deptDataIds.isEmpty()) {
-                                jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ? WHERE data_id = ?",
-                                    fVal, sId, toNVarChar(fNotes), deptDataIds.get(0));
+                            String deptCheckSql = "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WITH (NOLOCK) WHERE kpi_id = ? AND period_id = ? AND CAST(department_id AS VARCHAR(100)) = ? ORDER BY data_id DESC OPTION (MAXDOP 1)";
+                            List<Map<String, Object>> deptRows = jdbcTemplate.queryForList(deptCheckSql, kpiId, fPid, deptId);
+                            if (!deptRows.isEmpty()) {
+                                Map<String, Object> dRow = deptRows.get(0);
+                                boolean dLocked = dRow.get("is_auto_locked") != null &&
+                                        (Boolean.TRUE.equals(dRow.get("is_auto_locked")) || "1".equals(dRow.get("is_auto_locked").toString()));
+                                if (!dLocked) {
+                                    jdbcTemplate.update("UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), status_id = ?, notes = ?, entry_source = 'AUTOMATED_SYNC', updated_by_system = 'KpiQ704CalculationService' WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)",
+                                        fVal, sId, toNVarChar(fNotes), dRow.get("data_id"));
+                                }
                             } else {
-                                jdbcTemplate.update("INSERT INTO kpi_data_points (kpi_id, period_id, department_id, actual_value, updated_at, status_id, notes) VALUES (?, ?, ?, ?, GETDATE(), ?, ?)",
+                                jdbcTemplate.update("INSERT INTO kpi_data_points (kpi_id, period_id, department_id, actual_value, updated_at, status_id, notes, entry_source, updated_by_system, is_auto_locked) VALUES (?, ?, ?, ?, GETDATE(), ?, ?, 'AUTOMATED_SYNC', 'KpiQ704CalculationService', 0)",
                                     kpiId, fPid, deptId, fVal, sId, toNVarChar(fNotes));
                             }
                         }

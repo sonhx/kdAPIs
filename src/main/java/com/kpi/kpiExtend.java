@@ -1621,7 +1621,8 @@ public class kpiExtend {
 			try {
 				String dpSql = "SELECT dp.data_id, dp.kpi_id, dp.period_id, dp.actual_value, k.target, dp.status_id, dp.updated_at, " +
 							   "dp.department_id, dp.notes, dp.evidence_link, dp.evidence_file_name, dp.evidence_file_size, " +
-							   "dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, pi.period_code, " +
+							   "dp.evidence_file_uploaded_at, dp.is_approved, dp.approved_by, dp.approved_at, " +
+							   "dp.entry_source, dp.is_auto_locked, dp.locked_at, dp.locked_by, pi.period_code, " +
 							   "pi.start_date, pi.end_date, " +
 							   "u.Email AS approved_by_name " +
 							   "FROM kpi_data_points dp WITH (NOLOCK) " +
@@ -1685,6 +1686,11 @@ public class kpiExtend {
 					joDp.put("approved_by", row.get("approved_by") != null ? row.get("approved_by").toString() : JSONObject.NULL);
 					joDp.put("approved_by_name", row.get("approved_by_name") != null ? row.get("approved_by_name").toString() : JSONObject.NULL);
 					joDp.put("approved_at", row.get("approved_at") != null ? row.get("approved_at").toString() : JSONObject.NULL);
+					joDp.put("entry_source", row.get("entry_source") != null ? row.get("entry_source").toString() : JSONObject.NULL);
+					boolean isAutoLocked = row.get("is_auto_locked") != null && (Boolean.TRUE.equals(row.get("is_auto_locked")) || "1".equals(row.get("is_auto_locked").toString()));
+					joDp.put("is_auto_locked", isAutoLocked);
+					joDp.put("locked_at", row.get("locked_at") != null ? row.get("locked_at").toString() : JSONObject.NULL);
+					joDp.put("locked_by", row.get("locked_by") != null ? row.get("locked_by").toString() : JSONObject.NULL);
 
 					dpMap.computeIfAbsent(kpiId, k -> new ArrayList<>()).add(joDp);
 				}
@@ -2914,19 +2920,19 @@ public class kpiExtend {
 					finalFileUploadedAt = dbFileUploadedAt;
 				}
 
-				String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), updated_by = ?, notes = ?, evidence_link = ?, evidence_file_name = ?, evidence_file_size = ?, evidence_file_uploaded_at = ? WHERE data_id = ?";
-				jdbcTemplate.update(updateSql, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, dataId);
+				String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), updated_by = ?, notes = ?, evidence_link = ?, evidence_file_name = ?, evidence_file_size = ?, evidence_file_uploaded_at = ?, entry_source = 'MANUAL_INPUT', is_auto_locked = 1, locked_at = GETDATE(), locked_by = ? WHERE data_id = ?";
+				jdbcTemplate.update(updateSql, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, userId, dataId);
 				changeType = "UPDATE";
 			} else {
-				String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, updated_by, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at, department_id) VALUES (?, ?, ?, GETDATE(), 5, ?, ?, ?, ?, ?, ?, ?)";
-				jdbcTemplate.update(insertSql, kpiId, targetPeriodId, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, sDeptId);
+				String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, actual_value, updated_at, status_id, updated_by, notes, evidence_link, evidence_file_name, evidence_file_size, evidence_file_uploaded_at, department_id, entry_source, is_auto_locked, locked_at, locked_by) VALUES (?, ?, ?, GETDATE(), 5, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_INPUT', 1, GETDATE(), ?)";
+				jdbcTemplate.update(insertSql, kpiId, targetPeriodId, actualValue, userId, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, finalFileUploadedAt, sDeptId, userId);
 				
 				dataId = jdbcTemplate.queryForObject("SELECT TOP 1 data_id FROM kpi_data_points WHERE kpi_id = ? AND period_id = ? AND (CAST(department_id AS VARCHAR(100)) = ? OR (department_id IS NULL AND ? IS NULL)) ORDER BY data_id DESC", Integer.class, kpiId, targetPeriodId, sDeptId, sDeptId);
 				changeType = "CREATE";
 			}
 
 			int nextVersionNum = jdbcTemplate.queryForObject("SELECT ISNULL(MAX(version_number), 0) + 1 FROM kpi_value_versions WHERE data_id = ?", Integer.class, dataId);
-			String versionSql = "INSERT INTO kpi_value_versions (data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, updated_at, updated_by, change_type, version_number, department_id) VALUES (?, ?, ?, ?, ?, ?, GETDATE(), ?, ?, ?, ?)";
+			String versionSql = "INSERT INTO kpi_value_versions (data_id, actual_value, notes, evidence_link, evidence_file_name, evidence_file_size, updated_at, updated_by, change_type, version_number, department_id, entry_source, is_auto_locked) VALUES (?, ?, ?, ?, ?, ?, GETDATE(), ?, ?, ?, ?, 'MANUAL_INPUT', 1)";
 			jdbcTemplate.update(versionSql, dataId, actualValue, finalNotes, finalEvidenceLink, finalFileName, finalFileSize, userId, changeType, nextVersionNum, deptId);
 
 			try {
@@ -3200,6 +3206,79 @@ public class kpiExtend {
 		return 0;
 	}
 
+	/**
+	 * Universal safe upsert for automated KPI calculations.
+	 * Respects period-level manual lock (is_auto_locked = 1).
+	 * If the period was manually entered or uploaded, automated updates are ignored for that period only.
+	 */
+	public boolean saveOrUpdateAutomatedDataPoint(int kpiId, int periodId, Object deptId, double calculatedValue, String notes, String systemName) {
+		try {
+			String sDeptId = (deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim()))
+					? deptId.toString().trim() : null;
+
+			String checkSql = "SELECT TOP 1 data_id, is_auto_locked FROM kpi_data_points WITH (NOLOCK) " +
+					"WHERE kpi_id = ? AND period_id = ? AND (CAST(department_id AS VARCHAR(100)) = ? OR (department_id IS NULL AND ? IS NULL)) " +
+					"ORDER BY data_id DESC";
+			List<Map<String, Object>> exist = jdbcTemplate.queryForList(checkSql, kpiId, periodId, sDeptId, sDeptId);
+
+			if (!exist.isEmpty()) {
+				Map<String, Object> row = exist.get(0);
+				int dataId = ((Number) row.get("data_id")).intValue();
+				boolean isLocked = row.get("is_auto_locked") != null &&
+						(Boolean.TRUE.equals(row.get("is_auto_locked")) || "1".equals(row.get("is_auto_locked").toString()));
+
+				if (isLocked) {
+					logger.info("Auto-sync IGNORED for KPI {} period {}: Period is locked by manual entry.", kpiId, periodId);
+					return false;
+				}
+
+				String updateSql = "UPDATE kpi_data_points SET actual_value = ?, updated_at = GETDATE(), " +
+						"entry_source = 'AUTOMATED_SYNC', updated_by_system = ?, notes = ? " +
+						"WHERE data_id = ? AND (is_auto_locked = 0 OR is_auto_locked IS NULL)";
+				int rowsUpdated = jdbcTemplate.update(updateSql, calculatedValue, systemName, notes, dataId);
+				if (rowsUpdated > 0) {
+					invalidateKpisWithAssignmentsCache();
+				}
+				return rowsUpdated > 0;
+			} else {
+				String insertSql = "INSERT INTO kpi_data_points (kpi_id, period_id, department_id, actual_value, " +
+						"status_id, entry_source, updated_by_system, is_auto_locked, notes, updated_at) " +
+						"VALUES (?, ?, ?, ?, 5, 'AUTOMATED_SYNC', ?, 0, ?, GETDATE())";
+				jdbcTemplate.update(insertSql, kpiId, periodId, sDeptId, calculatedValue, systemName, notes);
+				invalidateKpisWithAssignmentsCache();
+				return true;
+			}
+		} catch (Exception e) {
+			logger.error("Error in saveOrUpdateAutomatedDataPoint for KPI " + kpiId + " period " + periodId, e);
+			return false;
+		}
+	}
+
+	/**
+	 * Unlock a specific period from manual override lock so automated updates can resume for that period.
+	 */
+	@Transactional
+	public JSONObject unlockPeriodAutoSync(int kpiId, int periodId, Object deptId, String userId) {
+		JSONObject res = new JSONObject();
+		try {
+			String sDeptId = (deptId != null && !deptId.toString().trim().isEmpty() && !"null".equalsIgnoreCase(deptId.toString().trim()))
+					? deptId.toString().trim() : null;
+			String sql = "UPDATE kpi_data_points SET is_auto_locked = 0, locked_at = NULL, locked_by = NULL, " +
+					"updated_at = GETDATE(), updated_by = ? " +
+					"WHERE kpi_id = ? AND period_id = ? AND (CAST(department_id AS VARCHAR(100)) = ? OR (department_id IS NULL AND ? IS NULL))";
+			int affected = jdbcTemplate.update(sql, userId, kpiId, periodId, sDeptId, sDeptId);
+			invalidateKpisWithAssignmentsCache();
+			res.put("code", 200);
+			res.put("description", "Đã mở khóa tự động cập nhật cho chu kỳ này thành công.");
+			res.put("affected_rows", affected);
+		} catch (Exception e) {
+			logger.error("Error unlocking auto sync", e);
+			res.put("code", 500);
+			res.put("description", "Lỗi khi mở khóa: " + e.getMessage());
+		}
+		return res;
+	}
+
 	public JSONObject getKpiPeriods(int kpiId, Object deptId) {
 		JSONObject response = new JSONObject();
 		try {
@@ -3233,6 +3312,7 @@ public class kpiExtend {
 					? deptId.toString().trim() : null;
 			String dpSql = "SELECT dp.data_id, dp.period_id, dp.actual_value, dp.notes, dp.evidence_link, " +
 						   "dp.evidence_file_name, dp.evidence_file_size, dp.is_approved, dp.approved_by, dp.approved_at, " +
+						   "dp.entry_source, dp.is_auto_locked, dp.locked_at, dp.locked_by, " +
 						   "u.Email AS approved_by_name, dp.updated_at, dp.department_id " +
 						   "FROM kpi_data_points dp WITH (NOLOCK) " +
 						   "LEFT JOIN users u WITH (NOLOCK) ON dp.approved_by = u.ID " +
@@ -3302,10 +3382,16 @@ public class kpiExtend {
 					joP.put("is_approved", isApp == 1);
 					joP.put("approved_by_name", dp.get("approved_by_name") != null ? dp.get("approved_by_name").toString() : null);
 					joP.put("updated_at", dp.get("updated_at") != null ? dp.get("updated_at").toString() : null);
+					joP.put("entry_source", dp.get("entry_source") != null ? dp.get("entry_source").toString() : null);
+					boolean isAutoLocked = dp.get("is_auto_locked") != null && (Boolean.TRUE.equals(dp.get("is_auto_locked")) || "1".equals(dp.get("is_auto_locked").toString()));
+					joP.put("is_auto_locked", isAutoLocked);
+					joP.put("locked_at", dp.get("locked_at") != null ? dp.get("locked_at").toString() : null);
+					joP.put("locked_by", dp.get("locked_by") != null ? dp.get("locked_by").toString() : null);
 				} else {
 					joP.put("has_data", false);
 					joP.put("actual_value", JSONObject.NULL);
 					joP.put("is_approved", false);
+					joP.put("is_auto_locked", false);
 				}
 				jsaPeriods.put(joP);
 			}
